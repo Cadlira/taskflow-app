@@ -55,8 +55,9 @@
 39. Usar branches `codex/<id>-<slug>` para Changes, salvo preferência explícita do usuário. Não fazer force push, reescrever histórico ou modificar a origem.
 40. Commits pequenos e coerentes, sem misturar Changes. Preservar trabalho preexistente do usuário.
 41. Revisar contra os artefatos aprovados e registrar evidências de testes e verificações manuais. Abrir PR quando houver remote e fluxo de revisão configurados.
-42. Depois da aprovação da implementação, arquivar a Change na mesma branch, consolidar specs e incluir no commit a atualização do roadmap, datas, documentação final e do README conforme o item 38.
-43. Em fluxo com PR, marcar `READY_FOR_MERGE` após archive e gates finais; `DONE` só após integração aprovada na branch principal. Sem PR, usar a integração revisada equivalente e registrar essa decisão.
-44. Não passar à próxima Change, fazer merge, instalar em máquina corporativa, distribuir releases ou configurar publicação automática sem a autorização correspondente. Preparar resultado concreto e verificável antes de pedir aprovação necessária.
-45. Informar exatamente o que foi criado, o que foi validado e o que permanece pendente. No estado inicial, os únicos artefatos entregues são de planejamento.
+42. Após concluir o `opsx:apply`, executar o `opsx:verify` e gerar um relatório de verificação dentro da própria Change, registrando a aderência entre a implementação e os artefatos aprovados, as evidências dos gates e as pendências. O relatório deve ser aprovado explicitamente antes do archive; não arquivar com o relatório ausente ou não aprovado.
+43. Depois da aprovação do relatório de verificação, arquivar a Change na mesma branch, consolidar specs e incluir no commit a atualização do roadmap, datas, documentação final e do README conforme o item 38.
+44. Em fluxo com PR, marcar `READY_FOR_MERGE` após archive e gates finais; `DONE` só após integração aprovada na branch principal. Sem PR, usar a integração revisada equivalente e registrar essa decisão.
+45. Não passar à próxima Change, fazer merge, instalar em máquina corporativa, distribuir releases ou configurar publicação automática sem a autorização correspondente. Preparar resultado concreto e verificável antes de pedir aprovação necessária.
+46. Informar exatamente o que foi criado, o que foi validado e o que permanece pendente. No estado inicial, os únicos artefatos entregues são de planejamento.
 
