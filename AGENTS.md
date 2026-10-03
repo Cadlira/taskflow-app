@@ -14,7 +14,7 @@
 7. O roadmap registra intenções, ordem e prompts; não equivale a proposal, design, specs ou tasks aprovadas.
 8. Durante `opsx:explore`, investigar código e alternativas, apresentar decisões e dúvidas, sem implementar. Não criar antecipadamente diretórios ou artefatos de Changes futuras.
 9. Explorar um item não autoriza propor, aplicar, publicar ou passar automaticamente ao próximo. Criar artefatos quando o usuário solicitar a proposta correspondente.
-10. Ao final do `opsx:explore`, consolidar um prompt pronto para uso no `opsx:propose`, reunindo escopo, decisões e alternativas discutidas, dúvidas resolvidas ou em aberto, dependências e critérios observáveis. Entregar esse prompt ao usuário; ele orienta a proposta, mas não a inicia nem substitui a autorização explícita para o `propose`.
+10. Ao final do `opsx:explore`, consolidar um prompt pronto para uso no `opsx:propose`, reunindo escopo, decisões e alternativas discutidas, dúvidas resolvidas ou em aberto, dependências e critérios observáveis. Ao final do `opsx:propose`, consolidar da mesma forma um prompt pronto para uso no `opsx:apply`, refletindo os artefatos propostos. Registrar ambos os prompts em `docs/roadmap.md`, na seção da Change, para permitir continuar o trabalho em novas sessões. Entregar cada prompt ao usuário; eles orientam a etapa seguinte, mas não a iniciam nem substituem a autorização explícita.
 11. Antes do `propose`, registrar no roadmap status `IN_PROGRESS`, etapa `PROPOSE` e data de início; depois marcar `IN_REVIEW`/`REVIEW`. Não marcar aprovação sem evidência humana na conversa.
 12. Só iniciar `apply` após aprovação explícita dos artefatos da Change selecionada. O usuário pode autorizar várias ações de uma vez; não pedir novamente dentro do escopo já autorizado.
 13. Se houver mudança material de escopo ou decisão difícil de reverter que não esteja autorizada, atualizar a proposta e submetê-la à revisão antes de implementar esse ponto. Continuar trabalhos independentes já autorizados.
@@ -48,14 +48,14 @@
 35. Executar os gates existentes e a validação OpenSpec suportada pela versão instalada. Não inventar sucesso nem exigir comandos ainda ausentes no estado de planejamento.
 36. Smoke test do renderer ou build bem-sucedido não comprovam funcionamento do instalador, IPC, notificações, bandeja ou atalhos no Windows.
 37. Documentar limitações e diferenças da migração. Backup atual transporta tarefas; lixeira, credenciais e desfazer temporário não devem ser anunciados como migrados por esse arquivo.
-38. Atualizar README, documentação operacional e matriz de paridade quando a implementação correspondente existir. Não descrever funcionalidade planejada como disponível.
+38. Atualizar README, documentação operacional e matriz de paridade quando a implementação correspondente existir. Não descrever funcionalidade planejada como disponível. Após o archive de cada Change, atualizar o README para refletir o funcionamento atual do sistema, e não o progresso do desenvolvimento: manter funcionalidades, comandos de execução, requisitos e estrutura do repositório condizentes com o que já está disponível e remover afirmações que deixaram de valer. Status, etapas, datas e próximos passos pertencem ao roadmap, não ao README.
 
 ## Git, revisão e conclusão
 
 39. Usar branches `codex/<id>-<slug>` para Changes, salvo preferência explícita do usuário. Não fazer force push, reescrever histórico ou modificar a origem.
 40. Commits pequenos e coerentes, sem misturar Changes. Preservar trabalho preexistente do usuário.
 41. Revisar contra os artefatos aprovados e registrar evidências de testes e verificações manuais. Abrir PR quando houver remote e fluxo de revisão configurados.
-42. Depois da aprovação da implementação, arquivar a Change na mesma branch, consolidar specs e incluir no commit a atualização do roadmap, datas e documentação final.
+42. Depois da aprovação da implementação, arquivar a Change na mesma branch, consolidar specs e incluir no commit a atualização do roadmap, datas, documentação final e do README conforme o item 38.
 43. Em fluxo com PR, marcar `READY_FOR_MERGE` após archive e gates finais; `DONE` só após integração aprovada na branch principal. Sem PR, usar a integração revisada equivalente e registrar essa decisão.
 44. Não passar à próxima Change, fazer merge, instalar em máquina corporativa, distribuir releases ou configurar publicação automática sem a autorização correspondente. Preparar resultado concreto e verificável antes de pedir aprovação necessária.
 45. Informar exatamente o que foi criado, o que foi validado e o que permanece pendente. No estado inicial, os únicos artefatos entregues são de planejamento.
