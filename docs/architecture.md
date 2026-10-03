@@ -1,0 +1,169 @@
+# Arquitetura proposta — TaskFlow App
+
+**TFA-001 · revisão documental · 2026-10-03**
+
+Este documento registra o baseline arquitetural aprovado e os contratos propostos para as Changes futuras. Ele não descreve um aplicativo implementado: este repositório continua sem scaffold, `package.json`, dependências ou runtime desktop.
+
+## Estado das decisões
+
+| Estado | Significado neste documento |
+| --- | --- |
+| **Aprovado** | Decisão confirmada pelo usuário ou baseline explicitamente aprovado nos artefatos da TFA-001. |
+| **Proposto** | Desenho para orientar Changes futuras; precisa da validação indicada antes da implementação. |
+| **Condicional** | Preferência que depende de prova técnica ou revisão na Change responsável. |
+| **Pendente** | Escolha não tomada; não preencher por inferência. |
+| **Observado** | Fato conferido no código/spec da origem no HEAD informado, sem executar testes ou builds. |
+
+O usuário aprovou em 2026-10-03 os artefatos da TFA-001, conforme a evidência registrada em [docs/roadmap.md](roadmap.md). A autorização abrange este apply documental. Não aprova implementação funcional, resolução automática das decisões condicionais ou avanço para TFA-002.
+
+## Contexto e origem
+
+O produto-alvo é um app Windows autocontido e local-first. O gerenciamento principal funciona sem backend obrigatório, conta central, nuvem ou rede. A meta é instalação por usuário, sem exigir administrador ou instalar serviço de sistema; isso não garante autorização para executar o programa sob política corporativa.
+
+A extensão consultada é somente leitura. HEAD observado em 2026-10-03: `a763e7a0d646c664ecd4f979528bc2c3589fa8c4`, igual ao hash usado na análise da TFA-001. A inspeção confirmou Vue 3, Pinia, TypeScript estrito, WXT/Manifest V3 e separação entre domínio/aplicação e adapters Chrome. Nenhum teste ou build foi executado na origem; a inspeção não comprova funcionamento desktop.
+
+Referências da proposta: [proposal](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/proposal.md), [design](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/design.md), [tasks](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/tasks.md) e [roadmap](roadmap.md). A matriz de regras e fontes está em [parity-matrix.md](parity-matrix.md); os níveis de prova futura estão em [test-strategy.md](test-strategy.md).
+
+## D1 — Stack: Vue existente com Electron
+
+| Critério | Vue 3 / Pinia + Electron | Quasar + Electron |
+| --- | --- | --- |
+| Reaproveitamento | Conserva domínio, aplicação, componentes Vue e CSS após revisão; substitui WXT e adapters Chrome. | Reaproveita domínio/aplicação; componentes Vue podem coexistir, mas converter para Q-components aumenta o trabalho. |
+| Paridade visual e teclado | Mantém controles e comportamentos de foco observados enquanto adapta a superfície. | Exige comprovar equivalência de controles, dialogs, estilos e resets. |
+| Ferramentas | Ainda será necessário configurar builds de main, preload e renderer e empacotamento. | CLI integra o modo Electron, mas IPC, persistência e segurança continuam sendo decisões explícitas. |
+| Manutenção | Menos camada nova para a base atual; exige ownership claro do shell desktop. | Convenções e componentes adicionais só justificam a mudança se trouxerem benefício concreto. |
+| Windows | Electron e instalador ainda precisam de provas reais. | O uso de Quasar não elimina as mesmas provas de Electron e instalador. |
+
+**Aprovado:** Vue 3/Pinia existentes com Electron como baseline; manter o núcleo portável. A razão é reaproveitar interface e regras observadas, trocando a infraestrutura de plataforma. Não houve benchmark de tamanho, consumo ou velocidade. Quasar permanece alternativa; adotá-lo ou alterar o baseline exige benefício demonstrável, revisão de paridade e revisão da decisão antes da implementação.
+
+**Pendente em TFA-002:** versões compatíveis de Electron, Node, TypeScript, Vite e ferramentas de teste; licença, manutenção e disponibilidade de binários. `electron-vite` e `electron-builder` são candidatos, não seleções. Não herdar versões nem executar scripts da extensão.
+
+Referências de tooling consultadas no design: [electron-vite](https://electron-vite.org/guide/) e [Quasar Electron](https://quasar.dev/quasar-cli-vite/developing-electron-apps/configuring-electron/). A integração do Quasar não demonstra benefício funcional para esta base.
+
+## D2 — Fronteiras e ownership propostos
+
+```mermaid
+flowchart LR
+  R[Renderer: Vue, Pinia e rascunhos] --> P[Preload: operações explícitas]
+  P --> I[Main: validação IPC e sessão]
+  I --> A[Aplicação: casos de uso coordenados]
+  A --> D[Domínio: regras puras]
+  A --> S[Adapters: persistência, relógio e scheduler]
+  I --> W[Windows: dialogs, clipboard, atalhos e URLs]
+  I --> N[IA opcional e credenciais protegidas]
+  S --> E[Eventos com revisão]
+  E --> P
+```
+
+O diagrama é um contrato de responsabilidades proposto, não um grafo de módulos já criado.
+
+| Fronteira | Responsabilidade proposta | Limites |
+| --- | --- | --- |
+| Domínio | Tarefas, validações, status, consultas, recorrência, subtarefas, lembretes, lixeira/desfazer e normalização da captura. | Sem import de Vue, Pinia, Electron, Node/filesystem ou rede. |
+| Aplicação | Casos de uso e portas internas; coordena mutações duráveis, preparação/desfazer e lembretes. | Dependências como relógio, IDs, repositories, scheduler, notifier e provider entram por injeção. |
+| Main | Composition root, escritor coordenado, sessões de superfície, tokens transitórios e recursos do sistema. | Executa a rede de IA fora da fila/transação de dados; revalida sessão e configuração ao concluir. |
+| Preload | Bridge pequena e tipada, com wrappers por operação e subscriptions que retornam `unsubscribe`. | Não expõe `ipcRenderer`, Electron, canais livres, `require`, `fetch` arbitrário ou filesystem. |
+| Renderer | Interface, formulários e estado transitório por superfície. Pinia reflete snapshots e revisões do main. | Sem gravação direta. Pode validar para feedback rápido, mas o main valida novamente. Segredo existente não é retornado. |
+| Adapters | Implementam persistência, relógio, notificações, scheduler, atalhos, clipboard, URLs, autorização e providers. | Substituem APIs Chrome por portas; não há emulação global de `browser`/`chrome` nos componentes. |
+
+## D3 — Catálogo lógico de IPC
+
+Os nomes finais pertencem às Changes que implementarem cada operação. O preload só expõe recursos implementados e necessários.
+
+| Grupo / destino | Cruza o IPC | Permanece no main |
+| --- | --- | --- |
+| Tarefas · TFA-003/004/005 | Comandos explícitos de criar/editar/status/subtarefa; ID, draft, revisão esperada, DTOs, snapshots e revisão. | Repositories, callbacks condicionais, transação e coordenação de recorrência. |
+| Lixeira e undo · TFA-006 | IDs, confirmação e token opaco de undo vinculado à superfície. | Plano anterior e pré-condições. Não aceitar `Task` ou `UndoPlan` arbitrário do renderer. |
+| Backup · TFA-007 | Selecionar/exportar/preparar/confirmar/cancelar; resumo validado e token. | Dialog, caminho escolhido, leitura limitada, preparação e estado-base da prévia. |
+| Ciclo de vida · TFA-008 | Abrir/focar/encerrar, preferências e estado observável. | Scheduler, claims, notifications, bandeja e lock de instância. |
+| Captura e atalhos · TFA-009 | Ação de captura, draft normalizado, combinações solicitadas/efetivas e falhas. | Leitura pontual de clipboard, registro global e roteamento a uma superfície conhecida. |
+| IA · TFA-010 | Configuração sem segredo existente; segredo novo somente no comando de gravação; prévia, origem, requestId/token, consentimento, cancelamento e sugestões validadas. | Credenciais, HTTP, `AbortController`, snapshot da requisição/configuração e autorização. |
+| URLs externas · TFA-004 | Pedido de abrir URL HTTP/HTTPS após ação explícita do usuário. | Parsing final, validação do esquema e chamada ao shell; nenhum protocolo de arquivo/sistema. |
+
+Guardas obrigatórias a refinar em TFA-003: `nodeIntegration: false`, `contextIsolation: true`, sandbox e `webSecurity` ativos; CSP restritiva; renderer servido somente de conteúdo local; resolução limitada a assets empacotados; validação de WebContents, frame, sessão e origem; schemas, enumerações e limites verificados em runtime; erros fechados e sem stack/caminho sensível; navegação, janelas, webviews e permissões negadas por padrão; URLs externas limitadas a HTTP/HTTPS parseado. Eventos e respostas carregam revisão. Tokens/cancelamentos têm escopo de sessão/requestId e são invalidados ao consumir, cancelar ou fechar sessão.
+
+Não atravessam structured clone: callbacks de repository, subscriptions/funções, `File.text()`, `AbortSignal`, instâncias de erro esperando conservar protótipo, plano de undo livre ou caminho de arquivo arbitrário. O main recria funções, controllers e acesso a arquivos internamente. Tipos TypeScript não substituem autorização nem validação de runtime. Ver também [segurança Electron](https://www.electronjs.org/docs/latest/tutorial/security).
+
+## D4 — Persistência, ordem e recuperação
+
+**Invariante proposto:** um processo main controla o perfil de dados e serializa cada sequência read/decide/commit de mutações relacionadas. Tarefas/lixeira, fechamento e criação da próxima ocorrência, restore e undo devem manter unidade de trabalho quando aplicável. Uma falha não deixa metade de uma operação; a fila volta a processar depois de erro.
+
+| Opção | Benefício | Custo e condição |
+| --- | --- | --- |
+| SQLite transacional | Unidades de trabalho e atualizações condicionais naturais; migrações e consistência entre coleções. | Driver nativo, ABI/build e binários Windows; configuração de durabilidade/journal, recovery e falhas precisam de prova no pacote. |
+| JSON versionado em envelope único | Poucas dependências, formato legível e próximo dos codecs atuais. | Implementar temporário no mesmo volume, flush/substituição/recuperação; tarefas e lixeira compartilham escritor e commit. `writeFile` simples ou atomicidade por arquivo não bastam. |
+
+**Condicional:** SQLite é a preferência aprovada somente sob prova de empacotamento viável em TFA-002 e seleção/revisão específica em TFA-003. Driver e versões não estão decididos. JSON é alternativa sujeita à revisão se o custo nativo não se justificar; deve cumprir os mesmos invariantes e testes. Trocar o mecanismo exige rever a decisão antes de implementar, sem reduzir durabilidade ou isolamento. Referências: [transações SQLite](https://www.sqlite.org/transactional.html), [módulos nativos Electron](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules).
+
+Dados ficam no perfil do usuário, separados da instalação e da extensão. Schema do armazenamento não é o formato de backup: backup v4 não implica schema de banco v4. Versão futura/corrupção bloqueia escritas e oferece recuperação explícita; nunca resetar ou sobrescrever silenciosamente. Migração precisa de rollback que preserve dados; downgrade incompatível falha com segurança.
+
+Uma única instância não elimina draft antigo. TFA-003/004 refinam revisão esperada, detecção de edição concorrente e UX que preserve draft/feedback; toggles condicionais atuam sobre o dado mais recente. Não depender de timestamp de milissegundo como ordem universal. Processamento interno de lembrete não invalida undo em desacordo com as regras verificadas. Uma prévia de backup verifica o estado-base antes da substituição e pede nova prévia/confirmação se o estado mudou.
+
+Ownership de instância única precede abertura da persistência. A fundação TFA-002 registra a fronteira; bandeja, roteamento da segunda instância e ciclo de vida são TFA-008. O lock de instância tem [referência Electron](https://www.electronjs.org/docs/latest/api/app#apprequestsingleinstancelockadditionaldata).
+
+## D6 — Lembretes e ciclo de vida
+
+A ocorrência persistida é a fonte de verdade; timers e notificações são projeções. Reconciliar ao abrir e após mudanças/restore. Persistir claim antes de chamar o notifier; falha/crash nesse intervalo pode perder o aviso e não autoriza retry automático. A política é no máximo uma tentativa, não entrega garantida nem exactly-once no Windows.
+
+| Evento | Proposta ou limite para TFA-008 |
+| --- | --- |
+| Minimizar/ocultar | Processo e scheduler continuam se o app permanece em execução. |
+| Fechar janela | Recomenda-se ocultar na bandeja com indicação clara e saída explícita. Invalidar sessão temporária de undo e cancelar geração em curso. Retenção de outros drafts e aviso inicial ainda serão revisados. |
+| Sair | Encerrar timers, callbacks, atalhos e processo depois de tratar writes pendentes; nenhum lembrete enquanto encerrado. |
+| Suspender/retomar com processo vivo | Revalidar estado; proposta de entregar se ainda válido dentro de 5 minutos, depois consumir atrasados sem aviso. Testar a ordem reconcile/entrega para não descartar ocorrência elegível. |
+| Reabrir após sair/crash | Reconcile consome passados sem aviso retroativo e agenda futuros, conforme origem. |
+| Computador desligado/notificações bloqueadas | Não prometer aviso nem confirmação de leitura/entrega. |
+| Login | Preferência opcional, nunca obrigatória; decisão e default ficam para TFA-008. |
+
+Fechar para bandeja e abrir tarefa ao clicar na notificação são recomendações, não comportamento já aprovado para implementação. Não criar serviço Windows nem scheduler externo. Referências: [powerMonitor](https://www.electronjs.org/docs/latest/api/power-monitor), [notificações Electron](https://www.electronjs.org/docs/latest/tutorial/notifications).
+
+## D7 — IA e credenciais
+
+Conservar protocolos/validação portáveis e executar adapters HTTP e acesso ao segredo no main. CUSTOM local só nos endereços loopback aceitos; remoto exige HTTPS. Consentimento vincula origem, configuração e preparação exata, não um booleano fornecido por qualquer renderer. Mudança de provider/configuração, cancelamento ou fechamento invalida resultado pendente.
+
+TFA-010 avaliará `safeStorage`/DPAPI na versão Electron fixada. Se proteção não estiver disponível, proposta é bloquear gravação/uso que dependa do segredo e manter o gerenciamento offline; não usar plaintext como fallback silencioso. Isso não promete proteção contra outros processos ou malware da mesma conta. Renderer lê apenas resumo; segredo novo pode entrar pelo comando de gravação e é descartado do estado transitório. Segredo existente nunca retorna por IPC.
+
+A prévia da geração é preparada no main e vinculada à requisição exata e ao consentimento. Sugestões validadas voltam para revisão/seleção no draft; nunca são aplicadas automaticamente. Cancelamento usa requestId escopado e controller interno. Resposta tardia é descartada mesmo quando o transporte não interrompe imediatamente. Sem probe/rede automática no startup, edição, save ou testes. Referência: [safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+
+## D8 — Windows, identidade e distribuição
+
+**Meta confirmada:** instalador exclusivo por usuário, perfil próprio, sem administrador, serviço Windows ou Node/npm no destino. O gerenciamento principal funciona offline. Rede de IA ocorre somente após ação do usuário. Atualização inicial manual por novo instalador; auto-update remoto está fora da migração inicial.
+
+**Candidato, não configuração aprovada:** NSIS via electron-builder, one-click com `perMachine: false`. O modo assistido pode permitir escolha usuário/máquina; `perMachine: false` isolado não comprova exclusividade per-user. Configuração final/asInvoker, paths, registro, atalhos, update e uninstall precisam de prova em conta padrão na TFA-002 e repetição no produto completo em TFA-011. Referência: [NSIS electron-builder](https://www.electron.build/docs/nsis/).
+
+TFA-002 escolhe alvo/arquitetura Windows inicial, nome/appId estáveis e caminho de dados antes de empacotar. TFA-011 finaliza assets, distribuição e assinatura sem trocar identidade e perder dados/notificações. Não inventar publisher. Notificações dependem também da identidade/atalho instalado: teste de desenvolvimento não basta. Recomenda-se preservar dados em update e uninstall padrão, com exclusão explícita separada apenas se aprovada; política final é TFA-011. Instalação per-user não implica autorização corporativa de execução. Não contornar política, publicar, contratar assinatura ou instalar em máquina corporativa nesta Change.
+
+## D9 — OpenSpec mínimo
+
+O projeto já tem raiz local `openspec/`, schema `spec-driven` e skills Codex. A CLI observada é 1.14.0. Para TFA-001 documental, `.openspec.yaml` usa `skip_specs: true`; status esperado é proposal/design/tasks `done` e specs `skipped`. Nenhuma inicialização, pacote local, schema customizado, store ou criação de outras Changes é necessária. AGENTS.md e roadmap seguem como instruções do projeto. Futuras Changes funcionais criam deltas conforme comportamento aprovado; não copiar cegamente specs da extensão.
+
+O apply usa `openspec status --change`, `openspec instructions apply --change` e validação disponível na CLI. `done` de artifact indica arquivo presente, não aprovação nem implementação. OPSX é workflow de chat/skill, não comando PowerShell. A validação executada para esta entrega está registrada no roadmap após a revisão final.
+
+## Riscos e decisões futuras
+
+| Risco / limite | Controle e destino |
+| --- | --- |
+| Reescrita visual sem benefício | Conservar Vue/CSS/controles; mudança exige benefício demonstrável e revisão de foco/teclado. |
+| Electron amplia autoridade de conteúdo | Isolamento, sandbox, CSP, validação de origem/remetente e catálogo IPC mínimo · TFA-003. |
+| Writes ordenados usam decisões velhas | Coordenar read/decide/commit e revisão de draft · TFA-003/004. |
+| Banco/arquivo ou migração perde dados | Atomicidade, recovery, bloqueio de schema futuro e fault injection; backup separado · TFA-003/007. |
+| Dependência nativa falha no instalador | Provar ABI/empacotamento antes de escolher o driver · TFA-002/003. |
+| Prévia de backup/IA diverge | Preparação main, token por sessão/configuração, revalidação e consentimento · TFA-007/010. |
+| Claim de lembrete perde notificação | Declarar no máximo uma tentativa e testar falha; nunca prometer com app encerrado · TFA-008. |
+| Janela oculta mantém undo/IA vivos | Separar vida de processo, janela e sessão · TFA-006/008/010. |
+| Origem ou spec diverge | Revalidar hash e referências antes de copiar; não alterar a origem · TFA-007+. |
+| Empresa bloqueia execução | Validar em ambiente autorizado e registrar limitação; sem contorno · TFA-002/011/012. |
+
+### Decisões ainda abertas e gates
+
+| Pendente | Revisão responsável |
+| --- | --- |
+| Versões do tooling, arquitetura Windows inicial, nome/appId/pasta e prova do driver candidato | TFA-002 antes de scaffold/instalador; TFA-011 amplia distribuição. |
+| Driver/configuração SQLite, unidade de trabalho, revisão, recovery ou JSON alternativo | TFA-003 antes do adapter. |
+| UX de conflito de formulário sem perder draft | TFA-003/004. |
+| Fechar para bandeja, drafts/undo, retomada na tolerância, login opcional e clique da notificação | TFA-006/008. |
+| Título URL-only, vínculo de origem ao texto e combinação de captura/atalhos | TFA-009; captura manual copiada já está confirmada, sem polling ou rede. |
+| API de proteção, consentimento por origem e indisponibilidade | TFA-010; renderer não lê segredo e plaintext não é fallback. |
+| Assinatura/canal manual, retenção de uninstall e ambiente corporativo de validação | TFA-011/012. |
+
+Esses gates não impedem a conclusão documental da TFA-001. A aprovação desta documentação não implementa os contratos nem inicia TFA-002.

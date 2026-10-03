@@ -2,7 +2,7 @@
 
 ## Context
 
-**TFA-001; artefatos aprovados em 2026-10-03, sem implementação.** Aprovação humana e continuação registradas no [roadmap](C:/QSI/Workspaces/taskflow-app/docs/roadmap.md). Motivação e limites gerais: [proposal.md](C:/QSI/Workspaces/taskflow-app/openspec/changes/definir-arquitetura-e-paridade-desktop/proposal.md). A entrega desta Change será documental; os contratos abaixo orientam propostas futuras, sem disponibilizar funcionalidades desktop. O pedido atual autoriza commit/push; apply ocorrerá em outra sessão.
+**TFA-001; artefatos aprovados em 2026-10-03, sem implementação.** Aprovação humana, conclusão do apply documental e archive estão registrados no [roadmap](C:/QSI/Workspaces/taskflow-app/docs/roadmap.md). Motivação e limites gerais: [proposal.md](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/proposal.md). Esta Change consolidou documentação; os contratos abaixo orientam Changes futuras, sem disponibilizar funcionalidades desktop.
 
 O app tem Git próprio, roadmap, instruções e OpenSpec, mas ainda não tem package.json, aplicação, dependências ou gates de código. TFA-001 não tem dependências. A CLI local 1.14.0 resolve `C:\QSI\Workspaces\taskflow-app`, schema `spec-driven`, sem specs consolidadas e sem outras Changes.
 

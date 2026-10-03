@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**. Estado: **planejamento somente**. Artefatos da TFA-001 aprovados pelo usuário em 2026-10-03; apply documental reservado para outra sessão. Nenhuma funcionalidade implementada.
+Preparado em **2026-10-03**. Estado: **planejamento documental concluído para TFA-001; implementação funcional ainda não iniciada**. A TFA-001 foi verificada, aprovada e arquivada em 2026-10-03; a integração do branch permanece pendente.
 
 ## Objetivo e limites confirmados
 
@@ -75,7 +75,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 
 | ID | Change sugerida | Estado | Etapa | Início | Conclusão | Dependências | Próxima ação |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| TFA-001 | `definir-arquitetura-e-paridade-desktop` | APPROVED | READY_FOR_APPLY | 2026-10-03 | — | Nenhuma | Executar apply documental em outra sessão, mediante pedido explícito |
+| TFA-001 | `definir-arquitetura-e-paridade-desktop` | READY_FOR_MERGE | — | 2026-10-03 | — | Nenhuma | Abrir/revisar PR e integrar após aprovação; marcar DONE somente após merge aprovado |
 | TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | PLANNED | — | — | — | TFA-001 | Após dependências, usar o prompt abaixo |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | PLANNED | — | — | — | TFA-002 | Após dependências, usar o prompt abaixo |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | PLANNED | — | — | — | TFA-003 | Após dependências, usar o prompt abaixo |
@@ -98,7 +98,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 
 **Critérios de aceitação para refinar na proposta:** Matriz de funcionalidades cobre a origem, cada diferença tem justificativa e destino no roadmap, escolhas técnicas têm alternativas e nenhuma depende de extensão auxiliar ou backend obrigatório.
 
-**Artefatos aprovados em 2026-10-03:** [proposal](C:/QSI/Workspaces/taskflow-app/openspec/changes/definir-arquitetura-e-paridade-desktop/proposal.md), [design](C:/QSI/Workspaces/taskflow-app/openspec/changes/definir-arquitetura-e-paridade-desktop/design.md) e [tasks](C:/QSI/Workspaces/taskflow-app/openspec/changes/definir-arquitetura-e-paridade-desktop/tasks.md), na branch `codex/tfa-001-definir-arquitetura-e-paridade-desktop`. Evidência humana nesta conversa: **“Ok a change está aprovada. Faça o commit e o push dos artefatos e me dê um prompt para usar no apply em outra sessão”**. A autorização atual cobre registro da aprovação, commit e push dos artefatos; apply será solicitado em outra sessão. Change documental com `skip_specs: true`, sem capacidades executáveis ou scaffold. Baseline Vue/Pinia + Electron aprovado; Quasar permanece alternativa e SQLite preferência condicionada à prova/revisão futura. Design inclui P01–P14, fronteiras, dúvidas, riscos e AC01–AC08. Validação OpenSpec estrita passou; as 12 tasks permanecem não executadas. Aprovação documental não conclui a Change nem antecipa decisões condicionais de TFA-002 a TFA-012.
+**TFA-001 aprovada, verificada e arquivada em 2026-10-03:** [proposal](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/proposal.md), [design](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/design.md), [tasks](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/tasks.md) e [relatório de verificação](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/verification.md), na branch `codex/tfa-001-definir-arquitetura-e-paridade-desktop`. O usuário aprovou explicitamente o relatório e autorizou o archive, commit, push e PR em 2026-10-03. A Change usa `skip_specs: true`, portanto não havia deltas para sincronizar. As 12 tasks foram concluídas; `openspec validate ... --type change --strict --no-interactive` passou. Foram publicados [architecture.md](architecture.md), [parity-matrix.md](parity-matrix.md) e [test-strategy.md](test-strategy.md). P01–P14, decisões D1–D10, fronteiras, riscos e AC01–AC08 estão documentados. Nenhum app, runtime, pacote ou gate de produto foi criado ou validado nesta Change. Estado após archive: **READY_FOR_MERGE**; sem data de conclusão até integração aprovada.
 
 ### Prompt para opsx:explore
 
@@ -130,14 +130,14 @@ Preserve local-first, Windows per-user sem admin/serviços, identidade e acessib
 Conforme CLI 1.14.0/schema spec-driven, use skip_specs: true por ser documentação sem comportamento executável. Produza proposal/design/tasks para futura consolidação de docs/architecture.md, docs/parity-matrix.md e docs/test-strategy.md. Defina critérios AC01–AC08, valide OpenSpec estritamente e registre IN_REVIEW/REVIEW, sem aprovação. Não aplique, arquive, integre, distribua ou crie artefatos de Changes futuras.
 ```
 
-### Prompt para opsx:apply após aprovação
+### Prompt de apply documental usado — registro histórico
 
-**Artefatos aprovados; execução reservada para outra sessão.** A aprovação e o pedido atual de commit/push estão registrados acima. Usar o prompt abaixo como pedido explícito de apply documental; não repetir a solicitação de aprovação já concedida. Se houver mudança material de escopo, revisar os artefatos antes de implementar esse ponto.
+O bloco abaixo registra o prompt de apply preparado anteriormente e usado como referência nesta sessão. O apply documental foi executado em 2026-10-03 e está em revisão; não repetir como nova execução. A aprovação dos artefatos e a autorização desta sessão estão registradas acima.
 
 ```text
 $openspec-apply-change definir-arquitetura-e-paridade-desktop
 
-Execute somente o apply documental da TFA-001 em C:\QSI\Workspaces\taskflow-app. Os artefatos foram aprovados pelo usuário em 2026-10-03, conforme registro e citação humana na seção TFA-001 do roadmap; este pedido autoriza agora o apply documental, sem nova confirmação dessa aprovação. Leia AGENTS.md, docs/roadmap.md e proposal.md, design.md, tasks.md e .openspec.yaml em openspec/changes/definir-arquitetura-e-paridade-desktop. Reutilize a branch codex/tfa-001-definir-arquitetura-e-paridade-desktop, confira seu estado e preserve trabalho preexistente. A origem C:\QSI\Workspaces\taskflow-extension e seu Git são estritamente somente leitura.
+Execute somente o apply documental da TFA-001 em C:\QSI\Workspaces\taskflow-app. Os artefatos foram aprovados pelo usuário em 2026-10-03, conforme registro e citação humana na seção TFA-001 do roadmap; este pedido autoriza agora o apply documental, sem nova confirmação dessa aprovação. Leia AGENTS.md, docs/roadmap.md e proposal.md, design.md, tasks.md e .openspec.yaml no diretório arquivado openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop. Reutilize a branch codex/tfa-001-definir-arquitetura-e-paridade-desktop, confira seu estado e preserve trabalho preexistente. A origem C:\QSI\Workspaces\taskflow-extension e seu Git são estritamente somente leitura.
 
 Publique apenas docs/architecture.md, docs/parity-matrix.md e docs/test-strategy.md, cumprindo as 12 tasks e AC01–AC08. Preserve a distinção entre decisões aprovadas e condicionais, a matriz P01–P14, referências, alternativas, riscos e gates futuros. Não instale dependências, crie scaffold/package.json, copie código/testes, implemente adapters/funcionalidades/instalador, migre dados ou crie artefatos TFA-002 a TFA-012.
 
@@ -388,9 +388,9 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-Abra o novo projeto e use o prompt de apply da **TFA-001**, atualmente em `APPROVED`/`READY_FOR_APPLY`. A aprovação dos artefatos já está registrada; o apply precisa do pedido explícito na nova sessão e pode executar somente a consolidação documental prevista nas tasks. TFA-002 requer sessão e autorização próprias. Não gerar as doze Changes de uma vez.
+Revise o PR e os documentos arquivados da **TFA-001**, atualmente em `READY_FOR_MERGE`. A Change foi aprovada, verificada e arquivada; a conclusão só será registrada após integração aprovada. **TFA-002** depende da TFA-001 e requer Change, revisão e autorização próprias. Não iniciar automaticamente nem gerar as doze Changes de uma vez.
 
-Ao retornar, verificar o Git do novo projeto, o estado do roadmap e a existência de artefatos da Change selecionada. Se não houver proposal aprovada, permanecer em exploração/proposta. A implementação total não deve ser conduzida em uma única sessão por inferência.
+Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 
 ## Referências técnicas de consulta
 
