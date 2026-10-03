@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**. Estado: **planejamento documental concluído para TFA-001; implementação funcional ainda não iniciada**. A TFA-001 foi verificada, aprovada e arquivada em 2026-10-03; a integração do branch permanece pendente.
+Preparado em **2026-10-03**. Estado: **planejamento documental concluído para TFA-001; implementação funcional ainda não iniciada**. A TFA-001 foi verificada, aprovada, arquivada e integrada à branch principal pelo PR #1 em 2026-10-03.
 
 ## Objetivo e limites confirmados
 
@@ -75,8 +75,8 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 
 | ID | Change sugerida | Estado | Etapa | Início | Conclusão | Dependências | Próxima ação |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| TFA-001 | `definir-arquitetura-e-paridade-desktop` | READY_FOR_MERGE | — | 2026-10-03 | — | Nenhuma | Abrir/revisar PR e integrar após aprovação; marcar DONE somente após merge aprovado |
-| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | PLANNED | — | — | — | TFA-001 | Após dependências, usar o prompt abaixo |
+| TFA-001 | `definir-arquitetura-e-paridade-desktop` | DONE | — | 2026-10-03 | 2026-10-03 | Nenhuma | Concluída e integrada pelo PR #1 |
+| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | READY_FOR_EXPLORE | — | — | — | TFA-001 | Elegível para exploração mediante solicitação; usar o prompt abaixo |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | PLANNED | — | — | — | TFA-002 | Após dependências, usar o prompt abaixo |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | PLANNED | — | — | — | TFA-003 | Após dependências, usar o prompt abaixo |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | PLANNED | — | — | — | TFA-004 | Após dependências, usar o prompt abaixo |
@@ -98,7 +98,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 
 **Critérios de aceitação para refinar na proposta:** Matriz de funcionalidades cobre a origem, cada diferença tem justificativa e destino no roadmap, escolhas técnicas têm alternativas e nenhuma depende de extensão auxiliar ou backend obrigatório.
 
-**TFA-001 aprovada, verificada e arquivada em 2026-10-03:** [proposal](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/proposal.md), [design](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/design.md), [tasks](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/tasks.md) e [relatório de verificação](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/verification.md), na branch `codex/tfa-001-definir-arquitetura-e-paridade-desktop`. O usuário aprovou explicitamente o relatório e autorizou o archive, commit, push e PR em 2026-10-03. A Change usa `skip_specs: true`, portanto não havia deltas para sincronizar. As 12 tasks foram concluídas; `openspec validate ... --type change --strict --no-interactive` passou. Foram publicados [architecture.md](architecture.md), [parity-matrix.md](parity-matrix.md) e [test-strategy.md](test-strategy.md). P01–P14, decisões D1–D10, fronteiras, riscos e AC01–AC08 estão documentados. Nenhum app, runtime, pacote ou gate de produto foi criado ou validado nesta Change. Estado após archive: **READY_FOR_MERGE**; sem data de conclusão até integração aprovada.
+**TFA-001 aprovada, verificada, arquivada e integrada em 2026-10-03:** [proposal](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/proposal.md), [design](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/design.md), [tasks](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/tasks.md) e [relatório de verificação](../openspec/changes/archive/2026-10-03-definir-arquitetura-e-paridade-desktop/verification.md), na branch `codex/tfa-001-definir-arquitetura-e-paridade-desktop`. O usuário aprovou explicitamente o relatório e autorizou o archive, commit, push e PR em 2026-10-03. O PR #1 foi integrado à branch principal; o histórico local registra o merge commit `4c040c4`. A Change usa `skip_specs: true`, portanto não havia deltas para sincronizar. As 12 tasks foram concluídas; `openspec validate ... --type change --strict --no-interactive` passou. Foram publicados [architecture.md](architecture.md), [parity-matrix.md](parity-matrix.md) e [test-strategy.md](test-strategy.md). P01–P14, decisões D1–D10, fronteiras, riscos e AC01–AC08 estão documentados. Nenhum app, runtime, pacote ou gate de produto foi criado ou validado nesta Change. Estado: **DONE**; conclusão em 2026-10-03.
 
 ### Prompt para opsx:explore
 
@@ -388,7 +388,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-Revise o PR e os documentos arquivados da **TFA-001**, atualmente em `READY_FOR_MERGE`. A Change foi aprovada, verificada e arquivada; a conclusão só será registrada após integração aprovada. **TFA-002** depende da TFA-001 e requer Change, revisão e autorização próprias. Não iniciar automaticamente nem gerar as doze Changes de uma vez.
+A **TFA-001** foi aprovada, verificada, arquivada e integrada à branch principal pelo PR #1 em 2026-10-03. **TFA-002** está elegível para exploração (`READY_FOR_EXPLORE`) e requer Change, revisão e autorização próprias. Não iniciar automaticamente nem gerar as doze Changes de uma vez.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 
