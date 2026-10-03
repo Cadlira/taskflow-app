@@ -76,7 +76,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | ID | Change sugerida | Estado | Etapa | Início | Conclusão | Dependências | Próxima ação |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TFA-001 | `definir-arquitetura-e-paridade-desktop` | DONE | — | 2026-10-03 | 2026-10-03 | Nenhuma | Concluída e integrada pelo PR #1 |
-| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | IN_REVIEW | REVIEW | 2026-10-03 | — | TFA-001 | Proposal/design/3 specs/33 tasks para revisão; aprovação dos artefatos e G1–G6 antes do apply |
+| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | IN_PROGRESS | APPLY | 2026-10-03 | — | TFA-001 | Artefatos e G1–G6 aprovados; apply em andamento, prova de instalação ainda pendente |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | PLANNED | — | — | — | TFA-002 | Após dependências, usar o prompt abaixo |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | PLANNED | — | — | — | TFA-003 | Após dependências, usar o prompt abaixo |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | PLANNED | — | — | — | TFA-004 | Após dependências, usar o prompt abaixo |
@@ -291,6 +291,19 @@ Recomendação submetida à revisão: Windows 11 x64, NSIS offline one-click exc
 A prova de retenção compara o fingerprint opaco de um marcador fictício aleatório inserido uma vez no banco, antes/depois de reinício/upgrade/uninstall/reinstalação. Recriar um banco e mostrar sucesso do diagnóstico não basta. CI inspeciona/executa pacote com perfil test e sem publicar/executar Setup; instalação em conta padrão com UAC é evidência separada.
 
 **Validação da proposta:** `openspec validate preparar-fundacao-desktop-e-validar-instalacao-por-usuario --type change --strict --no-interactive` passou; status reportou os quatro grupos de artefatos completos. `git diff --check` passou. Gates de runtime/CI/instalador e F01–F09 permanecem planejados, não executados. Somente roadmap e artefatos desta Change foram escritos; sem package.json, código, dependências, workflow, instalador executado, commit/push/PR ou alterações na extensão/Git de origem.
+
+### Aprovação humana e início do apply — 2026-10-03
+
+O usuário aprovou explicitamente a proposal, o design, as três specs, as tasks e as recomendações atuais, respondendo: **“Aprovo tudo; informo o ambiente e assinatura”**. Esta aprovação autoriza continuar o apply da TFA-002 na branch existente; não aprova archive, commit, publicação ou Changes futuras.
+
+- **G2–G5 aceitos:** NSIS offline one-click com guardas per-user/argumentos/destino; identidade e roots D3; matriz de versões D1 e `better-sqlite3 12.11.1`; retenção dos dados da prova em upgrade, uninstall e reinstalação.
+- **G1 — aprovado em 2026-10-03:** o usuário confirmou que o ambiente é este PC, Windows 11 x64, com duas contas padrão fictícias e UAC ativo, e autorizou executar o instalador aqui. Registrar build/arquitetura e baseline sanitizado antes dos testes F01–F09.
+- **G6 — aprovado em 2026-10-03:** sem assinatura comercial; usar ferramentas gratuitas. O pacote de prova será não assinado. Se uma política do Windows bloquear sua execução, registrar `BLOCKED`, sem bypass.
+- **Ajuste de segurança do sandbox — aprovado em 2026-10-03 durante o apply:** o usuário aprovou leitura/execução para `S-1-15-2-1` (`ALL APPLICATION PACKAGES`) estritamente na pasta canônica instalada `TaskFlowApp`. A aprovação decorre da falha observada do Electron no diretório de build, cuja ACL não permite ao AppContainer ler o executável. Não estender aos pais, dados/perfis, roots globais ou outros diretórios; falha de configuração permanece erro, sem desabilitar sandbox.
+
+**Ponto de retomada — pausa solicitada pelo usuário em 2026-10-03:** branch `codex/tfa-002-preparar-fundacao-desktop-e-validar-instalacao-por-usuario`; OpenSpec confirmou **4/33 tasks** (1.1, 1.3, 1.4 e 2.4). Retomar por 1.2: fechar inventário/checksums de NSIS e ferramentas, recompilação/ABI do driver e notices; o zip Electron 44.5.1 baixado pelo pacote oficial teve SHA-256 `9b382492dcfee91f8f9e92c91f7972550a1b95d2299cac72279dab33a600d7db`, igual a `node_modules/electron/checksums.json`. Depois seguir tasks ainda desmarcadas na ordem. O SVG revisado foi copiado e o ICO multirresolução foi gerado, mas 4.1 permanece pendente. O primeiro launch Electron abortou por ACL ausente no diretório de build; ACL aprovada para a pasta instalada `TaskFlowApp` ainda não foi implementada. Não executar Setup, marcar 1.2/4.1, alterar ACL ou continuar qualquer gate até retomar o trabalho.
+
+Etapa registrada como `IN_PROGRESS`/`APPLY`, início em **2026-10-03**. G1–G6 e o ambiente autorizado estão confirmados; a task 1.1 foi concluída após conferir aprovação, branch e raiz OpenSpec próprios. Restam revalidação técnica, implementação e verificações; os testes de instalação serão executados somente neste PC autorizado e sem contornar bloqueios de política.
 
 ### Prompt consolidado para opsx:apply
 
@@ -540,7 +553,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001** foi aprovada, verificada, arquivada e integrada à branch principal pelo PR #1 em 2026-10-03. **TFA-002** concluiu explore e propose em 2026-10-03 e está `IN_REVIEW`/`REVIEW`: branch própria, proposal/design/três specs/33 tasks e prompt consolidado de apply em sua seção. Os artefatos e G1–G6 aguardam aprovação humana; nenhuma implementação da TFA-002 existe. Apply exige pedido explícito e instalação exige ambiente autorizado. Não iniciar automaticamente nem gerar as doze Changes de uma vez.
+A **TFA-001** foi aprovada, verificada, arquivada e integrada à branch principal pelo PR #1 em 2026-10-03. **TFA-002** concluiu explore e propose em 2026-10-03; seus artefatos e decisões G1–G6 foram aprovados em 2026-10-03 e seu apply está em andamento na branch própria. A prova de instalação permanece limitada ao PC Windows 11 x64 autorizado, sem assinatura comercial e sem contorno de bloqueios. Não arquivar, integrar, publicar ou iniciar outras Changes sem autorização própria.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 

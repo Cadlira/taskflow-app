@@ -1,0 +1,79 @@
+:root {
+  color: #202124;
+  background: #f5f6fb;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-weight: 400;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-width: 360px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button, body { font-family: "Segoe UI", system-ui, sans-serif; }
+
+.shell {
+  width: min(100% - 48px, 720px);
+  margin: 0 auto;
+  padding: 48px 0 28px;
+}
+
+.brand { display: flex; align-items: center; gap: 14px; margin-bottom: 36px; }
+.brand-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  background: #5368e8;
+  font-size: 32px;
+  font-weight: 600;
+}
+.eyebrow { margin: 0 0 6px; color: #596174; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+h1, h2, p { margin-top: 0; }
+h1 { margin-bottom: 0; font-size: 23px; }
+h2 { margin-bottom: 8px; font-size: 20px; }
+.panel {
+  display: grid;
+  gap: 20px;
+  padding: 28px;
+  border: 1px solid #e1e4ef;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgb(34 44 88 / 6%);
+}
+.intro { margin: 0; color: #596174; line-height: 1.5; }
+.verify-button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: #5368e8;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.verify-button:hover:not(:disabled) { background: #4357d4; }
+.verify-button:focus-visible { outline: 3px solid #202124; outline-offset: 3px; }
+.verify-button:disabled { cursor: progress; opacity: .72; }
+.status { min-height: 24px; margin: 0; color: #33394b; line-height: 1.5; }
+.diagnostic { display: grid; gap: 12px; margin: 0; padding-top: 18px; border-top: 1px solid #e5e7ef; }
+.diagnostic div { display: grid; grid-template-columns: 180px 1fr; gap: 12px; }
+.diagnostic dt { color: #596174; }
+.diagnostic dd { margin: 0; font-variant-numeric: tabular-nums; }
+.fingerprint { overflow-wrap: anywhere; font-family: Consolas, monospace; font-size: 12px; }
+footer { margin-top: 18px; color: #596174; font-size: 12px; text-align: center; }
+
+@media (max-width: 520px) {
+  .shell { width: min(100% - 28px, 720px); padding-top: 28px; }
+  .panel { padding: 20px; }
+  .diagnostic div { grid-template-columns: 1fr; gap: 4px; }
+}

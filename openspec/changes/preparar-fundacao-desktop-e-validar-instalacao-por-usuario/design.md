@@ -2,7 +2,7 @@
 
 ## Context
 
-**TFA-002; proposta em 2026-10-03, aguardando revisão humana.** Motivação: [proposal](proposal.md). TFA-001 está integrada pelo PR #1 e fornece [arquitetura](../../../docs/architecture.md), [paridade](../../../docs/parity-matrix.md) e [estratégia de testes](../../../docs/test-strategy.md). Não há runtime, package.json, lockfile ou CI no app. A CLI OpenSpec 1.14.0 resolve a raiz própria e usa `spec-driven`; três capacidades novas exigem specs, sem `skip_specs`.
+**TFA-002; proposta aprovada para apply em 2026-10-03.** A necessidade da ACL local de AppContainer foi aprovada durante o apply em 2026-10-03 depois da falha de inicialização observada; ver D2/D4 e roadmap. Motivação: [proposal](proposal.md). TFA-001 está integrada pelo PR #1 e fornece [arquitetura](../../../docs/architecture.md), [paridade](../../../docs/parity-matrix.md) e [estratégia de testes](../../../docs/test-strategy.md). A CLI OpenSpec 1.14.0 resolve a raiz própria e usa `spec-driven`; três capacidades novas exigem specs, sem `skip_specs`.
 
 A extensão foi consultada somente para leitura no HEAD `a763e7a0d646c664ecd4f979528bc2c3589fa8c4`, inalterado. Seu package.json usa WXT, Vite 8/TypeScript 6/Vitest 5 e postinstall `wxt prepare`; não serve de scaffold desktop. Seu teste de fronteiras é candidato a cópia revisada, acrescentando Node/Electron e testes de violações. Não executar ferramentas na origem. Os critérios F01–F09 e referências da exploração estão no [roadmap](../../../docs/roadmap.md).
 
@@ -18,7 +18,7 @@ A extensão foi consultada somente para leitura no HEAD `a763e7a0d646c664ecd4f97
 
 Preservar Vue/Pinia + Electron aprovados. Usar electron-vite para três builds e electron-builder para NSIS. Quasar acrescentaria convenções/componentes sem benefício demonstrado nesta fundação; Forge/Squirrel exige outro fluxo de instalação/manutenção. Não executar gerador que traga bridge genérica ou APIs futuras.
 
-Metadados oficiais consultados em 2026-10-03; **compatibilidade declarada, sem instalação ou build executados**:
+Metadados oficiais consultados em 2026-10-03; versões, peers e execução observada do toolchain estão detalhados em [desktop-foundation-validation](../../../docs/desktop-foundation-validation.md). O binário Electron está conferido, mas ABI/empacotamento final ainda dependem dos gates seguintes.
 
 | Componente | Versão proposta | Evidência / condição |
 | --- | --- | --- |
@@ -44,13 +44,15 @@ Janela mínima identifica TaskFlow e versão e oferece botão acessível **Verif
 
 Renderer com `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, `webSecurity: true`; preload explícito, sem toolkit bridge, ipcRenderer, fs, require, `send(channel)` ou caminhos livres. API única proposta `verifyFoundation({ version: 1 })`; resposta versionada com estado/códigos fechados, versões runtime e fingerprint opaco do marcador fictício, sem paths pessoais, SQL livre, stack ou linhas do banco. Main valida schema exato/limite pequeno (1 KiB), webContents registrado, main frame e origem exata antes de qualquer efeito. Rejeitar iframes, janelas desconhecidas, frames navegados, versão/shape inválidos e invocações simultâneas por um código `BUSY`. Não confiar apenas no TypeScript.
 
+O sandbox do Electron no Windows verifica a ACL do diretório do executável. Em 2026-10-03, o Windows encerrou o processo sandbox com erro explícito porque o diretório de build não concedia acesso ao SID `ALL APPLICATION PACKAGES` (`S-1-15-2-1`). Decisão aprovada durante apply: depois da validação do destino canônico, conceder apenas `ReadAndExecute` herdável no root instalado `TaskFlowApp`; não aplicar na Known Folder pai, em dados/perfis, roots globais ou outros destinos. Falha ao configurar essa ACE é falha de instalação, sem desabilitar o sandbox.
+
 Produção serve assets empacotados por `taskflow://app` (standard/secure, sem bypass CSP), com resolução limitada ao diretório de renderer e recusa de traversal, caminhos absolutos, symlinks de escape e requisições fora do host esperado. CSP proposta: default/script/style/font/img locais, sem inline/eval, `connect-src 'none'`, `object-src 'none'`, `frame-src 'none'`, `base-uri 'none'`; recursos adicionais só se demonstrados e revisados. Dev autoriza somente URL explícita do servidor local e conexão HMR estritamente em modo dev; pacote não consulta variáveis para habilitar origem remota/devtools.
 
 Negar permissões, webviews, novas janelas e navegação externa. Não há abertura externa nesta Change; adapter http/https fica para a Change funcional. DevTools somente dev; diagnóstico não envia rede. Testar controles pelo Electron empacotado, além dos testes unitários de validação. [Segurança](https://www.electronjs.org/docs/latest/tutorial/security), [protocol](https://www.electronjs.org/docs/latest/api/protocol), [contextBridge](https://www.electronjs.org/docs/latest/api/context-bridge).
 
 ### D3 — Identidade, perfis e ownership antes do banco
 
-Valores concretos **propostos para aprovação**, sem presumir publisher/domínio empresarial:
+Valores concretos aprovados, sem presumir publisher/domínio empresarial:
 
 | Campo | Proposta |
 | --- | --- |
@@ -86,6 +88,8 @@ Referências complementares: [opções NSIS v26](https://www.electron.build/v26/
 
 **Política proposta de destinos:** aceitar somente destino canônico equivalente ao Known Folder `UserProgramFiles\TaskFlowApp` aprovado para o usuário atual. Resolver identidade do usuário, caminhos e componentes existentes; não confiar em prefixo textual. `/D` igual ao destino é permitido; outro destino, root global, outro usuário, UNC, relativo, traversal ou reparse point que escape é recusado. Sem diretório selecionável. Se o Known Folder estiver redirecionado fora do perfil normal, recusar até revisão explícita do root autorizado; não substituir silenciosamente pelo diretório global. Esta política é uma restrição operacional, não proteção contra malware do mesmo usuário.
 
+Antes de gravar arquivos, o include de Setup valida Known Folder, `/D`, HKCU anterior, escopo e reparse points. Somente depois da validação e antes de concluir a instalação, concede a ACE herdável `ReadAndExecute` para `S-1-15-2-1` no root `TaskFlowApp`; isso permite ao AppContainer do Electron ler os binários sem dar escrita nem ampliar a ACL dos pais/perfis/dados. O uninstaller repete a validação do mesmo root e remove somente seus próprios binários/registro/atalhos; apagar a pasta também remove sua ACE. Se a configuração/validação falhar, retornar erro e não aceitar elevação, instalação global, fallback de caminho ou desabilitar sandbox.
+
 O [multiUser.nsh 26.17.0](https://raw.githubusercontent.com/electron-userland/electron-builder/electron-builder@26.17.0/packages/app-builder-lib/templates/nsis/multiUser.nsh) lê HKCU `InstallLocation` anterior antes do Known Folder e depois aceita `/D` (último argumento, sem aspas). Validar o **destino final**, antes de extrair/remover arquivos ou gravar registro/atalhos. Proposta de customização pequena via include `build/installer.nsh`, `customInit`/guards da seção de instalação e `customUnInit`; revisar ordem efetiva no script gerado. Não copiar exemplo de docs que grava HKLM nem substituir script inteiro sem necessidade. Rejeitar `/allusers`, inclusive combinado com `/currentuser`/`/S`; permitir `/currentuser` e `/S` sob a mesma política. Parâmetro ambíguo/duplicado/malformado deve falhar com erro/código não zero; nada de fallback para instalação global. Temporários necessários do instalador permanecem no temp do usuário; recusa não altera a instalação existente nem o perfil de dados.
 
 Upgrade manual fecha a instância do app com interação normal (sem matar gravação em andamento), instala a nova versão na mesma identidade e preserva marcador/banco. Não absorver instalações all-users legadas; recusar com instrução segura, sem migrar HKLM. Uninstall normal remove somente binários/registro HKCU/atalhos do usuário e mantém a raiz de dados customizada; `deleteAppDataOnUninstall: false` sozinho não cobre customizações que removam diretórios. Reinstalação reabre o mesmo marcador. Exclusão de dados exige fluxo próprio futuro; nunca fazer nesta prova. Downgrade e recovery definitivo pertencem TFA-003/011 e não são anunciados como suportados.
@@ -105,7 +109,7 @@ Não instalar ambos os drivers no pacote final nem implementar fallback automát
 
 ### D6 — Gates e CI mínimos, com smoke do executável
 
-Scripts previstos: `dev`, `lint`, `typecheck`, `test`, `build`, `package:win`, `verify:package`, `smoke:packaged` e `validate` agregador. `package:win` compila antes de NSIS x64 e usa `--publish never`; gates executados em sequência e interrupção em erro. `verify:package` inspeciona conteúdo permitido, appId/AUMID/versões, manifests, assets/preload e driver e rejeita bridge genérica, helpers/updater, `.git`, `.env`, credenciais, dados reais, WXT e devtools/deps de build indevidas. Notices de runtime são obrigatórios; ASAR não é criptografia. Testes de fronteiras devem injetar violações conhecidas para demonstrar detecção.
+Scripts previstos: `dev`, `lint`, `typecheck`, `test`, `build`, `package:win`, `verify:package`, `smoke:packaged` e `validate` agregador. `package:win` compila antes de NSIS x64 e usa `--publish never`; gates executados em sequência e interrupção em erro. `verify:package` inspeciona conteúdo permitido, appId/AUMID/versões, manifests, assets/preload, ACL declarada e driver e rejeita bridge genérica, helpers/updater, `.git`, `.env`, credenciais, dados reais, WXT e devtools/deps de build indevidas. Notices de runtime são obrigatórios; ASAR não é criptografia. Testes de fronteiras devem injetar violações conhecidas para demonstrar detecção.
 
 Um workflow PR/push Windows (imagem explicitamente selecionada, proposta `windows-2022`) fixa Node/npm e actions por SHA completo, permissions mínimas `contents: read`, npm ci com lockfile e relatório das versões. Não prometer saída byte-a-byte idêntica: runner e ferramentas externas precisam de inventário para reprodução. Sem publish/GH release/auto-update ou credenciais de assinatura. Disponibilizar apenas artefatos de revisão com retenção finita e SHA-256: Setup, manifests/conteúdo, relatório de gates/smoke e inventário de notices/deps. CI não executa instalador nesta configuração.
 

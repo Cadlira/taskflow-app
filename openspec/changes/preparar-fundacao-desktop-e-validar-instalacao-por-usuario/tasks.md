@@ -1,22 +1,24 @@
 # Tasks
 
-Checklist do **apply futuro da TFA-002**, ainda não autorizado. Proposal/design/specs estão para revisão; nenhum item foi executado nesta proposta. Dependência TFA-001 integrada. Aplicar somente após aprovação humana dos artefatos e G1–G6 do [design](design.md); instalação exige ambiente autorizado explicitamente. Se uma alternativa material for escolhida, revisar o plano antes de implementar o ponto afetado, sem fallback silencioso.
+Checklist do apply da TFA-002, autorizado em 2026-10-03 após aprovação humana de proposal/design/specs/tasks e G1–G6. Dependência TFA-001 integrada. A prova do instalador está autorizada somente neste PC Windows 11 x64 com duas contas padrão fictícias e UAC ativo; registrar bloqueios sem bypass. Se uma alternativa material for escolhida, revisar o plano antes de implementar o ponto afetado, sem fallback silencioso.
+
+Em 2026-10-03, após falha real do sandbox por ACL no diretório de desenvolvimento, o usuário aprovou revisar e configurar leitura/execução do AppContainer (`S-1-15-2-1`) restrita ao root instalado `TaskFlowApp`; pais, dados e caminhos globais continuam fora do escopo.
 
 Cada grupo inclui verificações e documentação pertinentes. Evidências usam dados fictícios; origem e Git da extensão permanecem somente leitura. Critérios F01–F09 no design; contratos nas specs `desktop-foundation`, `windows-per-user-installation` e `desktop-build-validation`.
 
 ## 1. Aprovação, toolchain e scaffold próprio
 
-- [ ] 1.1 Conferir aprovação humana dos artefatos/G1–G6, ambiente autorizado e branch/root próprios; registrar decisões/data no roadmap e verificar que não há escolha material pendente antes de criar runtime ou executar instaladores.
+- [x] 1.1 Conferir aprovação humana dos artefatos/G1–G6, ambiente autorizado e branch/root próprios; registrar decisões/data no roadmap e verificar que não há escolha material pendente antes de criar runtime ou executar instaladores.
 - [ ] 1.2 Revalidar as versões D1, auxiliares/peers, licenças/notices, disponibilidade/origem/checksums dos binários e caminho de rebuild escolhido; registrar inventário em docs/desktop-foundation-validation.md e verificar que versões/driver não mudaram sem revisão e não existem peers forçados.
-- [ ] 1.3 Criar package.json/lockfile e estrutura main/preload/renderer/contratos com electron-vite/Vue/Pinia, Node/npm fixados e tsconfigs strict separados; verificar npm ci limpo e build dos três entrypoints, sem copiar WXT/postinstall ou configurações pessoais.
-- [ ] 1.4 Configurar lint, tsc + vue-tsc, Vitest, scripts dev/build/validate e presets compatíveis; verificar comandos individuais/agregador, propagação de falha e documentação exata dos comandos/versões no runbook.
+- [x] 1.3 Criar package.json/lockfile e estrutura main/preload/renderer/contratos com electron-vite/Vue/Pinia, Node/npm fixados e tsconfigs strict separados; verificar npm ci limpo e build dos três entrypoints, sem copiar WXT/postinstall ou configurações pessoais.
+- [x] 1.4 Configurar lint, tsc + vue-tsc, Vitest, scripts dev/build/validate e presets compatíveis; verificar comandos individuais/agregador, propagação de falha e documentação exata dos comandos/versões no runbook.
 
 ## 2. Janela mínima e fronteiras de segurança
 
 - [ ] 2.1 Criar janela mínima local com identidade/versão, botão diagnóstico e estados acessíveis de execução/sucesso/erro, isolamento/sandbox e Pinia transitório; verificar teclado, renderer sem Node/fs e erro seguro, sem interfaces de tarefas ou recursos futuros.
 - [ ] 2.2 Implementar protocolo de assets limitado e CSP distinta dev/prod, bloqueios de navegação/janelas/webviews/permissões; verificar carregamento e negativas de traversal/host/absoluto/escape e que env dev não habilita conteúdo remoto no pacote.
 - [ ] 2.3 Implementar somente verifyFoundation versionado, preload explícito e guard main por webContents/frame/origem/schema/1 KiB; testar sucesso, iframe/remetente/origem/shape/versão/tamanho inválidos, BUSY e erro sanitizado antes de efeitos, sem canais/caminhos/SQL livres.
-- [ ] 2.4 Adaptar seletivamente o teste de fronteiras observado na origem para barrar Electron/Node/infraestrutura/Vue/Pinia/Chrome/rede no núcleo e autoridade indevida no renderer; verificar com fixtures de violações que as regras detectam imports/acessos proibidos, sem teste vacuamente aprovado.
+- [x] 2.4 Adaptar seletivamente o teste de fronteiras observado na origem para barrar Electron/Node/infraestrutura/Vue/Pinia/Chrome/rede no núcleo e autoridade indevida no renderer; verificar com fixtures de violações que as regras detectam imports/acessos proibidos, sem teste vacuamente aprovado.
 - [ ] 2.5 Documentar contrato diagnóstico, origem/CSP/permissões e limites provisórios em docs/architecture.md/runbook; revisar contra a spec desktop-foundation e não anunciar IPC funcional TFA-003 ou abertura de URLs disponível.
 
 ## 3. Identidade, ownership e prova SQLite fictícia
@@ -29,8 +31,8 @@ Cada grupo inclui verificações e documentação pertinentes. Evidências usam 
 
 ## 4. Instalador Windows exclusivamente per-user
 
-- [ ] 4.1 Criar configuração electron-builder NSIS offline x64 one-click/perMachine false, app asInvoker, sem elevate helper/updater/runAfterFinish/remoção de dados/publicação; derivar ICO mínimo do master SVG revisado e verificar identidade/pasta/atalho Start Menu atual sem assets de recursos futuros.
-- [ ] 4.2 Criar include NSIS pequeno com guards de argumentos/destino final/Known Folders/HKCU anterior/instalação de máquina e remoção; revisar script gerado e testar recusa allusers/conflitos/malformados, /D fora do canônico, reparse/traversal/outro usuário e root redirecionado não aprovado antes de efeitos sobre instalação/dados.
+- [ ] 4.1 Criar configuração electron-builder NSIS offline x64 one-click/perMachine false, app asInvoker, sem elevate helper/updater/runAfterFinish/remoção de dados/publicação; derivar ICO mínimo do master SVG revisado; após validar o destino, conceder somente ACL AppContainer ReadAndExecute herdável ao root instalado TaskFlowApp e verificar identidade/pasta/atalho Start Menu sem assets futuros.
+- [ ] 4.2 Criar include NSIS pequeno com guards de argumentos/destino final/Known Folders/HKCU anterior/instalação de máquina e remoção; validar a ACL restrita no root instalado, sem propagação a pais/dados/globais; revisar script gerado e testar recusa allusers/conflitos/malformados, /D fora do canônico, reparse/traversal/outro usuário e root redirecionado não aprovado antes de efeitos sobre instalação/dados.
 - [ ] 4.3 Implementar package:win com build e --publish never, extrair manifests app/Setup/uninstaller e inventário de efeitos; verificar asInvoker nos três, arquitetura x64, binários/notices completos e ausência de helper/serviço/gravação global.
 - [ ] 4.4 Preparar manutenção manual de duas versões fictícias mantendo ID/root e uninstall com retenção customizada; verificar pacote 0.1.0/0.1.1, guard de destino também na remoção e ausência de apagamento de userData/sessionData ou absorção de instalação HKLM.
 - [ ] 4.5 Documentar runbook de instalação/upgrade/uninstall, args, paths/chaves/atalhos, perfis redirecionados, falhas e retorno seguro; conferir cada passo/resultado esperado contra windows-per-user-installation, distinguindo provisório de distribuição definitiva TFA-011.

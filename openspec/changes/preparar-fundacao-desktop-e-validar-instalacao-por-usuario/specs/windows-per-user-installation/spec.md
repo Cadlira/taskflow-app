@@ -8,7 +8,7 @@ Permitir instalar e manter o TaskFlow no Windows exclusivamente para o usuário 
 
 ### Requirement: Instalação offline exclusiva por usuário
 
-O instalador SHALL instalar somente para o usuário atual, sem oferecer todos os usuários, solicitar elevação ou depender de rede/Node/npm no destino. App, Setup e desinstalador SHALL ter execução asInvoker; o pacote SHALL excluir helpers de elevação, updater e serviços de sistema.
+O instalador SHALL instalar somente para o usuário atual, sem oferecer todos os usuários, solicitar elevação ou depender de rede/Node/npm no destino. App, Setup e desinstalador SHALL ter execução asInvoker; o pacote SHALL excluir helpers de elevação, updater e serviços de sistema. Para executar o sandbox do Electron no Windows, o Setup SHALL conceder somente leitura/execução herdável ao SID `S-1-15-2-1` (`ALL APPLICATION PACKAGES`) na pasta canônica `TaskFlowApp`, após validar seu destino. SHALL NOT aplicar essa ACE aos pais, dados/perfis do usuário, roots globais ou outras pastas. Se a ACE não puder ser definida, a instalação SHALL falhar sem desativar sandbox nem elevar.
 
 #### Scenario: Instalação por conta padrão
 - **WHEN** uma conta fora de Administrators, com UAC ativo, inicia normalmente o Setup offline no ambiente autorizado
@@ -18,6 +18,12 @@ O instalador SHALL instalar somente para o usuário atual, sem oferecer todos os
 #### Scenario: Artefatos sem elevação
 - **WHEN** app, Setup, desinstalador e conteúdo do pacote são inspecionados
 - **THEN** os três manifests indicam asInvoker e não há helper de elevação, updater ou serviço de sistema
+
+#### Scenario: ACL mínima exigida pelo Electron sandbox
+- **WHEN** Setup conclui instalação no diretório canônico validado
+- **THEN** somente essa pasta e seus filhos herdam leitura/execução para `S-1-15-2-1`
+- **AND** o sandbox não recebe escrita e nenhum perfil, dado, pasta pai ou destino global recebe a ACE
+- **AND** falha ao configurar a ACL interrompe a instalação sem alterar modo do Electron
 
 ### Requirement: Destino efetivo limitado ao usuário
 
@@ -75,6 +81,7 @@ Instalação e manutenção SHALL limitar registro e atalhos ao usuário atual, 
 #### Scenario: Outra conta instala o app
 - **WHEN** uma segunda conta realiza instalação per-user
 - **THEN** seus binários/registro/atalhos são próprios e a primeira instalação permanece intacta
+- **AND** a ACE de AppContainer limita-se à pasta TaskFlowApp daquela conta
 
 ### Requirement: Manutenção preserva identidade e dados
 

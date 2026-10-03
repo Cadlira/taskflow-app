@@ -33,12 +33,17 @@ O projeto SHALL oferecer gates de lint, typecheck estrito, testes, build, empaco
 
 ### Requirement: Conteúdo runtime restrito e completo
 
-O pacote SHALL conter recursos/driver necessários ao runtime, identidade aprovada e notices/licenças correspondentes. Ele SHALL excluir origem Git, segredos, dados reais, configuração pessoal, scaffold Chrome, dependências somente de build e capacidades de elevação/atualização não previstas.
+O pacote SHALL conter recursos/driver necessários ao runtime, identidade aprovada e notices/licenças correspondentes. A inspeção e a validação instalada SHALL comprovar que o SID de AppContainer recebe somente leitura/execução no diretório do app. O pacote SHALL excluir origem Git, segredos, dados reais, configuração pessoal, scaffold Chrome, dependências somente de build e capacidades de elevação/atualização não previstas.
 
 #### Scenario: Inventário do pacote
 - **WHEN** o artefato e seus manifests/assets/driver são inspecionados
 - **THEN** os recursos runtime necessários e notices estão presentes e correspondem à arquitetura/versões aprovadas
 - **AND** não há `.git`, `.env`, dados reais, WXT, bridge genérica, updater ou elevate helper
+
+#### Scenario: ACL do runtime empacotado e instalado
+- **WHEN** Setup instala o pacote no root per-user aprovado
+- **THEN** o sandbox do Electron pode ler/executar somente binários do diretório instalado por meio da ACE aprovada
+- **AND** a ACL não se propaga à Known Folder pai nem à raiz de dados
 
 ### Requirement: Smoke executa integração do pacote
 
