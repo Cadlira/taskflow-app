@@ -2,9 +2,7 @@
 
 **TFA-001 · estratégia planejada · 2026-10-03**
 
-Este documento define verificações para Changes futuras; não registra teste de produto executado. A TFA-001 só consolida documentação e OpenSpec. Não há `package.json`, scripts, dependências, aplicativo, instalador ou gates de lint/typecheck/test/build no estado inspecionado. Nenhum teste ou build foi executado na origem.
-
-As regras observadas, referências por funcionalidade e destinos estão em [parity-matrix.md](parity-matrix.md). As fronteiras propostas estão em [architecture.md](architecture.md). A origem permanece somente leitura e suas fixtures/testes são apenas candidatos a cópia seletiva e revisão em Changes futuras.
+Este documento define verificações para Changes futuras e registra o que já foi executado na fundação TFA-002 (2026-10-04). A TFA-001 só consolidou documentação e OpenSpec; a origem nunca foi executada. As regras observadas, referências por funcionalidade e destinos estão em [parity-matrix.md](parity-matrix.md). As fronteiras propostas estão em [architecture.md](architecture.md).
 
 ## D10 — Níveis de validação e destino
 
@@ -68,11 +66,13 @@ Todos os testes de IA usam mocks/fakes sem rede paga. Fixtures e logs usam valor
 | Momento | Gate | Estado |
 | --- | --- | --- |
 | TFA-001 documental | `openspec list --json`, `openspec status --change "definir-arquitetura-e-paridade-desktop" --json`, instruções apply e `openspec validate definir-arquitetura-e-paridade-desktop --type change --strict --no-interactive`; revisar documentos, links e diff do app. | Validação estrita final passou em 2026-10-03 com OpenSpec 1.14.0; `skip_specs` aceito e zero deltas. Nenhum teste de runtime se aplica. |
-| A partir da fundação TFA-002 | Configurar e executar lint, typecheck, unit tests e build no projeto app; criar gates correspondentes na CI. | Planejado. Scripts ainda não existem; não declarar sucesso antecipado nem exigir `npm` nesta TFA-001. |
+| Fundação TFA-002 (2026-10-04) | `npm ci` com lockfile e Node/npm fixados; `npm run lint`, `typecheck` (contracts/main/preload/renderer/tests), `test` (Vitest), `build` (três entrypoints), `validate`, `package:win` (`--publish never`), `verify:package` e `smoke:packaged` (cópia de teste, perfil `test`, timeout 60 s, positivos e negativos). | **Executado:** 7 arquivos/32 testes; ASAR na allowlist sem addon/updater/segredos; manifests `asInvoker/uiAccess=false`; smoke com prova SQLite, reabertura por fingerprint, segunda instância, fechamento sem residual e negativas integradas (payload, preload, ASAR corrompido, hang, override de perfil). Comandos e hashes em [desktop-foundation-validation.md](desktop-foundation-validation.md). |
+| CI da fundação | Workflow Windows PR/push com Node/npm/lockfile/actions fixados, gates, NSIS `--publish never`, inspeção e smoke; artefatos internos com SHA-256 e retenção finita, sem release. | Workflow definido; **run hospedado ainda não executado** (depende de push autorizado). O runner Windows é administrador com UAC desabilitado: sucesso nele **não** comprova conta padrão nem instalação. |
+| Prova em conta padrão | Instalação/execução/manutenção F01–F09 no PC Windows 11 x64 autorizado, com dados fictícios e evidências sanitizadas. | Executada parcialmente nesta Change (argumentos/destinos/refusals pré-instalação; instalação e manutenção registradas na validação). Resultados por cenário e bloqueios (ex.: segunda conta) são registrados sem bypass. |
 | Changes funcionais | Gates da TFA-002 mais provas específicas da tabela de cenários; checar build empacotado quando o contrato exigir. | Planejado conforme dependências e implementação real. |
-| TFA-002/008/009/011/012 | Smoke e cenários no app empacotado/instalado em Windows; conta padrão, reinício, suspensão, notificações, bandeja e atalhos. | Planejado, não executado. Build ou smoke apenas do renderer não substitui esses resultados. |
+| TFA-008/009/011/012 | Smoke e cenários no app empacotado/instalado em Windows; suspensão, notificações, bandeja, atalhos e distribuição. | Planejado, não executado. Build ou smoke apenas do renderer não substitui esses resultados. |
 
-O estado observado do app antes do apply é um projeto documental, sem package.json/gates de runtime. Esta Change não cria scripts, dependências, código, fixtures ou novos workflows. A validação OpenSpec verifica os artefatos da Change; ela não significa paridade funcional desktop.
+O smoke da CI roda em runner administrador e serve como gate de regressão, não como prova de conta padrão/UAC nem de funcionalidades futuras. As evidências executadas da fundação comprovam somente o que está descrito em [desktop-foundation-validation.md](desktop-foundation-validation.md); a validação OpenSpec verifica os artefatos da Change e não significa paridade funcional desktop.
 
 ## Critérios documentais AC01–AC08
 

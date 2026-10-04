@@ -1,0 +1,85 @@
+# Verification — TFA-002
+
+**Change:** `preparar-fundacao-desktop-e-validar-instalacao-por-usuario`
+**Schema:** spec-driven · **Data:** 2026-10-04 · **Branch:** `codex/tfa-002-preparar-fundacao-desktop-e-validar-instalacao-por-usuario`
+**Escopo verificado:** apply da TFA-002 até a prova em conta padrão neste PC Windows 11 x64 autorizado, sem archive, commit, push, PR, merge ou release.
+**Relatório:** gerado por `openspec-verify-change`; requer aprovação explícita antes do archive (AGENTS.md, item 42).
+
+## Summary
+
+| Dimensão | Status |
+| --- | --- |
+| Completeness | 31/33 tasks (2 pendentes com causa: 5.4 e 6.5); 18 requisitos ADDED cobertos |
+| Correctness | 18/18 requisitos com implementação confirmada; 39/47 cenários confirmados; 8 parciais/bloqueados |
+| Coherence | Design D1–D7 seguido (revisões de G4 e ACL registradas); padrões consistentes; sem segredos/dados reais |
+
+## Completeness
+
+- **Task Tracking:** `tasks.md` presente e agregado pela CLI; 31/33 concluídas. **7.2** (este relatório) e **7.3** (roadmap atualizado) são concluídas com esta entrega.
+- **Pendentes:**
+  - **5.4** — workflow de CI criado em `.github/workflows/ci.yml`, mas o run hospedado **não foi executado** (depende de push autorizado). Não é defeito de implementação; é evidência externa pendente.
+  - **6.5** — instalação/diagnóstico na **segunda conta Windows** não executados: exigem sessão interativa/credencial da conta, indisponíveis nesta sessão. Registrado como BLOCKED, sem bypass.
+- **Specs:** 3 capacidades novas (`desktop-foundation`, `windows-per-user-installation`, `desktop-build-validation`), 18 requisitos ADDED, 47 cenários. A CLI valida a Change com `--strict` (sem REMOVED/RENAMED).
+
+## Correctness — mapeamento requisito → evidência
+
+| Requisito | Evidência principal |
+| --- | --- |
+| Shell local autocontido e acessível | `src/renderer/src/App.vue`, `src/renderer/src/stores/foundation.ts`; testes `tests/renderer/foundation-view.test.ts`; smoke e launches no exe instalado (título “TaskFlow App”, prova verificada, erro seguro). |
+| Renderer sem autoridade irrestrita | `src/preload/index.ts` (bridge única), `tests/architecture/layer-boundaries.test.ts`; smoke com payloads inválidos e catálogo limitado. |
+| Autorização e validação diagnóstica | `src/main/ipc/foundation.ts` (schema exato, versão 1, 1 KiB, webContents/main frame/origem, BUSY), `tests/main/ipc-foundation.test.ts`; probes no renderer real (INVALID_REQUEST). |
+| Recursos locais e navegação restrita | `src/main/protocol.ts` (taskflow://app, CSP, traversal/host/symlink), `src/main/index.ts` (negação de navegação/janelas/webviews/permissões), `electron.vite.config.ts` (CSP dev); `tests/main/protocol.test.ts`; pacote ignora env de desenvolvimento (smoke com `ELECTRON_RENDERER_URL`). |
+| Identidade e perfis independentes | `src/main/profile.ts`, `src/main/index.ts` (appId/AUMID, userData/sessionData, `--foundation-test`); `tests/main/profile.test.ts`; smoke e prova instalada (test vs prod; `--user-data-dir` recusado). |
+| Ownership antes do armazenamento | `src/main/index.ts` (single instance lock antes do banco; fechar encerra); smoke (segunda instância sem prova; fechamento sem residual). |
+| Prova transacional fictícia | `src/main/foundation-proof.ts` (`node:sqlite`, marcador único, rollback, reopen, fingerprint), `tests/main/foundation-proof.test.ts`; smoke e exe instalado (fingerprint `862191a56034e6d2d67ccf99a08c23e7268778b0db9271d5820cc2f635965d70`). |
+| Instalação offline exclusiva por usuário | `build/installer.nsh` + `package.json` (NSIS one-click per-user, asInvoker, sem helper/updater/serviço, ACE AppContainer no root instalado); instalação real sem admin/UAC; ACL conferida (somente `(OI)(CI)(RX)` para `S-1-15-2-1`). |
+| Destino efetivo limitado ao usuário | Guards de destino (canonicidade, perfil, reparse, HKCU anterior); recusas com exit 2 sem efeitos; `/D` canônico aceito. |
+| Argumentos não ampliam o escopo | `/allusers` recusado isolado/combinado; `/currentuser` e `/S` sob as mesmas restrições; malformados/duplicados recusados (matriz F06). |
+| Efeitos registrados somente no usuário atual | `verify:package --installed-root`; escopo verificado: HKCU + atalho do usuário; sem HKLM/Program Files/ProgramData/atalhos públicos/serviços. |
+| Manutenção preserva identidade e dados | Upgrade fictício 0.1.0→0.1.1, uninstall e reinstalação com fingerprint estável; desinstalação remove binários/registro/atalhos e mantém `%LOCALAPPDATA%\TaskFlowApp`; destino adulterado recusado (exit 2). |
+| Toolchain e dependências reproduzíveis | `package.json`/`package-lock.json` com versões exatas; Node/npm do ambiente fixados; engines/peers/licenças no inventário; `npm ci` limpo; `npm audit` 0. |
+| Gates bloqueiam pacote inválido | `npm run lint/typecheck/test/build/validate`; propagação de falha; `verify:package` com testes negativos próprios (`tests/tools/verify-package.test.ts`). |
+| Conteúdo runtime restrito e completo | ASAR com 12 arquivos na allowlist; sem `node_modules`/addon/updater/segredos; notices Electron/Chromium; exe x64. |
+| Smoke executa integração do pacote | `scripts/smoke-packaged.mjs`: prova, reabertura, segunda instância, fechamento e negativas (payload, preload, ASAR corrompido, hang, override) — 10 PASS. |
+| CI produz artefatos internos sem distribuir | `.github/workflows/ci.yml` (Windows, Node/npm/actions por SHA, `permissions: contents: read`, `--publish never`, artefatos com retenção 14 dias, sem assinatura). **Execução pendente (5.4).** |
+| Aceitação independente em conta padrão | Matriz F01–F09 no PC autorizado (tabela em `docs/desktop-foundation-validation.md`): F01–F05, F07–F09 PASS; F06 15 PASS + 3 BLOCKED; evidências sanitizadas em `%TEMP%\opencode\tfa002-evidence`. |
+
+## Correctness — cenários não confirmados integralmente
+
+| Cenário | Situação | Causa/registro |
+| --- | --- | --- |
+| Segunda conta Windows (perfis) e “Outra conta instala o app” | **BLOCKED** | Exige sessão interativa/credencial da segunda conta; task 6.5. |
+| Destino padrão com caracteres não ASCII | **BLOCKED** | O destino canônico deste PC não contém espaços/acentos e não há root redirecionado autorizado. |
+| Known Folder redirecionado | **Não verificado na prática** | Código recusa fora do perfil/reparse; redirecionar o perfil exigiria alteração administrativa não autorizada. A cadeia local foi conferida (sem reparse). |
+| Instalação all-users legada | **BLOCKED** | Exigiria criar HKLM/instalação de máquina (admin); não autorizado e não contornado. |
+| Run de revisão da CI | **Não verificado** | Workflow presente; run hospedado depende de push autorizado (task 5.4). O runner é administrador e não substitui conta padrão. |
+| Perfis “não se contaminam” (modo dev) | **Parcial** | test/prod comprovados no pacote/instalado; `npm run dev` não executa neste PC por política de ACL do sandbox, registrada sem contorno. |
+| Matriz padrão completa | **Parcial** | F04/F05/F07/F08 executados; subcasos F06 e a segunda conta permanecem BLOCKED. |
+
+## Coherence
+
+- **Design Adherence:** D1 (matriz com G4 revisado para `node:sqlite` embarcado), D2 (shell/protocolo/diagnóstico único), D3 (identidade/perfis/ownership), D4 (NSIS per-user com guards e ACE única), D5 revisado, D6 (gates/CI/smoke), D7 (F01–F09). As duas revisões materiais aprovadas pelo usuário em 2026-10-04 estão refletidas de forma coerente em proposal/design/specs/tasks/docs/roadmap.
+- **Code Pattern Consistency:** estrutura `src/main` (+`ipc/`), `src/preload`, `src/renderer`, `src/contracts`; testes espelhando as áreas; scripts `.mjs` de build/verificação; sem `any`; lint/typecheck limpos. Sem desvios relevantes.
+- **Segurança/dados:** nenhum segredo, dado real ou credencial em artefatos, logs ou repositório; extensão e seu Git permaneceram somente leitura (nenhuma escrita/build/teste neles); nenhum commit/push/PR/merge/release.
+
+## Issues by Priority
+
+### CRITICAL
+
+1. **Task 5.4 incompleta — run de CI não executado.** Recomendação: após autorização de push, executar o workflow (push/`workflow_dispatch`), conferir relatórios/hashes do artefato e registrar o run; até então, não contar a CI como evidência.
+2. **Task 6.5 incompleta — prova na segunda conta não executada.** Recomendação: executar a sessão na segunda conta fictícia seguindo o runbook, registrar PASS/FAIL/BLOCKED e o isolamento de perfis/registro/atalhos; ou aceitar formalmente a pendência antes do archive.
+
+### WARNING
+
+1. **Cenários BLOCKED de F06/segunda conta/CI** listados acima permanecem sem evidência prática; não tratar como aprovados.
+2. **Modo dev neste PC limitado pela política de ACL** do sandbox; documentado no runbook, sem `--no-sandbox` ou alteração de ACL fora do escopo aprovado.
+3. **Identidade provisória:** `CompanyName` usa “TaskFlow App” como placeholder e o pacote não é assinado; finalização em TFA-011.
+
+### SUGGESTION
+
+1. O aplicativo 0.1.0 permanece instalado no PC de prova (estado final da prova) e o artefato 0.1.1 segue em `release/` para referência; removê-los é decisão do usuário fora desta Change.
+2. README factual será atualizado após o archive autorizado (AGENTS.md, item 38); status/datas ficam no roadmap.
+
+## Final Assessment
+
+**2 critical issues found (tasks 5.4 e 6.5 não concluídas). Corrigir/concluir antes do archive.** Além disso, não verificados na prática: run de CI, segunda conta, caracteres não ASCII no destino, Known Folder redirecionado e instalação all-users legada; o modo dev neste PC é limitado pela política de ACL (registrado). Todo o restante dos 18 requisitos e dos 47 cenários foi confirmado com testes, inspeção do pacote e prova em conta padrão, sem segredos, dados reais ou alterações na origem. O relatório aguarda **aprovação explícita** para prosseguir ao archive (item 42 do AGENTS.md).

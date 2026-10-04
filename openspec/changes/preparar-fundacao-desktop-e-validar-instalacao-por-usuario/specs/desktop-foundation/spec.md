@@ -94,7 +94,7 @@ Somente o processo proprietário do perfil SHALL abrir o banco da prova. Uma seg
 
 ### Requirement: Prova transacional fictícia no runtime instalado
 
-O diagnóstico SHALL criar, gravar e ler exclusivamente dados fictícios no banco da prova, verificar rollback e reabrir a conexão preservando o marcador confirmado. Ele SHALL executar no processo proprietário e falhar explicitamente se o driver não funcionar, sem reset ou fallback silencioso.
+O diagnóstico SHALL criar, gravar e ler exclusivamente dados fictícios no banco da prova, verificar rollback e reabrir a conexão preservando o marcador confirmado. Ele SHALL executar no processo proprietário e falhar explicitamente se o armazenamento embarcado não funcionar, sem reset ou fallback silencioso.
 
 #### Scenario: Ciclo transacional completo
 - **WHEN** o usuário executa a prova no aplicativo instalado
@@ -102,9 +102,9 @@ O diagnóstico SHALL criar, gravar e ler exclusivamente dados fictícios no banc
 - **AND** nova execução continua reconhecendo o marcador confirmado
 - **AND** o diagnóstico fornece fingerprint opaco do marcador fictício para comprovar retenção, sem recriar/reescrever sua identidade em cada execução
 
-#### Scenario: Falha de driver ou abertura
-- **WHEN** o driver está indisponível/incompatível ou o banco não pode ser aberto
-- **THEN** o diagnóstico retorna falha, sem substituir o driver ou apagar o banco
+#### Scenario: Falha de armazenamento ou abertura
+- **WHEN** o armazenamento embarcado está indisponível ou o banco não pode ser aberto
+- **THEN** o diagnóstico retorna falha, sem substituir o mecanismo ou apagar o banco
 - **AND** libera recursos e permite nova tentativa depois de corrigida a causa
 
 #### Scenario: Rollback induzido

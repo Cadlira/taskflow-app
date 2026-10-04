@@ -33,12 +33,12 @@ O projeto SHALL oferecer gates de lint, typecheck estrito, testes, build, empaco
 
 ### Requirement: Conteúdo runtime restrito e completo
 
-O pacote SHALL conter recursos/driver necessários ao runtime, identidade aprovada e notices/licenças correspondentes. A inspeção e a validação instalada SHALL comprovar que o SID de AppContainer recebe somente leitura/execução no diretório do app. O pacote SHALL excluir origem Git, segredos, dados reais, configuração pessoal, scaffold Chrome, dependências somente de build e capacidades de elevação/atualização não previstas.
+O pacote SHALL conter recursos necessários ao runtime, identidade aprovada e notices/licenças correspondentes. A inspeção e a validação instalada SHALL comprovar que o SID de AppContainer recebe somente leitura/execução no diretório do app. O pacote SHALL excluir origem Git, segredos, dados reais, configuração pessoal, scaffold Chrome, dependências somente de build e capacidades de elevação/atualização não previstas.
 
 #### Scenario: Inventário do pacote
-- **WHEN** o artefato e seus manifests/assets/driver são inspecionados
+- **WHEN** o artefato e seus manifests/assets/armazenamento são inspecionados
 - **THEN** os recursos runtime necessários e notices estão presentes e correspondem à arquitetura/versões aprovadas
-- **AND** não há `.git`, `.env`, dados reais, WXT, bridge genérica, updater ou elevate helper
+- **AND** não há `.git`, `.env`, dados reais, WXT, bridge genérica, updater, addon externo ou elevate helper
 
 #### Scenario: ACL do runtime empacotado e instalado
 - **WHEN** Setup instala o pacote no root per-user aprovado
@@ -54,8 +54,8 @@ O smoke SHALL iniciar o executável empacotado fora do diretório de desenvolvim
 - **THEN** a janela local/preload carregam, o diagnóstico autorizado completa write/read/rollback/reopen e o marcador persiste no perfil test
 - **AND** cada processo encerra com código/resultados verificáveis sem alterar prod
 
-#### Scenario: Preload ausente, driver inválido ou hang
-- **WHEN** preload/IPC/driver falha ou o processo excede o timeout declarado
+#### Scenario: Preload ausente, armazenamento inválido ou hang
+- **WHEN** preload/IPC/armazenamento falha ou o processo excede o timeout declarado
 - **THEN** o smoke reprova, recolhe erro sanitizado e encerra somente os processos/recursos que criou
 - **AND** abrir janela ou gerar build não basta para PASS
 

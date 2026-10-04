@@ -2,7 +2,7 @@
 
 **TFA-001 · revisão documental · 2026-10-03**
 
-Este documento registra o baseline arquitetural aprovado e os contratos propostos para as Changes futuras. Ele não descreve um aplicativo implementado: este repositório continua sem scaffold, `package.json`, dependências ou runtime desktop.
+Este documento registra o baseline arquitetural aprovado na TFA-001 e, na seção **Fundação TFA-002 implementada**, os contratos que passaram a existir no aplicativo. O restante descreve contratos para as Changes futuras e não declara funcionalidades de tarefas, lixeira, lembretes, captura ou IA disponíveis.
 
 ## Estado das decisões
 
@@ -36,7 +36,7 @@ Referências da proposta: [proposal](../openspec/changes/archive/2026-10-03-defi
 
 **Aprovado:** Vue 3/Pinia existentes com Electron como baseline; manter o núcleo portável. A razão é reaproveitar interface e regras observadas, trocando a infraestrutura de plataforma. Não houve benchmark de tamanho, consumo ou velocidade. Quasar permanece alternativa; adotá-lo ou alterar o baseline exige benefício demonstrável, revisão de paridade e revisão da decisão antes da implementação.
 
-**Pendente em TFA-002:** versões compatíveis de Electron, Node, TypeScript, Vite e ferramentas de teste; licença, manutenção e disponibilidade de binários. `electron-vite` e `electron-builder` são candidatos, não seleções. Não herdar versões nem executar scripts da extensão.
+**Resolvido na TFA-002 (2026-10-04):** versões fixadas no lockfile com engines/peers/licenças inventariados; `electron-vite 5` e `electron-builder 26.17.0` implementados com os gates reais. Nada foi herdado da extensão. Detalhes em [desktop-foundation-validation.md](desktop-foundation-validation.md).
 
 Referências de tooling consultadas no design: [electron-vite](https://electron-vite.org/guide/) e [Quasar Electron](https://quasar.dev/quasar-cli-vite/developing-electron-apps/configuring-electron/). A integração do Quasar não demonstra benefício funcional para esta base.
 
@@ -139,6 +139,38 @@ O projeto já tem raiz local `openspec/`, schema `spec-driven` e skills Codex. A
 
 O apply usa `openspec status --change`, `openspec instructions apply --change` e validação disponível na CLI. `done` de artifact indica arquivo presente, não aprovação nem implementação. OPSX é workflow de chat/skill, não comando PowerShell. A validação executada para esta entrega está registrada no roadmap após a revisão final.
 
+## Fundação TFA-002 implementada (2026-10-04)
+
+Esta seção registra o que **existe e foi verificado** no aplicativo e o que permanece provisório. Ela não confirma durabilidade, recovery, migrações ou concorrência de dados de produto — esses permanecem em TFA-003 — nem funcionalidades das TFA-004 a TFA-012.
+
+### Shell, contratos e automação
+
+- Estrutura `src/main`, `src/preload`, `src/renderer`, `src/contracts` com TypeScript estrito e builds separados por `electron-vite`; domínio/aplicação futuros permanecem proibidos de importar Vue/Pinia/Electron/Node/rede (teste de fronteiras em `tests/architecture`).
+- Scripts reais: `dev`, `lint`, `typecheck` (5 projetos), `test` (Vitest), `build`, `validate`, `package:win`, `verify:package`, `smoke:packaged`. Gates e evidências em [desktop-foundation-validation.md](desktop-foundation-validation.md).
+- Identidade: `taskflow.app` (appId/AUMID), `TaskFlow App` (exibição), `TaskFlowApp.exe`, raiz de dados `%LOCALAPPDATA%\TaskFlowApp\profiles\{dev,test,prod}\{user-data,session-data}`.
+
+### Contrato diagnóstico (única operação IPC)
+
+- `verifyFoundation({ version: 1 })` é a única operação exposta pelo preload (`contextBridge`), sem canais livres, `ipcRenderer`, SQL, comandos ou caminhos arbitrários.
+- O main valida schema exato (somente a chave `version`), versão 1, limite de 1 KiB serializado, `webContents` registrado, main frame e origem local exata antes de qualquer efeito. Iframes, remetentes desconhecidos, frames navegados, versão/shape inválidos são recusados com código fechado (`INVALID_REQUEST`/`UNAUTHORIZED`); execuções concorrentes recebem `BUSY`; erros não vazam stack, caminho ou conteúdo do banco.
+- O modo de teste empacotado (`--foundation-test`, perfil `test`) usa a mesma ponte pública para exercitar a prova e payloads inválidos; não aceita paths/canais livres e não afrouxa o isolamento. O lançamento normal instalado usa `prod` e ignora variáveis de desenvolvimento; `--user-data-dir` não altera o perfil.
+
+### Assets, CSP e navegação
+
+- Produção serve assets por `taskflow://app` (standard/secure) com resolução limitada ao diretório de renderer; traversal, caminho absoluto, host diferente, query/hash, separadores alternativos e escapes por reparse são recusados. CSP de produção: `default/script/style/font/img 'self'`, `connect-src 'none'`, `object-src 'none'`, `frame-src 'none'`, `base-uri 'none'`, `form-action 'none'`, sem inline/eval.
+- Navegação externa, novas janelas, webviews e permissões são negados por padrão; URLs externas ainda não têm operação de abertura (fica para as Changes funcionais). O env de desenvolvimento autoriza somente `http://127.0.0.1:5173` e HMR em modo dev; o pacote ignora `ELECTRON_RENDERER_URL`/variáveis remotas.
+- `contextIsolation: true`, `sandbox: true`, `webSecurity: true`, `nodeIntegration: false`, `devTools` apenas em dev.
+
+### Ownership e prova de armazenamento
+
+- `requestSingleInstanceLock` é adquirido depois de definir `userData`/`sessionData` e antes de abrir o banco; segunda instância do mesmo perfil encerra sem prova/janela. Fechar a janela encerra o shell provisório (sem bandeja); bandeja, roteamento e ciclo de vida definitivo são TFA-008.
+- A prova fictícia usa o `node:sqlite` embarcado no Electron 44.5.1 (G4 revisado em 2026-10-04, API RC aceita explicitamente) em `foundation-proof\proof.sqlite`: cria tabela de diagnóstico, insere um marcador aleatório **uma única vez**, lê, executa transação com rollback forçado, confirma o valor anterior, fecha/reabre e apresenta o fingerprint SHA-256 opaco do marcador. Não há schema/repository de tarefas, não toca Chrome nem o diretório de instalação e não há fallback silencioso. **Limite explícito:** isto comprova viabilidade de empacotamento/ownership, não durabilidade, journal, recovery, migrações ou concorrência de dados de produto (TFA-003).
+
+### Instalador (provisório até TFA-011)
+
+- NSIS offline one-click exclusivo por usuário, `perMachine: false`, app `asInvoker`, sem elevate helper, updater, `runAfterFinish` ou remoção de dados; Setup e desinstalador com manifest `asInvoker/uiAccess=false` e validação de argumentos/destino/registro antes de efeitos.
+- O Setup concede a ACE `S-1-15-2-1:(OI)(CI)(RX)` somente ao root canônico instalado `%LOCALAPPDATA%\Programs\TaskFlowApp` (requisito do sandbox do Electron); pais, dados/perfis e roots globais ficam fora. Pasta, chaves HKCU, atalho do usuário, retenção de dados e limites estão detalhados no runbook da [validação](desktop-foundation-validation.md).
+
 ## Riscos e decisões futuras
 
 | Risco / limite | Controle e destino |
@@ -147,7 +179,7 @@ O apply usa `openspec status --change`, `openspec instructions apply --change` e
 | Electron amplia autoridade de conteúdo | Isolamento, sandbox, CSP, validação de origem/remetente e catálogo IPC mínimo · TFA-003. |
 | Writes ordenados usam decisões velhas | Coordenar read/decide/commit e revisão de draft · TFA-003/004. |
 | Banco/arquivo ou migração perde dados | Atomicidade, recovery, bloqueio de schema futuro e fault injection; backup separado · TFA-003/007. |
-| Dependência nativa falha no instalador | Provar ABI/empacotamento antes de escolher o driver · TFA-002/003. |
+| Dependência nativa falha no instalador | **TFA-002 (2026-10-04):** a prova usa o `node:sqlite` embarcado (G4 revisado) e não há addon externo; empacotamento e execução validados no pacote. A seleção definitiva do armazenamento de produto permanece em TFA-003. |
 | Prévia de backup/IA diverge | Preparação main, token por sessão/configuração, revalidação e consentimento · TFA-007/010. |
 | Claim de lembrete perde notificação | Declarar no máximo uma tentativa e testar falha; nunca prometer com app encerrado · TFA-008. |
 | Janela oculta mantém undo/IA vivos | Separar vida de processo, janela e sessão · TFA-006/008/010. |
@@ -158,7 +190,7 @@ O apply usa `openspec status --change`, `openspec instructions apply --change` e
 
 | Pendente | Revisão responsável |
 | --- | --- |
-| Versões do tooling, arquitetura Windows inicial, nome/appId/pasta e prova do driver candidato | TFA-002 antes de scaffold/instalador; TFA-011 amplia distribuição. |
+| Versões do tooling, arquitetura Windows inicial, nome/appId/pasta e prova do armazenamento candidato | **Concluído na TFA-002 (2026-10-04)** com a matriz aprovada, identidade estável e prova `node:sqlite` no pacote; TFA-011 amplia a distribuição. |
 | Driver/configuração SQLite, unidade de trabalho, revisão, recovery ou JSON alternativo | TFA-003 antes do adapter. |
 | UX de conflito de formulário sem perder draft | TFA-003/004. |
 | Fechar para bandeja, drafts/undo, retomada na tolerância, login opcional e clique da notificação | TFA-006/008. |
