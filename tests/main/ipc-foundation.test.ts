@@ -1,11 +1,16 @@
-import type { IpcMainInvokeEvent, WebContents, WebFrameMain } from 'electron'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FoundationResult } from '../../src/contracts/foundation.js'
+import { buildFictitiousTask } from '../../src/main/harness/fixtures.js'
+import { DocumentSessions } from '../../src/main/ipc/document-sessions.js'
 import {
   FoundationBusyGate,
-  isAuthorizedFoundationInvocation,
+  handleFoundationInvocation,
   isValidFoundationRequest,
 } from '../../src/main/ipc/foundation.js'
+import { PACKAGED_ORIGIN, fakeContents, fakeFrame, invocation } from '../support/documents.js'
+import { cleanupStorage, createProductFile, openCoordinator } from '../support/storage.js'
+
+afterEach(cleanupStorage)
 
 function verifiedResult(): FoundationResult {
   return {
@@ -16,6 +21,13 @@ function verifiedResult(): FoundationResult {
     nodeVersion: '24.21.0',
     fingerprint: 'a'.repeat(64),
   }
+}
+
+function registered(): { sessions: DocumentSessions; contents: ReturnType<typeof fakeContents> } {
+  const sessions = new DocumentSessions(PACKAGED_ORIGIN)
+  const contents = fakeContents(17)
+  sessions.register(contents)
+  return { sessions, contents }
 }
 
 describe('contrato verifyFoundation v1', () => {
@@ -40,19 +52,95 @@ describe('contrato verifyFoundation v1', () => {
     })
     expect(isValidFoundationRequest(request)).toBe(false)
   })
+})
 
-  it('exige o webContents registrado, main frame e origem exata', () => {
-    const frame = { url: 'taskflow://app/index.html' } as unknown as WebFrameMain
-    const otherFrame = { url: 'taskflow://app/iframe.html' } as unknown as WebFrameMain
-    const contents = { id: 17, mainFrame: frame } as unknown as WebContents
-    const valid = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent
-    const iframe = { sender: contents, senderFrame: otherFrame } as unknown as IpcMainInvokeEvent
-    const otherContents = { id: 18, mainFrame: frame } as unknown as WebContents
+describe('guards de documento no diagnóstico', () => {
+  it('documento autorizado recebe o resultado fechado da prova, com o mesmo shape', async () => {
+    const { sessions, contents } = registered()
+    const proof = vi.fn(verifiedResult)
 
-    expect(isAuthorizedFoundationInvocation(valid, contents, 'taskflow://app')).toBe(true)
-    expect(isAuthorizedFoundationInvocation(iframe, contents, 'taskflow://app')).toBe(false)
-    expect(isAuthorizedFoundationInvocation(valid, otherContents, 'taskflow://app')).toBe(false)
-    expect(isAuthorizedFoundationInvocation(valid, contents, 'http://127.0.0.1:5173')).toBe(false)
+    const result = await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, new FoundationBusyGate(), proof)
+
+    expect(result).toEqual(verifiedResult())
+    expect(Object.keys(result).sort()).toEqual(['appVersion', 'electronVersion', 'fingerprint', 'nodeVersion', 'status', 'version'])
+    expect(proof).toHaveBeenCalledTimes(1)
+  })
+
+  it('remetente não autorizado é recusado antes de acessar a prova', async () => {
+    const { sessions, contents } = registered()
+    const proof = vi.fn(verifiedResult)
+    const gate = new FoundationBusyGate()
+    const blank = fakeContents(20, fakeFrame('about:blank'))
+    const dev = fakeContents(21, fakeFrame('http://127.0.0.1:5173/', 'http://127.0.0.1:5173'))
+    sessions.register(blank)
+    sessions.register(dev)
+    const removed = fakeContents(22)
+    sessions.register(removed)
+    removed.mainFrame.destroyed = true
+
+    const events = [
+      invocation(fakeContents(18)),
+      invocation(contents, fakeFrame()),
+      invocation(contents, null),
+      invocation(blank),
+      invocation(dev),
+      invocation(removed),
+    ]
+    for (const event of events) {
+      expect(await handleFoundationInvocation(event, { version: 1 }, sessions, gate, proof)).toEqual({
+        version: 1,
+        status: 'error',
+        code: 'UNAUTHORIZED',
+      })
+    }
+    expect(proof).not.toHaveBeenCalled()
+  })
+
+  it('payload inválido é recusado antes de qualquer efeito', async () => {
+    const { sessions, contents } = registered()
+    const proof = vi.fn(verifiedResult)
+
+    for (const request of [{ version: 2 }, { version: 1, extra: true }, { version: 1, pad: 'x'.repeat(2048) }, null]) {
+      expect(await handleFoundationInvocation(invocation(contents), request, sessions, new FoundationBusyGate(), proof)).toEqual({
+        version: 1,
+        status: 'error',
+        code: 'INVALID_REQUEST',
+      })
+    }
+    expect(proof).not.toHaveBeenCalled()
+  })
+
+  it('documento que muda durante o diagnóstico não recebe a resposta', async () => {
+    const { sessions, contents } = registered()
+    let finish: ((result: FoundationResult) => void) | undefined
+    const pending = handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, new FoundationBusyGate(), () =>
+      new Promise<FoundationResult>((resolve) => {
+        finish = resolve
+      }),
+    )
+    await Promise.resolve()
+
+    // Reload da mesma URL depois da autorização.
+    sessions.invalidate(contents.id)
+    finish?.(verifiedResult())
+
+    const result = await pending
+    expect(result).toEqual({ version: 1, status: 'error', code: 'UNAUTHORIZED' })
+    expect(JSON.stringify(result)).not.toContain('fingerprint')
+  })
+
+  it('sessão que expira enquanto espera o gate não inicia a prova', async () => {
+    const { sessions, contents } = registered()
+    const proof = vi.fn(verifiedResult)
+    const gate = { run: (operation: () => FoundationResult | Promise<FoundationResult>) => {
+      sessions.invalidate(contents.id)
+      return Promise.resolve(operation())
+    } } as unknown as FoundationBusyGate
+
+    expect(await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, proof)).toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+    expect(proof).not.toHaveBeenCalled()
   })
 })
 
@@ -84,5 +172,38 @@ describe('serialização da prova', () => {
       code: 'PROOF_UNAVAILABLE',
     })
     await expect(gate.run(() => verifiedResult())).resolves.toMatchObject({ status: 'verified' })
+  })
+
+  it('o gate BUSY do diagnóstico é independente da fila do produto', async () => {
+    const { sessions, contents } = registered()
+    const queued: Array<() => void> = []
+    const coordinator = openCoordinator(createProductFile(), { schedule: (callback) => queued.push(callback) })
+    const gate = new FoundationBusyGate()
+
+    // Diagnóstico em andamento: o segundo recebe BUSY, mas o produto segue aceitando unidades.
+    let finish: ((result: FoundationResult) => void) | undefined
+    const running = handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, () =>
+      new Promise<FoundationResult>((resolve) => {
+        finish = resolve
+      }),
+    )
+    await Promise.resolve()
+    const second = await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, verifiedResult)
+    const product = coordinator.run((unit) => unit.saveTask(buildFictitiousTask(1)))
+    while (queued.length > 0) queued.shift()?.()
+
+    expect(second).toEqual({ version: 1, status: 'error', code: 'BUSY' })
+    expect(await product).toMatchObject({ ok: true, committed: true })
+
+    // Fila do produto cheia não rejeita o diagnóstico.
+    finish?.(verifiedResult())
+    await running
+    const flood = Array.from({ length: 64 }, (_unused, index) => coordinator.run((unit) => unit.saveTask(buildFictitiousTask(index + 2))))
+    expect(await coordinator.run((unit) => unit.saveTask(buildFictitiousTask(999)))).toEqual({ ok: false, reason: 'QUEUE_FULL' })
+    expect(await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, verifiedResult)).toMatchObject({
+      status: 'verified',
+    })
+    while (queued.length > 0) queued.shift()?.()
+    await Promise.all(flood)
   })
 })

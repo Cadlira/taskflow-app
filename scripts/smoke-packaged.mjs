@@ -9,9 +9,17 @@
 // reabertura com fingerprint persistente, segunda instância sem saída/escrita e negativas
 // integradas (preload ausente, asar corrompido, tentativa de override de perfil/caminho).
 // Limpeza restrita aos processos/pastas de teste criados; nenhum modo inseguro é usado.
+//
+// TFA-003 — harness de produto no mesmo fluxo: banco de produto e bridge real de estado no
+// Electron empacotado, com LOCALAPPDATA apontando para a pasta temporária do próprio smoke
+// (perfil inteiramente fictício). Cobre round-trip/reopen, duas superfícies, negativas e
+// origem real, subscriptions, ownership, kill do processo de teste em barreiras, drain e o
+// benchmark. O Setup não é executado e nenhum Node/npm externo participa do app em teste.
+// Evidência detalhada: release/product-harness-evidence.json (não versionado).
 
 import { execFileSync, spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -26,6 +34,9 @@ const localAppData = process.env.LOCALAPPDATA ?? ''
 const testProfileProof = path.join(localAppData, 'TaskFlowApp', 'profiles', 'test', 'user-data', 'foundation-proof', 'proof.sqlite')
 const prodProfileRoot = path.join(localAppData, 'TaskFlowApp', 'profiles', 'prod')
 const markerPrefix = 'TASKFLOW_FOUNDATION_TEST '
+const productMarkerPrefix = 'TASKFLOW_PRODUCT_TEST '
+const benchTimeoutMs = 600_000
+const skipBench = process.argv.includes('--skip-bench')
 const launchTimeoutMs = 60_000
 const secondInstanceTimeoutMs = 20_000
 
@@ -99,17 +110,20 @@ function launch(exe, args, cwd, environment) {
   return child
 }
 
-function findMarker(text) {
-  const line = text.split(/\r?\n/).find((candidate) => candidate.startsWith(markerPrefix))
-  if (!line) return null
-  try {
-    return JSON.parse(line.slice(markerPrefix.length))
-  } catch {
-    return null
+function findMarker(text, prefix = markerPrefix, accept = () => true) {
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith(prefix)) continue
+    try {
+      const marker = JSON.parse(line.slice(prefix.length))
+      if (accept(marker)) return marker
+    } catch {
+      return null
+    }
   }
+  return null
 }
 
-function waitForMarker(child, timeoutMs) {
+function waitForMarker(child, timeoutMs, prefix = markerPrefix, accept = () => true) {
   return new Promise((resolve) => {
     const started = Date.now()
     let finished = false
@@ -120,7 +134,7 @@ function waitForMarker(child, timeoutMs) {
       resolve({ marker, reason })
     }
     const timer = setInterval(() => {
-      const marker = findMarker(child.stdoutText)
+      const marker = findMarker(child.stdoutText, prefix, accept)
       if (marker !== null) finish(marker, 'marker')
       else if (child.exitCode !== null) finish(null, `exit:${child.exitCode}`)
       else if (Date.now() - started > timeoutMs) finish(null, 'timeout')
@@ -161,8 +175,199 @@ async function positiveFlow({ exe, cwd, environment, markerName, extraArgs = [] 
   return { child, marker }
 }
 
+function sha256File(file) {
+  return existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : null
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+// ---- TFA-003: harness de produto e bridge no pacote, em perfil fictício ----
+async function productFlow({ exe, cwd, smokeRoot, evidence }) {
+  const fictitiousLocalAppData = path.join(smokeRoot, 'local-app-data')
+  mkdirSync(fictitiousLocalAppData, { recursive: true })
+  const environment = {
+    LOCALAPPDATA: fictitiousLocalAppData,
+    TASKFLOW_PROFILE: 'dev',
+    ELECTRON_RENDERER_URL: 'http://127.0.0.1:9/',
+  }
+  const profileRoot = path.join(fictitiousLocalAppData, 'TaskFlowApp', 'profiles', 'test')
+  const productDatabase = path.join(profileRoot, 'user-data', 'data', 'taskflow.sqlite')
+  const proofDatabase = path.join(profileRoot, 'user-data', 'foundation-proof', 'proof.sqlite')
+  const barrierFile = path.join(profileRoot, 'harness-barrier.json')
+  const realTestProduct = path.join(localAppData, 'TaskFlowApp', 'profiles', 'test', 'user-data', 'data', 'taskflow.sqlite')
+  const realTestProductBefore = sha256File(realTestProduct)
+
+  const runScenario = async (scenario, timeoutMs = launchTimeoutMs) => {
+    const child = launch(exe, ['--foundation-test', `--product-harness=${scenario}`], cwd, environment)
+    const { marker, reason } = await waitForMarker(child, timeoutMs, productMarkerPrefix)
+    assert(reason === 'marker', `cenário ${scenario} não reportou resultado (${reason})`)
+    return { child, marker }
+  }
+  const reopen = async () => {
+    const { child, marker } = await runScenario('reopen')
+    const exit = await waitForExit(child, 20_000)
+    assert(!exit.timedOut, 'cenário reopen não encerrou')
+    assert(marker.ok === true, `reopen falhou: ${JSON.stringify(marker)}`)
+    return marker
+  }
+
+  // P1 — bridge real: catálogo, round-trip, duas superfícies, negativas, sessões e isolamento
+  const bridge = await runScenario('bridge')
+  evidence.bridge = bridge.marker
+  const failedChecks = Object.entries(bridge.marker.checks ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  assert(
+    bridge.marker.ok === true && failedChecks.length === 0,
+    `harness bridge reprovou: ${failedChecks.join(', ') || JSON.stringify(bridge.marker)}`,
+  )
+  const runtime = bridge.marker.info.runtime
+  record(
+    'produto: bridge de estado, round-trip e duas superfícies no pacote',
+    true,
+    `${Object.keys(bridge.marker.checks).length} verificações; Electron ${runtime.electron}, Node ${runtime.node}, SQLite ${runtime.storage.sqliteVersion}`,
+  )
+  assert(runtime.packaged === true, 'harness não rodou empacotado')
+  assert(
+    runtime.storage.journalMode === 'delete' &&
+      runtime.storage.synchronous === 3 &&
+      runtime.storage.foreignKeys === 1 &&
+      runtime.storage.busyTimeoutMs === 100 &&
+      runtime.storage.schemaVersion === 1,
+    `PRAGMAs efetivos divergentes: ${JSON.stringify(runtime.storage)}`,
+  )
+  record('produto: PRAGMAs efetivos DELETE/EXTRA/foreign_keys/100 ms no pacote', true, JSON.stringify(runtime.storage))
+  assert(bridge.marker.info.document.frameOrigin === 'taskflow://app', 'origem real do protocolo divergente')
+  record('produto: origem real do documento é taskflow://app', true)
+  assert(existsSync(productDatabase), 'banco de produto ausente no perfil fictício')
+  assert(existsSync(proofDatabase), 'banco da prova ausente no perfil fictício')
+  assert(!existsSync(path.join(fictitiousLocalAppData, 'TaskFlowApp', 'profiles', 'prod')), 'perfil prod criado no harness')
+  assert(sha256File(realTestProduct) === realTestProductBefore, 'harness tocou o perfil test real')
+  record('produto: bancos de produto e prova separados, só no perfil fictício', true)
+
+  // P2 — ownership: segunda instância do mesmo perfil não abre banco nem executa
+  const hashBefore = sha256File(productDatabase)
+  const second = launch(exe, ['--foundation-test', '--product-harness=bridge'], cwd, environment)
+  const secondExit = await waitForExit(second, secondInstanceTimeoutMs)
+  assert(!secondExit.timedOut && secondExit.code === 0, `segunda instância não encerrou limpa (${secondExit.code})`)
+  assert(findMarker(second.stdoutText, productMarkerPrefix) === null, 'segunda instância executou o harness')
+  assert(sha256File(productDatabase) === hashBefore, 'segunda instância alterou o banco de produto')
+  assert(bridge.child.exitCode === null, 'primeira instância não permaneceu ativa')
+  record('produto: segunda instância não abre banco nem escreve', true)
+
+  // P3 — fechamento normal libera a conexão; reopen conserva o estado integral
+  // Saída normal pedida ao harness (app.quit: before-quit, drain e fechamento da conexão).
+  // O fechamento pela janela é o cenário S8, que já roda com o banco de produto aberto.
+  writeFileSync(path.join(profileRoot, 'harness-quit'), '')
+  const bridgeExit = await waitForExit(bridge.child, 20_000)
+  rmSync(path.join(profileRoot, 'harness-quit'), { force: true })
+  assert(!bridgeExit.timedOut && bridgeExit.code === 0, `saída normal não encerrou o processo do harness (${bridgeExit.code})`)
+  assert(!existsSync(`${productDatabase}-journal`), 'journal residual após fechamento normal')
+  const reopened = await reopen()
+  evidence.reopen = reopened
+  assert(
+    reopened.summary.revision === bridge.marker.summary.revision && reopened.summary.digest === bridge.marker.summary.digest,
+    'reopen não conservou revisão/conteúdo',
+  )
+  record(
+    'produto: fechar e reabrir conserva revisão e conteúdo integral',
+    true,
+    `revisão ${reopened.summary.revision}, ${reopened.summary.tasks} tarefas, ${reopened.summary.trash} na lixeira`,
+  )
+
+  // P4 — kill somente do processo de teste em barreiras; não é prova de falha de energia
+  evidence.crash = []
+  let current = reopened.summary
+  const barriers = [
+    ['crash|unit:in-transaction', false],
+    ['crash|unit:before-commit', false],
+    ['crash|unit:after-commit', true],
+    ['crash|unit:before-publish', true],
+    ['crash|unit:before-publish|claim', true],
+  ]
+  for (const [scenario, committed] of barriers) {
+    rmSync(barrierFile, { force: true })
+    const child = launch(exe, ['--foundation-test', `--product-harness=${scenario}`], cwd, environment)
+    const armed = await waitForMarker(child, launchTimeoutMs, productMarkerPrefix, (marker) => marker.armed === true)
+    assert(armed.reason === 'marker', `${scenario}: harness não armou a barreira (${armed.reason})`)
+    const deadline = Date.now() + launchTimeoutMs
+    while (!existsSync(barrierFile)) {
+      assert(child.exitCode === null, `${scenario}: processo saiu antes da barreira`)
+      assert(Date.now() < deadline, `${scenario}: barreira não alcançada`)
+      await sleep(50)
+    }
+    const barrier = JSON.parse(readFileSync(barrierFile, 'utf8'))
+    // Só o PID validado do processo criado por este smoke é encerrado.
+    assert(barrier.pid === child.pid && barrier.pid === armed.marker.pid, `${scenario}: PID da barreira não confere`)
+    killTree(child.pid)
+    await waitForExit(child, 10_000)
+    const journalAfterKill = existsSync(`${productDatabase}-journal`)
+
+    const after = await reopen()
+    const expected = (BigInt(armed.marker.baseRevision) + (committed ? 1n : 0n)).toString()
+    assert(after.summary.revision === expected, `${scenario}: revisão ${after.summary.revision}, esperada ${expected}`)
+    if (!committed) {
+      assert(after.summary.digest === current.digest, `${scenario}: estado anterior não está inteiro`)
+    }
+    // O app não apaga nem interpreta journal: um journal quente é revertido pelo motor na
+    // abertura; um journal sem páginas gravadas não é quente e o motor o reaproveita na
+    // próxima transação de escrita. A ausência é conferida após o próximo commit (drain).
+    evidence.crash.push({
+      scenario,
+      journalAfterKill,
+      journalAfterReopen: existsSync(`${productDatabase}-journal`),
+      barrier: barrier.point,
+      committed,
+      revisionAfter: after.summary.revision,
+      tasksAfter: after.summary.tasks,
+    })
+    record(`produto: kill em ${scenario.replace('crash|', '')}`, true, committed ? 'novo estado inteiro' : 'estado anterior inteiro')
+    current = after.summary
+  }
+
+  // P5 — encerramento com unidades admitidas: drena internas, cancela sessão, fecha conexão
+  const drain = await runScenario('drain')
+  evidence.drain = drain.marker
+  const drainExit = await waitForExit(drain.child, 20_000)
+  assert(drain.marker.ok === true, `drain reprovou: ${JSON.stringify(drain.marker)}`)
+  assert(!drainExit.timedOut, 'cenário drain não encerrou')
+  const afterDrain = await reopen()
+  assert(afterDrain.summary.revision === drain.marker.expectedRevision, 'unidades drenadas não foram confirmadas')
+  assert(!existsSync(`${productDatabase}-journal`), 'journal residual após commits e fechamento normal')
+  record(
+    'produto: saída drena unidades internas e cancela leituras de sessão',
+    true,
+    `drain ${drain.marker.report.drainMs} ms, ${drain.marker.committedInternal} confirmadas, ${drain.marker.cancelledReads} canceladas`,
+  )
+
+  // P6 — limites síncronos medidos no runtime empacotado
+  if (skipBench) {
+    record('produto: benchmark de limites', true, 'pulado por --skip-bench')
+    return
+  }
+  const bench = await runScenario('bench', benchTimeoutMs)
+  evidence.bench = bench.marker
+  await waitForExit(bench.child, 30_000)
+  const large = bench.marker.datasets?.[1] ?? {}
+  const failedGates = Object.entries(bench.marker.gates ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  out(`BENCH ${JSON.stringify(bench.marker)}`)
+  assert(bench.marker.ok === true, `gate de limites reprovou: ${failedGates.join(', ') || 'sem resultado'}`)
+  record(
+    'produto: gate de limites (10.000 tarefas, >= 20 MiB)',
+    true,
+    `mutação p95 ${large.mutation.p95Ms} ms, página p95 ${large.page.p95Ms} ms, preflight ${large.preflight.ms} ms, saveMany ${large.saveManyMs} ms`,
+  )
+  assert((await reopen()).ok === true, 'banco do benchmark não reabriu')
+  record('produto: banco do benchmark reabre validado', true)
+}
+
 async function main() {
   const failures = []
+  const evidence = { generatedAt: new Date().toISOString(), note: 'dados e perfis exclusivamente fictícios' }
   const smokeRoot = path.join(os.tmpdir(), `taskflow-smoke-${process.pid}-${Date.now()}`)
   const appCopy = path.join(smokeRoot, 'app')
   const cwd = path.join(smokeRoot, 'cwd')
@@ -243,6 +448,9 @@ async function main() {
       assert(!stillRunning.includes(String(closingPid)), 'processo residual após fechamento')
       record('fechamento da janela sem processo residual', true, `exit:${closingExit.code}`)
 
+      // TFA-003 — produto e bridge de estado, antes dos cenários que adulteram o pacote
+      await productFlow({ exe, cwd, smokeRoot, evidence })
+
       // S5 — preload ausente detectado como falha
       const asarFile = path.join(appCopy, 'resources', 'app.asar')
       const extracted = path.join(smokeRoot, 'asar-extract')
@@ -291,6 +499,12 @@ async function main() {
     } catch (error) {
       err(`aviso: falha ao remover diretório de teste: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  try {
+    writeFileSync(path.join(projectRoot, 'release', 'product-harness-evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`)
+  } catch (error) {
+    err(`aviso: evidência do harness não foi gravada: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   if (failures.length > 0 || results.some((result) => !result.ok)) {

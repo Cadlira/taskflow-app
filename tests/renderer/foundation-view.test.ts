@@ -1,12 +1,23 @@
 import { createPinia } from 'pinia'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FoundationResult, TaskFlowDesktopApi } from '../../src/contracts/foundation.js'
+import type { TaskFlowDesktopApi } from '../../src/contracts/desktop-api.js'
+import type { FoundationResult } from '../../src/contracts/foundation.js'
 import App from '../../src/renderer/src/App.vue'
 
 let wrapper: VueWrapper | undefined
 
-function mountFoundationView(api: TaskFlowDesktopApi): VueWrapper {
+type FoundationApi = Pick<TaskFlowDesktopApi, 'verifyFoundation'>
+
+// O shell continua diagnóstico: a tela só usa verifyFoundation; as operações de estado
+// existem na bridge, mas nenhuma UI de gerenciamento as consome nesta Change.
+function mountFoundationView(foundation: FoundationApi): VueWrapper {
+  const api: TaskFlowDesktopApi = {
+    ...foundation,
+    getStateSnapshot: vi.fn(),
+    subscribeState: vi.fn(),
+    unsubscribeState: vi.fn(),
+  }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api })
   wrapper = mount(App, { attachTo: document.body, global: { plugins: [createPinia()] } })
   return wrapper
@@ -20,7 +31,7 @@ afterEach(() => {
 
 describe('janela provisória acessível', () => {
   it('oferece botão nativo focalizável e estado anunciado', () => {
-    const api: TaskFlowDesktopApi = { verifyFoundation: vi.fn() }
+    const api: FoundationApi = { verifyFoundation: vi.fn() }
     const view = mountFoundationView(api)
     const button = view.get('button')
 
@@ -41,7 +52,7 @@ describe('janela provisória acessível', () => {
       nodeVersion: '24.21.0',
       fingerprint: 'b'.repeat(64),
     }
-    const api: TaskFlowDesktopApi = { verifyFoundation: vi.fn().mockResolvedValue(result) }
+    const api: FoundationApi = { verifyFoundation: vi.fn().mockResolvedValue(result) }
     const view = mountFoundationView(api)
 
     await view.get('button').trigger('click')
@@ -52,7 +63,7 @@ describe('janela provisória acessível', () => {
 
   it('não expõe stack nem caminho em erro', async () => {
     const failure: FoundationResult = { version: 1, status: 'error', code: 'PROOF_UNAVAILABLE' }
-    const api: TaskFlowDesktopApi = { verifyFoundation: vi.fn().mockResolvedValue(failure) }
+    const api: FoundationApi = { verifyFoundation: vi.fn().mockResolvedValue(failure) }
     const view = mountFoundationView(api)
 
     await view.get('button').trigger('click')
@@ -63,7 +74,7 @@ describe('janela provisória acessível', () => {
 
   it('mantém BUSY enquanto a chamada está pendente e captura rejeição sem stack', async () => {
     let resolveCall: ((result: FoundationResult) => void) | undefined
-    const api: TaskFlowDesktopApi = {
+    const api: FoundationApi = {
       verifyFoundation: vi.fn(() => new Promise<FoundationResult>((resolve) => {
         resolveCall = resolve
       })),
@@ -78,7 +89,7 @@ describe('janela provisória acessível', () => {
   })
 
   it('converte rejeição da bridge em mensagem segura', async () => {
-    const api: TaskFlowDesktopApi = {
+    const api: FoundationApi = {
       verifyFoundation: vi.fn().mockRejectedValue(new Error('C:\\Users\\private\\proof.sqlite')),
     }
     const view = mountFoundationView(api)

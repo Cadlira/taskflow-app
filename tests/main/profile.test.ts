@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { resolveProfilePaths, selectFoundationProfile } from '../../src/main/profile.js'
+import {
+  resolveFoundationProofFile,
+  resolveProductDatabaseFile,
+  resolveProfilePaths,
+  selectFoundationProfile,
+} from '../../src/main/profile.js'
 
 describe('profiles locais', () => {
   it('separa dev, test e prod sem aceitar perfil arbitrário em produção', () => {
@@ -19,6 +24,14 @@ describe('profiles locais', () => {
     expect(development.sessionData).toContain('\\dev\\session-data')
     expect(production.userData).toContain('\\prod\\user-data')
     expect(production.userData).not.toBe(development.userData)
+  })
+
+  it('mantém produto, prova e sessão em destinos distintos dentro do perfil', () => {
+    const paths = resolveProfilePaths('C:\\Users\\Standard\\AppData\\Local', 'prod')
+
+    expect(resolveProductDatabaseFile(paths.userData)).toBe(`${paths.userData}\\data\\taskflow.sqlite`)
+    expect(resolveFoundationProofFile(paths.userData)).toBe(`${paths.userData}\\foundation-proof\\proof.sqlite`)
+    expect(resolveProductDatabaseFile(paths.userData).startsWith(paths.sessionData)).toBe(false)
   })
 
   it.each([undefined, '', 'relative\\path', '\\\\server\\share\\LocalAppData', '\\\\?\\C:\\outside'])(

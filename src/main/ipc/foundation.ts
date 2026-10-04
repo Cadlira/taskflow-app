@@ -1,6 +1,5 @@
-import type { IpcMainInvokeEvent, WebContents } from 'electron'
 import type { FoundationFailure, FoundationResult } from '../../contracts/foundation.js'
-import { isTrustedRendererUrl } from '../protocol.js'
+import type { DocumentSessions, InvocationLike } from './document-sessions.js'
 
 export const FOUNDATION_CHANNEL = 'foundation:verify:v1'
 const MAX_REQUEST_BYTES = 1024
@@ -22,18 +21,6 @@ export function isValidFoundationRequest(request: unknown): boolean {
   } catch {
     return false
   }
-}
-
-export function isAuthorizedFoundationInvocation(
-  event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
-  expectedContents: WebContents,
-  expectedOrigin: string,
-): boolean {
-  return (
-    event.sender.id === expectedContents.id &&
-    event.senderFrame === event.sender.mainFrame &&
-    isTrustedRendererUrl(event.senderFrame.url, expectedOrigin)
-  )
 }
 
 export class FoundationBusyGate {
@@ -58,4 +45,25 @@ export function invalidFoundationRequest(): FoundationFailure {
 
 export function unauthorizedFoundationInvocation(): FoundationFailure {
   return failure('UNAUTHORIZED')
+}
+
+/**
+ * Diagnóstico com os mesmos guards de documento/sessão do estado: autoriza antes de qualquer
+ * efeito, revalida antes de executar a prova e antes de responder. O gate BUSY é próprio do
+ * diagnóstico e independente da fila do banco de produto.
+ */
+export async function handleFoundationInvocation(
+  event: InvocationLike,
+  request: unknown,
+  sessions: DocumentSessions,
+  gate: FoundationBusyGate,
+  runProof: () => Promise<FoundationResult> | FoundationResult,
+): Promise<FoundationResult> {
+  const ticket = sessions.authorize(event)
+  if (ticket === null) return unauthorizedFoundationInvocation()
+  if (!isValidFoundationRequest(request)) return invalidFoundationRequest()
+
+  const result = await gate.run(() => (sessions.isCurrent(ticket) ? runProof() : unauthorizedFoundationInvocation()))
+  // Documento mudou durante a prova: a resposta não segue para o documento novo.
+  return sessions.isCurrent(ticket) ? result : unauthorizedFoundationInvocation()
 }

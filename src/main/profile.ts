@@ -36,3 +36,13 @@ export function resolveProfilePaths(localAppData: string | undefined, profile: F
     sessionData: path.win32.join(root, 'session-data'),
   }
 }
+
+/** Banco de produto do perfil: `<userData>/data/taskflow.sqlite`, separado da prova e da sessão. */
+export function resolveProductDatabaseFile(userData: string): string {
+  return path.win32.join(userData, 'data', 'taskflow.sqlite')
+}
+
+/** Banco fictício do diagnóstico: `<userData>/foundation-proof/proof.sqlite`. */
+export function resolveFoundationProofFile(userData: string): string {
+  return path.win32.join(userData, 'foundation-proof', 'proof.sqlite')
+}

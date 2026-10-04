@@ -24,7 +24,3 @@ export type FoundationFailure = Readonly<{
 }>
 
 export type FoundationResult = FoundationSuccess | FoundationFailure
-
-export interface TaskFlowDesktopApi {
-  verifyFoundation(request: FoundationRequest): Promise<FoundationResult>
-}
