@@ -3,7 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"],
-    "noEmit": true
+    "noEmit": true,
+    "allowJs": true
   },
-  "include": ["tests/**/*.ts", "src/contracts/**/*.ts", "src/renderer/src/env.d.ts", "src/renderer/src/vue.d.ts"]
+  "include": ["tests/**/*.ts", "src/contracts/**/*.ts", "src/renderer/src/env.d.ts", "src/renderer/src/vue.d.ts", "scripts/verify-package.mjs"]
 }

@@ -1,9 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import BetterSqlite3 from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import type { FoundationFailure, FoundationResult, FoundationSuccess } from '../contracts/foundation.js'
 
+// Prova transacional fictícia (G4 revisado em 2026-10-04): armazenamento
+// embarcado `node:sqlite` do runtime Electron, sem addon externo ou fallback.
 const FOUNDATION_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS foundation_marker (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -19,7 +21,7 @@ function failure(code: FoundationFailure['code']): FoundationFailure {
   return { version: 1, status: 'error', code }
 }
 
-function readMarker(database: InstanceType<typeof BetterSqlite3>): string | null {
+function readMarker(database: DatabaseSync): string | null {
   const row = database.prepare(READ_MARKER_SQL).get() as MarkerRow | undefined
   if (row === undefined) return null
   if (typeof row.marker !== 'string' || !/^[a-f0-9]{64}$/.test(row.marker)) {
@@ -29,12 +31,12 @@ function readMarker(database: InstanceType<typeof BetterSqlite3>): string | null
 }
 
 export function runFoundationProof(databaseFile: string, appVersion: string, electronVersion: string, nodeVersion: string): FoundationResult {
-  let database: InstanceType<typeof BetterSqlite3> | undefined
+  let database: DatabaseSync | undefined
 
   try {
     const databaseDirectory = path.dirname(databaseFile)
     mkdirSync(databaseDirectory, { recursive: true })
-    database = new BetterSqlite3(databaseFile, { timeout: 2000 })
+    database = new DatabaseSync(databaseFile)
     database.exec(FOUNDATION_TABLE_SQL)
 
     let marker = readMarker(database)
@@ -45,25 +47,23 @@ export function runFoundationProof(databaseFile: string, appVersion: string, ele
     }
 
     const rollbackMarker = randomBytes(32).toString('hex')
-    const rollbackTransaction = database.transaction(() => {
-      database?.prepare('UPDATE foundation_marker SET marker = ? WHERE id = 1').run(rollbackMarker)
-      throw ROLLBACK_PROBE
-    })
-
     let rolledBack = false
+    database.exec('BEGIN IMMEDIATE')
     try {
-      rollbackTransaction()
+      database.prepare('UPDATE foundation_marker SET marker = ? WHERE id = 1').run(rollbackMarker)
+      throw ROLLBACK_PROBE
     } catch (error) {
       if (error !== ROLLBACK_PROBE) throw error
+      database.exec('ROLLBACK')
       rolledBack = true
     }
-    if (!rolledBack || database.inTransaction) throw new Error('Foundation rollback did not complete')
+    if (!rolledBack || database.isTransaction) throw new Error('Foundation rollback did not complete')
 
     const beforeClose = readMarker(database)
     database.close()
     database = undefined
 
-    const reopened = new BetterSqlite3(databaseFile, { fileMustExist: true, readonly: true })
+    const reopened = new DatabaseSync(databaseFile, { readOnly: true })
     const afterReopen = readMarker(reopened)
     reopened.close()
     if (beforeClose === null || beforeClose !== marker || afterReopen !== marker) {

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, protocol, session } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { FoundationResult } from '../contracts/foundation.js'
 import { runFoundationProof } from './foundation-proof.js'
 import {
   FOUNDATION_CHANNEL,
@@ -123,6 +124,34 @@ if (!ownsProfile) {
     mainWindow = createMainWindow()
     registerFoundationIpc(mainWindow)
     await mainWindow.loadURL(resolveDevelopmentUrl())
+    if (profile === 'test') await runFoundationSmoke(mainWindow)
+  }
+
+  // Modo de diagnóstico do perfil test (smoke do pacote): usa somente a ponte pública
+  // do renderer, sem canais/paths livres, e reporta o resultado no stdout para o
+  // harness. O processo permanece ativo para o teste de segunda instância.
+  async function runFoundationSmoke(window: BrowserWindow): Promise<void> {
+    try {
+      const proof = (await window.webContents.executeJavaScript(
+        'window.taskflowDesktop.verifyFoundation({ version: 1 })',
+      )) as FoundationResult
+      const probePayloads = [
+        { name: 'invalid-version', payload: { version: 2 } },
+        { name: 'extra-field', payload: { version: 1, extra: true } },
+      ]
+      const probes: Array<{ name: string; result: FoundationResult }> = []
+      for (const probe of probePayloads) {
+        const result = (await window.webContents.executeJavaScript(
+          `window.taskflowDesktop.verifyFoundation(${JSON.stringify(probe.payload)})`,
+        )) as FoundationResult
+        probes.push({ name: probe.name, result })
+      }
+      process.stdout.write(`TASKFLOW_FOUNDATION_TEST ${JSON.stringify({ proof, probes })}\n`)
+      if (proof.status !== 'verified') app.exit(3)
+    } catch {
+      process.stdout.write('TASKFLOW_FOUNDATION_TEST {"status":"error","code":"BRIDGE_UNAVAILABLE"}\n')
+      app.exit(3)
+    }
   }
 
   app.on('window-all-closed', () => app.quit())
