@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { TaskFlowDesktopApi } from '../../contracts/foundation.js'
+import type { TaskFlowDesktopApi } from '../../contracts/desktop-api.js'
 
 declare global {
   interface Window {

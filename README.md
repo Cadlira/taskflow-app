@@ -2,7 +2,7 @@
 
 Aplicativo desktop **autocontido e local-first** para captura rápida e gerenciamento de tarefas pessoais e profissionais. É derivado da extensão TaskFlow para Google Chrome e tem como destino o Windows, distribuído por um instalador **por usuário** — sem exigir administrador e sem instalar serviços de sistema.
 
-> **Estado atual:** a fundação técnica está implementada e verificada — shell isolado, contrato diagnóstico validado, prova de armazenamento embarcada, gates/CI e instalador NSIS exclusivo por usuário. As funcionalidades de tarefas ainda **não** foram migradas: as TFA-003 a TFA-012 cuidam dessa migração, Change por Change. Itens descritos abaixo como alvo não estão disponíveis no aplicativo.
+> **O que o aplicativo faz hoje:** abre uma janela diagnóstica isolada e mantém um banco local de tarefas e lixeira, com leitura e acompanhamento de estado disponíveis para a interface. **Ainda não há tela de tarefas nem comandos para criar ou editar:** as funcionalidades listadas em "Propósito" são o alvo da migração e não estão disponíveis no aplicativo. O andamento está no [roadmap](docs/roadmap.md).
 
 ## Propósito
 
@@ -34,11 +34,12 @@ O roadmap registra o tratamento planejado e a Change responsável por cada item.
 
 ## Fundação técnica
 
-- **Stack:** Vue 3 + Pinia com Electron, builds separados de main/preload/renderer via `electron-vite`, TypeScript estrito em todos os projetos. Domínio e aplicação futuros permanecem proibidos de importar Vue/Pinia/Electron/Node/rede.
+- **Stack:** Vue 3 + Pinia com Electron, builds separados de main/preload/renderer via `electron-vite`, TypeScript estrito em todos os projetos. O núcleo portável (contratos, domínio e aplicação) não importa Vue, Pinia, Electron, Node nem rede.
 - **Isolamento:** `contextIsolation`, `sandbox` e `webSecurity` ativos; renderer servido apenas por assets locais (`taskflow://app`) com CSP restritiva; navegação externa, janelas, webviews e permissões negadas por padrão.
-- **Contrato diagnóstico:** única operação exposta `verifyFoundation({ version: 1 })`, validada no main por schema, versão, limite de 1 KiB, webContents, main frame e origem exata, com códigos fechados e erros sanitizados.
+- **Bridge fechada:** quatro operações expostas ao renderer — `verifyFoundation`, `getStateSnapshot`, `subscribeState` e `unsubscribeState`. Todas são validadas no main por schema exato, limite de 1 KiB, `webContents` registrado, main frame, origem e URL reais e sessão do documento, com códigos de erro fechados. Não há comando de mutação, SQL, caminho ou canal genérico.
+- **Estado para a interface:** snapshot completo de tarefas e lixeira por revisão, paginado em até 256 KiB por mensagem, com eventos de invalidação e ressincronização automática (a cada 30 s e ao retomar o foco).
 - **Perfis e ownership:** identidade `taskflow.app`/`TaskFlowApp.exe`; dados em `%LOCALAPPDATA%\TaskFlowApp\profiles\<dev|test|prod>\{user-data,session-data}`; instância única por perfil antes de abrir o armazenamento.
-- **Armazenamento da prova:** `node:sqlite` embarcado no Electron fixado (decisão revisada e aprovada), com marcador fictício, transação com rollback, reabertura e fingerprint. A persistência definitiva de tarefas será decidida na TFA-003.
+- **Armazenamento:** SQLite pelo `node:sqlite` embarcado no Electron, sem addon nativo. O banco de tarefas e lixeira fica em `<user-data>\data\taskflow.sqlite`, com gravações transacionais, um único coordenador de leitura/decisão/commit no processo principal e revisões persistidas. Um banco existente vazio, incompatível ou corrompido bloqueia a abertura e é preservado — nunca é redefinido automaticamente. O diagnóstico usa um banco próprio, separado (`foundation-proof\proof.sqlite`).
 - **Instalador:** NSIS offline one-click **exclusivo por usuário** (`asInvoker`, sem elevate helper, updater ou serviços), com validação de argumentos/destino e ACE de leitura do AppContainer restrita ao diretório instalado. O desinstalador preserva os dados do usuário.
 - **Matriz fixada:** Node 24.21.0 e npm 11.21.0 (build), Electron 44.5.1, electron-builder 26.17.0, electron-vite 5.0.0/Vite 7.3.6, Vue 3.5.43/Pinia 4.0.3, TypeScript 5.9.3/vue-tsc 3.3.12, ESLint 9.39.5, Vitest 4.1.11. Versões exatas no `package-lock.json`.
 
@@ -46,7 +47,7 @@ O roadmap registra o tratamento planejado e a Change responsável por cada item.
 
 A adaptação de captura já está confirmada: em vez de ler a aba ativa do Chrome, o aplicativo usará **links e textos copiados**, acionados por botão ou atalho global, sem navegador embutido, extensão auxiliar ou monitoramento contínuo da área de transferência. As demais diferenças previstas:
 
-- persistência durável no perfil do usuário, resistente a fechamento, atualização e falhas de escrita (TFA-003);
+- persistência em banco SQLite local no perfil do usuário, no lugar do armazenamento do navegador (já disponível como base; a interface de tarefas ainda não);
 - lembretes e notificações nativos do Windows, com ciclo de vida definido ao minimizar, fechar, suspender e reiniciar (TFA-008);
 - atalhos globais personalizáveis, com tratamento explícito de conflitos (TFA-009).
 
@@ -55,8 +56,13 @@ O backup atual da extensão exporta **tarefas**. Lixeira, credenciais de IA e es
 ## Estrutura do repositório
 
 ```text
-src/                  main, preload, renderer e contratos tipados
-tests/                testes unitários, de contrato e de fronteiras
+src/contracts/        contratos tipados e validados da bridge
+src/domain/           tipos e regras puras de tarefa
+src/application/      codecs, unidade de trabalho e cliente de estado (portáveis)
+src/main/             processo principal: armazenamento, coordenação, IPC e harness de teste
+src/preload/          bridge mínima exposta ao renderer
+src/renderer/         interface Vue (hoje, a tela diagnóstica)
+tests/                testes unitários, de contrato, de armazenamento e de fronteiras
 scripts/              geração de ícone, inspeção do pacote e smoke empacotado
 build/                recursos do instalador (ícone e include NSIS)
 assets/               master SVG da marca
@@ -83,10 +89,10 @@ npm run build           # build das três entradas
 npm run validate        # lint + typecheck + testes + build
 npm run package:win     # instalador NSIS x64 (--publish never)
 npm run verify:package  # inventário/manifests/hashes do pacote
-npm run smoke:packaged  # executa o exe empacotado em cópia de teste
+npm run smoke:packaged  # executa o exe empacotado em cópia de teste (fundação, banco e bridge)
 ```
 
-O detalhamento de versões, hashes, limitações e das provas executadas (incluindo a instalação por usuário) está em [Validação da fundação](docs/desktop-foundation-validation.md). Os comandos `/opsx:*` são comandos de chat do assistente; os comandos `openspec` são de terminal.
+O detalhamento de versões, hashes, limitações e das provas executadas (incluindo a instalação por usuário) está em [Validação da fundação](docs/desktop-foundation-validation.md); o contrato de armazenamento e de estado, seus limites e evidências estão em [Persistência local e IPC de estado](docs/local-persistence-and-state-ipc.md). Os comandos `/opsx:*` são comandos de chat do assistente; os comandos `openspec` são de terminal.
 
 ## Documentação
 
@@ -96,6 +102,7 @@ O detalhamento de versões, hashes, limitações e das provas executadas (inclui
 - [Matriz de paridade](docs/parity-matrix.md)
 - [Estratégia de testes](docs/test-strategy.md)
 - [Validação da fundação desktop](docs/desktop-foundation-validation.md)
+- [Persistência local e IPC de estado](docs/local-persistence-and-state-ipc.md)
 
 ## Licença
 

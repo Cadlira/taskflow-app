@@ -1,18 +1,24 @@
 import { app, BrowserWindow, ipcMain, Menu, protocol, session } from 'electron'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { FoundationResult } from '../contracts/foundation.js'
+import { STATE_SNAPSHOT_CHANNEL, STATE_SUBSCRIBE_CHANNEL, STATE_UNSUBSCRIBE_CHANNEL } from '../contracts/state.js'
 import { runFoundationProof } from './foundation-proof.js'
+import { parseProductHarnessScenario, runProductHarness } from './harness/product-harness.js'
+import { DocumentSessions } from './ipc/document-sessions.js'
+import { FOUNDATION_CHANNEL, FoundationBusyGate, handleFoundationInvocation } from './ipc/foundation.js'
+import { StateIpcService } from './ipc/state.js'
 import {
-  FOUNDATION_CHANNEL,
-  FoundationBusyGate,
-  invalidFoundationRequest,
-  isAuthorizedFoundationInvocation,
-  isValidFoundationRequest,
-  unauthorizedFoundationInvocation,
-} from './ipc/foundation.js'
-import { selectFoundationProfile, resolveProfilePaths } from './profile.js'
+  resolveFoundationProofFile,
+  resolveProductDatabaseFile,
+  resolveProfilePaths,
+  selectFoundationProfile,
+} from './profile.js'
 import { isTrustedRendererUrl, parseAppAssetRequest, readPackagedAsset } from './protocol.js'
+import { StorageCoordinator, type ShutdownReport } from './storage/coordinator.js'
+import { ProductDatabase, type StorageFaults } from './storage/product-database.js'
+import { PRODUCT_STORAGE_DEFINITION } from './storage/product-schema.js'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'taskflow', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false } },
@@ -26,6 +32,8 @@ const paths = resolveProfilePaths(process.env['LOCALAPPDATA'], profile)
 app.setPath('userData', paths.userData)
 app.setPath('sessionData', paths.sessionData)
 
+// Ownership do perfil antes de qualquer banco: a segunda instância encerra sem abrir a prova
+// nem o produto e sem criar janela.
 const ownsProfile = app.requestSingleInstanceLock()
 if (!ownsProfile) {
   app.quit()
@@ -34,7 +42,22 @@ if (!ownsProfile) {
   const devOrigin = 'http://127.0.0.1:5173'
   const expectedOrigin = app.isPackaged ? packagedOrigin : devOrigin
   const busyGate = new FoundationBusyGate()
+  const sessions = new DocumentSessions(expectedOrigin)
+  // Harness restrito ao perfil test: nunca é alcançável pelo preload/IPC nem pelo perfil prod.
+  const harnessScenario = profile === 'test' ? parseProductHarnessScenario(process.argv) : null
+  const harnessFaults: StorageFaults = {}
+  const coordinator = new StorageCoordinator({
+    open: () =>
+      ProductDatabase.open(resolveProductDatabaseFile(app.getPath('userData')), PRODUCT_STORAGE_DEFINITION, harnessFaults),
+    faults: harnessFaults,
+  })
+  const stateIpc = new StateIpcService({
+    sessions,
+    storage: coordinator,
+    randomToken: () => randomBytes(24).toString('base64url'),
+  })
   let mainWindow: BrowserWindow | null = null
+  let shutdownStarted = false
 
   async function serveAssets(): Promise<void> {
     protocol.handle('taskflow', async (request) => {
@@ -60,7 +83,8 @@ if (!ownsProfile) {
     defaultSession.setPermissionCheckHandler(() => false)
   }
 
-  function createMainWindow(): BrowserWindow {
+  /** Cria uma superfície isolada e a registra como documento autorizado. */
+  function createSurface(options: { show: boolean; register: boolean }): BrowserWindow | null {
     const preload = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'preload', 'index.cjs')
     const window = new BrowserWindow({
       width: 780,
@@ -82,15 +106,36 @@ if (!ownsProfile) {
       },
     })
 
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    window.webContents.on('will-navigate', (event, url) => {
+    const contents = window.webContents
+    const contentsId = contents.id
+    if (options.register && !sessions.register(contents)) {
+      window.destroy()
+      return null
+    }
+
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    contents.on('will-navigate', (event, url) => {
       if (!isTrustedRendererUrl(url, expectedOrigin)) event.preventDefault()
     })
-    window.webContents.on('will-redirect', (event, url) => {
+    contents.on('will-redirect', (event, url) => {
       if (!isTrustedRendererUrl(url, expectedOrigin)) event.preventDefault()
     })
-    window.webContents.on('will-attach-webview', (event) => event.preventDefault())
-    window.once('ready-to-show', () => window.show())
+    contents.on('will-attach-webview', (event) => event.preventDefault())
+    // Navegação e reload (inclusive da mesma URL) trocam o documento: a sessão anterior, seus
+    // cursores, inscrição e respostas pendentes deixam de valer no início e na conclusão.
+    contents.on('did-start-navigation', (details) => {
+      if (details.isMainFrame && !details.isSameDocument) sessions.invalidate(contentsId)
+    })
+    contents.on('did-navigate', () => sessions.invalidate(contentsId))
+    contents.on('render-process-gone', () => sessions.invalidate(contentsId))
+    contents.once('destroyed', () => sessions.unregister(contentsId))
+    if (options.show) window.once('ready-to-show', () => window.show())
+    return window
+  }
+
+  function createMainWindow(): BrowserWindow {
+    const window = createSurface({ show: true, register: true })
+    if (window === null) throw new Error('Main window could not be registered')
     window.once('closed', () => {
       if (mainWindow === window) mainWindow = null
       app.quit()
@@ -98,33 +143,67 @@ if (!ownsProfile) {
     return window
   }
 
-  function registerFoundationIpc(window: BrowserWindow): void {
-    ipcMain.handle(FOUNDATION_CHANNEL, async (event, request: unknown) => {
-      if (!isValidFoundationRequest(request)) return invalidFoundationRequest()
-      if (!isAuthorizedFoundationInvocation(event, window.webContents, expectedOrigin)) {
-        return unauthorizedFoundationInvocation()
-      }
-
-      return busyGate.run(() => {
-        const databaseFile = path.join(app.getPath('userData'), 'foundation-proof', 'proof.sqlite')
-        return runFoundationProof(
-          databaseFile,
+  function registerIpc(): void {
+    ipcMain.handle(FOUNDATION_CHANNEL, (event, request: unknown) =>
+      handleFoundationInvocation(event, request, sessions, busyGate, () =>
+        runFoundationProof(
+          resolveFoundationProofFile(app.getPath('userData')),
           app.getVersion(),
           process.versions.electron,
           process.versions.node,
-        )
-      })
-    })
+        ),
+      ),
+    )
+    ipcMain.handle(STATE_SNAPSHOT_CHANNEL, (event, request: unknown) => stateIpc.handleSnapshot(event, request))
+    ipcMain.handle(STATE_SUBSCRIBE_CHANNEL, (event, request: unknown) => stateIpc.handleSubscribe(event, request))
+    ipcMain.handle(STATE_UNSUBSCRIBE_CHANNEL, (event, request: unknown) => stateIpc.handleUnsubscribe(event, request))
+  }
+
+  /**
+   * Encerramento: fecha a admissão do IPC, invalida sessões/listeners, cancela entradas de
+   * sessão ainda não iniciadas, drena as unidades internas admitidas e fecha a conexão. As
+   * unidades são síncronas: uma unidade em commit termina antes de este código executar.
+   */
+  function shutdownStorage(): ShutdownReport | undefined {
+    if (shutdownStarted) return undefined
+    shutdownStarted = true
+    for (const channel of [FOUNDATION_CHANNEL, STATE_SNAPSHOT_CHANNEL, STATE_SUBSCRIBE_CHANNEL, STATE_UNSUBSCRIBE_CHANNEL]) {
+      ipcMain.removeHandler(channel)
+    }
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) sessions.unregister(window.webContents.id)
+    }
+    stateIpc.dispose()
+    return coordinator.shutdown()
   }
 
   async function startApplication(): Promise<void> {
     await serveAssets()
     configureSession()
     Menu.setApplicationMenu(null)
+    // Indisponibilidade do banco de produto não vira estado vazio: o IPC devolve o código.
+    coordinator.start()
+    registerIpc()
     mainWindow = createMainWindow()
-    registerFoundationIpc(mainWindow)
     await mainWindow.loadURL(resolveDevelopmentUrl())
-    if (profile === 'test') await runFoundationSmoke(mainWindow)
+    if (harnessScenario !== null) {
+      await runProductHarness(harnessScenario, {
+        app,
+        coordinator,
+        sessions,
+        stateIpc,
+        faults: harnessFaults,
+        mainWindow,
+        createSurface: (register) => createSurface({ show: false, register }),
+        surfaceUrl: resolveDevelopmentUrl(),
+        expectedOrigin,
+        productDatabaseFile: resolveProductDatabaseFile(app.getPath('userData')),
+        foundationProofFile: resolveFoundationProofFile(app.getPath('userData')),
+        shutdownStorage,
+      })
+    } else if (profile === 'test') {
+      await runFoundationSmoke(mainWindow)
+    }
   }
 
   // Modo de diagnóstico do perfil test (smoke do pacote): usa somente a ponte pública
@@ -155,9 +234,7 @@ if (!ownsProfile) {
   }
 
   app.on('window-all-closed', () => app.quit())
-  app.on('before-quit', () => {
-    ipcMain.removeHandler(FOUNDATION_CHANNEL)
-  })
+  app.on('before-quit', () => void shutdownStorage())
 
   void app.whenReady().then(startApplication).catch(() => app.quit())
 }

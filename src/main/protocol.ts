@@ -56,6 +56,20 @@ export function isTrustedRendererUrl(urlText: string, expectedOrigin: string): b
   }
 }
 
+/**
+ * URL real de um documento autorizado: origem local exata e a rota do shell, sem query nem
+ * fragmento. `about:blank`, `blob:` e URLs apenas parecidas não passam.
+ */
+export function isAuthorizedDocumentUrl(urlText: string, expectedOrigin: string): boolean {
+  if (!isTrustedRendererUrl(urlText, expectedOrigin)) return false
+  try {
+    const url = new URL(urlText)
+    return (url.pathname === '/' || url.pathname === '/index.html') && url.search === '' && url.hash === ''
+  } catch {
+    return false
+  }
+}
+
 export async function readPackagedAsset(rendererRoot: string, assetPath: string): Promise<Response | null> {
   try {
     const root = await realpath(rendererRoot)

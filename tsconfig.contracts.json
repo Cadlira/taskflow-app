@@ -5,5 +5,5 @@
     "types": [],
     "noEmit": true
   },
-  "include": ["src/contracts/**/*.ts"]
+  "include": ["src/contracts/**/*.ts", "src/domain/**/*.ts", "src/application/**/*.ts"]
 }

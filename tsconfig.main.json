@@ -5,5 +5,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src/main/**/*.ts", "src/contracts/**/*.ts", "electron.vite.config.ts"]
+  "include": ["src/main/**/*.ts", "src/contracts/**/*.ts", "src/domain/**/*.ts", "src/application/**/*.ts", "electron.vite.config.ts"]
 }
