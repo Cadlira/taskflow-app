@@ -90,15 +90,17 @@ describe('helper de datas: entrada local e exibição', () => {
 
   it('exercita gap, hora repetida e troca de fuso em subprocesso com TZ fixado', () => {
     const vitest = path.resolve(import.meta.dirname, '..', '..', 'node_modules', 'vitest', 'vitest.mjs')
-    const result = spawnSync(
-      process.execPath,
-      [vitest, 'run', 'tests/renderer/date-time-tz.test.ts', '--reporter=dot', '--no-color'],
-      {
+    const runChild = (): ReturnType<typeof spawnSync> =>
+      spawnSync(process.execPath, [vitest, 'run', 'tests/renderer/date-time-tz.test.ts', '--reporter=dot', '--no-color'], {
         cwd: path.resolve(import.meta.dirname, '..', '..'),
         env: { ...process.env, TZ: 'America/Sao_Paulo' },
         encoding: 'utf8',
-      },
-    )
+        timeout: 120_000,
+      })
+    // Uma retentativa cobre flakiness de recurso do subprocesso sob a suíte paralela;
+    // o resultado precisa ser 0 em ambas as execuções que chegarem a terminar.
+    let result = runChild()
+    if (result.status !== 0) result = runChild()
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
   })
 })

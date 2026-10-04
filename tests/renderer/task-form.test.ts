@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import TaskForm from '../../src/renderer/src/components/tasks/TaskForm.vue'
+import { toLocalDateTimeInput } from '../../src/renderer/src/components/tasks/date-time.js'
 import { buildTask } from '../support/task-fixtures.js'
 
 afterEach(() => {
@@ -147,7 +148,8 @@ describe('TaskForm: campos básicos, erro e foco', () => {
   })
 
   it('restaurar o prazo salvo descarta a alteração pendente', async () => {
-    const task = buildTask({ id: 'tz', dueAt: '2026-10-05T18:30:00.000Z' })
+    const savedIso = '2026-10-05T18:30:00.000Z'
+    const task = buildTask({ id: 'tz', dueAt: savedIso })
     const wrapper = mountForm({ props: { task, timeZoneConvert: () => '2026-10-05T14:30' } })
 
     const dueInput = wrapper.get('input[name="dueAt"]')
@@ -156,7 +158,8 @@ describe('TaskForm: campos básicos, erro e foco', () => {
     const buttons = wrapper.get('[data-test="time-zone-review"]').findAll('button')
     await buttons[1]?.trigger('click')
 
-    expect((dueInput.element as HTMLInputElement).value).toBe('2026-10-05T15:30')
+    // O texto restaurado é o do fuso corrente do processo (independente de o runner estar em UTC).
+    expect((dueInput.element as HTMLInputElement).value).toBe(toLocalDateTimeInput(savedIso))
     await wrapper.get('form').trigger('submit')
     const patch = (wrapper.emitted('submit')?.[0]?.[0] as { patch: Record<string, unknown> }).patch
     expect('dueAt' in patch).toBe(false)

@@ -36,7 +36,7 @@ export type ProductHarnessScenario =
   | { name: 'drain' }
   | { name: 'tasks' }
   | { name: 'ui-bench' }
-  | { name: 'a11y' }
+  | { name: 'a11y'; opener: 'real' | 'fake' }
   | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' }
 
 export interface ProductHarnessDependencies {
@@ -63,7 +63,11 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
-  if (value === 'tasks' || value === 'ui-bench' || value === 'a11y') return { name: value }
+  if (value === 'tasks' || value === 'ui-bench') return { name: value }
+  if (value === 'a11y') return { name: 'a11y', opener: 'real' }
+  // Runner hospedado: sem navegador padrão garantido, a abertura usa um opener falso e o shell
+  // real continua sendo prova da máquina de referência.
+  if (value === 'a11y|fake-opener') return { name: 'a11y', opener: 'fake' }
 
   const [name, point, unit, ...rest] = value.split('|')
   if (name !== 'crash' || rest.length > 0) return null
@@ -1083,15 +1087,16 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
 
 /**
  * TFA-004: evidência de pacote para dimensões/zoom/foco/strings longas e abertura de uma URL
- * fictícia controlada pelo shell real. Não substitui leitor de tela/DPI humano; nenhum dado
- * privado é aberto e o Setup não é executado.
+ * fictícia controlada. `opener: 'real'` usa o shell do Windows (máquina de referência);
+ * `opener: 'fake'` troca a porta por um registrador (runner hospedado sem navegador garantido).
+ * Não substitui leitor de tela/DPI humano; nenhum dado privado é aberto e o Setup não é executado.
  */
-async function runA11y(deps: ProductHarnessDependencies): Promise<void> {
+async function runA11y(deps: ProductHarnessDependencies, openerMode: 'real' | 'fake'): Promise<void> {
   const { coordinator, mainWindow: surface } = deps
   const checks: Record<string, boolean> = {}
   const bounds = surface.getBounds()
   const minimum = surface.getMinimumSize()
-  const info: Record<string, unknown> = { runtime: runtimeInfo(deps), bounds, minimum }
+  const info: Record<string, unknown> = { runtime: runtimeInfo(deps), bounds, minimum, openerMode }
 
   checks['initialBounds'] = bounds.width === 780 && bounds.height === 560
   checks['minimumSize'] = minimum[0] === 360 && minimum[1] === 420
@@ -1133,17 +1138,25 @@ async function runA11y(deps: ProductHarnessDependencies): Promise<void> {
   expectOkUnit(await coordinator.run((unit) => unit.saveTask(longTask)))
   checks['longStringVisible'] = await evaluate<boolean>(surface, uiBodyHas(longTitle, 15_000))
 
-  // Abertura real (shell do Windows) de uma URL fictícia controlada: sem dados privados.
+  // Abertura da URL fictícia controlada: shell real na máquina de referência ou opener falso no
+  // runner hospedado; em ambos os casos a tarefa não muda.
   const openerTask = { ...buildFictitiousTask(995_002, { idPrefix: 'a11y-opener' }), sourceUrl: 'https://example.invalid/tarefa-a11y' }
   expectOkUnit(await coordinator.run((unit) => unit.saveTask(openerTask)))
   const stored = await coordinator.read((reader) => reader.getTask(openerTask.id))
   const revision = stored.ok ? stored.value?.contentRevision.toString() ?? '1' : '1'
+  const recorded: string[] = []
+  if (openerMode === 'fake') {
+    deps.opener.openExternal = async (href: string) => {
+      recorded.push(href)
+    }
+  }
   const result = await evaluate<{ status: string; code?: string }>(
     surface,
     `window.taskflowDesktop.openTaskSource({ version: 1, taskId: ${JSON.stringify(openerTask.id)}, expectedContentRevision: ${JSON.stringify(revision)} })`,
   )
   info['openerResult'] = result
-  checks['windowsOpenerAccepted'] = result.status === 'ok'
+  checks['windowsOpenerAccepted'] =
+    result.status === 'ok' && (openerMode === 'real' || recorded[0] === openerTask.sourceUrl)
   const after = await coordinator.read((reader) => reader.getTask(openerTask.id))
   checks['openerKeepsTask'] = after.ok && after.value?.contentRevision.toString() === revision
 
@@ -1174,7 +1187,7 @@ export async function runProductHarness(
     if (scenario.name === 'reopen') await runReopen(deps)
     else if (scenario.name === 'drain') await runDrain(deps)
     else if (scenario.name === 'ui-bench') await runUiBench(deps)
-    else if (scenario.name === 'a11y') await runA11y(deps)
+    else if (scenario.name === 'a11y') await runA11y(deps, scenario.opener)
     else await runBench(deps)
     deps.app.quit()
   } catch {

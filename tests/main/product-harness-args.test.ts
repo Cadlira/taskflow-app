@@ -10,7 +10,11 @@ describe('harness restrito de produto', () => {
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=drain'])).toEqual({ name: 'drain' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=tasks'])).toEqual({ name: 'tasks' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=ui-bench'])).toEqual({ name: 'ui-bench' })
-    expect(parseProductHarnessScenario(['app.exe', '--product-harness=a11y'])).toEqual({ name: 'a11y' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=a11y'])).toEqual({ name: 'a11y', opener: 'real' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=a11y|fake-opener'])).toEqual({
+      name: 'a11y',
+      opener: 'fake',
+    })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=crash|unit:before-commit'])).toEqual({
       name: 'crash',
       point: 'unit:before-commit',
@@ -29,6 +33,7 @@ describe('harness restrito de produto', () => {
     [['--product-harness=write']],
     [['--product-harness=tasks|extra']],
     [['--product-harness=ui-bench|1']],
+    [['--product-harness=a11y|outro']],
     [['--product-harness=bridge', '--product-harness=bench']],
     [['--product-harness=crash']],
     [['--product-harness=crash|unit:commit']],
