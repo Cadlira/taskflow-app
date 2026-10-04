@@ -2,7 +2,7 @@
 
 **TFA-001 · revisão documental · 2026-10-03**
 
-Este documento registra o baseline arquitetural aprovado na TFA-001 e, na seção **Fundação TFA-002 implementada**, os contratos que passaram a existir no aplicativo. O restante descreve contratos para as Changes futuras e não declara funcionalidades de tarefas, lixeira, lembretes, captura ou IA disponíveis.
+Este documento registra o baseline arquitetural aprovado na TFA-001 e, nas seções **Fundação TFA-002 implementada** e **Persistência e IPC de estado TFA-003 implementados**, os contratos que passaram a existir no aplicativo. O restante descreve contratos para as Changes futuras e não declara funcionalidades de tarefas, lixeira, lembretes, captura ou IA disponíveis.
 
 ## Estado das decisões
 
@@ -84,6 +84,8 @@ Guardas obrigatórias a refinar em TFA-003: `nodeIntegration: false`, `contextIs
 
 Não atravessam structured clone: callbacks de repository, subscriptions/funções, `File.text()`, `AbortSignal`, instâncias de erro esperando conservar protótipo, plano de undo livre ou caminho de arquivo arbitrário. O main recria funções, controllers e acesso a arquivos internamente. Tipos TypeScript não substituem autorização nem validação de runtime. Ver também [segurança Electron](https://www.electronjs.org/docs/latest/tutorial/security).
 
+**Resolvido na TFA-003 (2026-10-04) para o grupo de leitura de estado:** o preload expõe `getStateSnapshot`, `subscribeState` e `unsubscribeState`, além de `verifyFoundation`. As guardas acima estão implementadas para essas operações, com validação de documento/sessão também antes da execução enfileirada e do envio. Os comandos de criar/editar/status e os demais grupos da tabela continuam **não implementados**. Detalhes na seção TFA-003 abaixo.
+
 ## D4 — Persistência, ordem e recuperação
 
 **Invariante proposto:** um processo main controla o perfil de dados e serializa cada sequência read/decide/commit de mutações relacionadas. Tarefas/lixeira, fechamento e criação da próxima ocorrência, restore e undo devem manter unidade de trabalho quando aplicável. Uma falha não deixa metade de uma operação; a fila volta a processar depois de erro.
@@ -94,6 +96,8 @@ Não atravessam structured clone: callbacks de repository, subscriptions/funçõ
 | JSON versionado em envelope único | Poucas dependências, formato legível e próximo dos codecs atuais. | Implementar temporário no mesmo volume, flush/substituição/recuperação; tarefas e lixeira compartilham escritor e commit. `writeFile` simples ou atomicidade por arquivo não bastam. |
 
 **Condicional:** SQLite é a preferência aprovada somente sob prova de empacotamento viável em TFA-002 e seleção/revisão específica em TFA-003. Driver e versões não estão decididos. JSON é alternativa sujeita à revisão se o custo nativo não se justificar; deve cumprir os mesmos invariantes e testes. Trocar o mecanismo exige rever a decisão antes de implementar, sem reduzir durabilidade ou isolamento. Referências: [transações SQLite](https://www.sqlite.org/transactional.html), [módulos nativos Electron](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules).
+
+**Resolvido na TFA-003 (2026-10-04):** SQLite pelo `node:sqlite` embarcado (API RC aceita na TFA-002), `journal_mode=DELETE`, `synchronous=EXTRA`, uma conexão e uma fila no main; sem addon, WAL ou fallback para JSON. Configuração, recovery e limites foram verificados no Electron empacotado; ver a seção TFA-003 abaixo.
 
 Dados ficam no perfil do usuário, separados da instalação e da extensão. Schema do armazenamento não é o formato de backup: backup v4 não implica schema de banco v4. Versão futura/corrupção bloqueia escritas e oferece recuperação explícita; nunca resetar ou sobrescrever silenciosamente. Migração precisa de rollback que preserve dados; downgrade incompatível falha com segurança.
 
@@ -149,9 +153,9 @@ Esta seção registra o que **existe e foi verificado** no aplicativo e o que pe
 - Scripts reais: `dev`, `lint`, `typecheck` (5 projetos), `test` (Vitest), `build`, `validate`, `package:win`, `verify:package`, `smoke:packaged`. Gates e evidências em [desktop-foundation-validation.md](desktop-foundation-validation.md).
 - Identidade: `taskflow.app` (appId/AUMID), `TaskFlow App` (exibição), `TaskFlowApp.exe`, raiz de dados `%LOCALAPPDATA%\TaskFlowApp\profiles\{dev,test,prod}\{user-data,session-data}`.
 
-### Contrato diagnóstico (única operação IPC)
+### Contrato diagnóstico
 
-- `verifyFoundation({ version: 1 })` é a única operação exposta pelo preload (`contextBridge`), sem canais livres, `ipcRenderer`, SQL, comandos ou caminhos arbitrários.
+- `verifyFoundation({ version: 1 })` era a única operação exposta pelo preload na TFA-002; desde a TFA-003 o catálogo tem quatro operações (ver seção seguinte). Continua sem canais livres, `ipcRenderer`, SQL, comandos ou caminhos arbitrários.
 - O main valida schema exato (somente a chave `version`), versão 1, limite de 1 KiB serializado, `webContents` registrado, main frame e origem local exata antes de qualquer efeito. Iframes, remetentes desconhecidos, frames navegados, versão/shape inválidos são recusados com código fechado (`INVALID_REQUEST`/`UNAUTHORIZED`); execuções concorrentes recebem `BUSY`; erros não vazam stack, caminho ou conteúdo do banco.
 - O modo de teste empacotado (`--foundation-test`, perfil `test`) usa a mesma ponte pública para exercitar a prova e payloads inválidos; não aceita paths/canais livres e não afrouxa o isolamento. O lançamento normal instalado usa `prod` e ignora variáveis de desenvolvimento; `--user-data-dir` não altera o perfil.
 
@@ -170,6 +174,48 @@ Esta seção registra o que **existe e foi verificado** no aplicativo e o que pe
 
 - NSIS offline one-click exclusivo por usuário, `perMachine: false`, app `asInvoker`, sem elevate helper, updater, `runAfterFinish` ou remoção de dados; Setup e desinstalador com manifest `asInvoker/uiAccess=false` e validação de argumentos/destino/registro antes de efeitos.
 - O Setup concede a ACE `S-1-15-2-1:(OI)(CI)(RX)` somente ao root canônico instalado `%LOCALAPPDATA%\Programs\TaskFlowApp` (requisito do sandbox do Electron); pais, dados/perfis e roots globais ficam fora. Pasta, chaves HKCU, atalho do usuário, retenção de dados e limites estão detalhados no runbook da [validação](desktop-foundation-validation.md).
+
+## Persistência e IPC de estado TFA-003 implementados (2026-10-04)
+
+Esta seção registra o que **existe e foi verificado**. Contrato completo, matriz de falhas, orçamentos e evidências estão em [local-persistence-and-state-ipc.md](local-persistence-and-state-ipc.md). Não há UI de gerenciamento nem comando remoto de mutação: criar/editar/status e abertura externa de URLs são TFA-004; recorrência, lixeira/undo funcionais, importação e lembretes seguem nas suas Changes.
+
+### Camadas
+
+- **Núcleo portável** (`src/contracts`, `src/domain`, `src/application`): tipos e invariantes de tarefa copiados por revisão da extensão, codec de payload v1–v4 com validação na leitura e na escrita, revisões, razões de erro por discriminante, primitives da unidade de trabalho, paginação/montagem de snapshot e o cliente de ressincronização. Não importa Vue, Pinia, Electron, Node (inclusive `node:sqlite`), `main`/`preload`/`renderer`, Chrome nem rede; o teste de fronteiras cobre as três pastas com fixtures positivas e negativas.
+- **Main** (`src/main/storage`, `src/main/ipc`): adapter `node:sqlite`, coordenador com fila única, registro de sessões por documento e serviço de IPC de estado. `node:sqlite` só é importado pelo adapter de produto e pela prova da fundação.
+- **Preload**: quatro wrappers explícitos num objeto congelado; listeners fixos dos dois eventos de estado; callbacks do renderer ficam locais.
+- **Renderer**: inalterado; o shell continua sendo a tela diagnóstica.
+
+### Armazenamento
+
+- Banco de produto em `<userData>/data/taskflow.sqlite`, separado de `foundation-proof` e de `session-data`, por perfil dev/test/prod.
+- Schema SQL 1 (`taskflow_metadata`, `tasks`, `trash` com chaves primárias independentes), codec de payload v4 e formato de backup são três versões distintas.
+- Abertura classifica o destino antes de qualquer DDL: só a ausência real inicializa; arquivo existente vazio, estranho, incompatível ou corrompido bloqueia e é preservado. Todos os payloads são validados antes da primeira unidade. Não há reset, rewrite ou descarte automático.
+- Migrações só por registro explícito, numa transação; o produto não registra nenhuma.
+
+### Coordenação
+
+- Uma conexão e uma fila no main; toda leitura e toda mutação de qualquer produtor passa pelo coordenador. A unidade lê, decide, valida e confirma sob `BEGIN IMMEDIATE`, com callback síncrono e sem efeito externo.
+- Revisão global persistida (uma por commit com alteração observável) e revisão de conteúdo por item; o claim de ocorrência muda a global e conserva `updatedAt` e a de conteúdo. Sem timestamp como controle de concorrência.
+- Eventos e efeitos só depois do commit confirmado, fora da transação. Resultado incerto invalida a conexão e exige reopen validado.
+
+### IPC e autorização
+
+- Catálogo fechado: `verifyFoundation`, `getStateSnapshot`, `subscribeState`, `unsubscribeState`. Erros são a união versionada de códigos fechados.
+- Autorização por documento com geração criada pelo main, conferida na admissão, na execução enfileirada e no envio: `webContents` registrado e vivo, main frame vivo, origem real do frame, URL real da rota do shell e geração corrente. Navegação, reload da mesma URL, crash e fechamento invalidam a sessão. O diagnóstico usa os mesmos guards e mantém gate `BUSY` próprio.
+- Snapshot paginado por revisão (256 KiB por página, fragmentação de registro, `SNAPSHOT_STALE` se a revisão muda), eventos de invalidação coalescidos e ressincronização por snapshot com reconciliação a cada 30 s e no foco.
+- Protocolo local, CSP, sandbox, `contextIsolation`, permissões negadas e bloqueios de navegação não mudaram.
+
+### Ownership e encerramento
+
+- O lock de instância única precede os dois bancos; a segunda instância encerra sem abrir nenhum.
+- Na saída: admissão fechada, sessões invalidadas, entradas de sessão não iniciadas canceladas, unidades internas admitidas drenadas e conexão fechada. Sem bandeja, serviço ou saída forçada durante commit.
+
+### Limites explícitos
+
+- `DatabaseSync` é síncrono: os orçamentos valem antes de a unidade iniciar; não há timeout que interrompa um commit. O gate medido no pacote passou sem worker, WAL ou relaxamento.
+- Kill de processo e rollback/reopen não são prova de falha de energia; nenhum teste de corte de energia foi executado.
+- A evidência é de harness e bridge reais no pacote com perfil fictício; não houve instalação pelo Setup com dados de produto.
 
 ## Riscos e decisões futuras
 

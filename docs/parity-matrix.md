@@ -63,6 +63,21 @@ A fundação implementada **não migra nenhum comportamento** desta matriz: P01�
 - **Não conclusões explícitas:** a prova não confirma paridade de tarefas, pesquisa, filtros, recorrência, subtarefas, lixeira, undo, backup, lembretes, captura, atalhos ou IA; não confirma durabilidade, recovery, migrações ou concorrência de dados (TFA-003) e não valida o produto completo em conta padrão além dos cenários executados.
 - A divergência de permissões de ícones da origem permanece registrada para TFA-011/012; a origem não foi alterada.
 
+## TFA-003 — persistência e fronteira IPC (2026-10-04)
+
+A TFA-003 **não entrega nenhuma funcionalidade visível** desta matriz: não há tela de tarefas, lixeira, undo, backup ou lembretes. O que passou a existir é a base de armazenamento e leitura sobre a qual as Changes funcionais serão construídas.
+
+- **P01 (parcial, só armazenamento):** todos os campos conhecidos da tarefa são preservados em round-trip e reopen — `id`, `title`, `description`, `requester`, `assignee`, `status`, `priority`, `dueAt`, lembretes AT/OFFSET com `processedFor`, `seriesId`, `recurrence`, subtarefas ordenadas, `tags`, `sourceUrl`, `createdAt`, `updatedAt`, `completedAt`. Validação de formulário, pesquisa, filtros, ordenação e comandos de criar/editar/status continuam em TFA-004. Os limites de formulário **não** são aplicados pelo armazenamento, para não recusar dado historicamente válido.
+- **P02/P03 (só dados):** série, regra de recorrência e subtarefas são conservadas sem gerar ocorrência nem alterar marcações. As regras ficam em TFA-005.
+- **P04 (parcial, só armazenamento):** lixeira com chave própria, `deletedAt`, move/restore no mesmo commit e recusa `ID_EXISTS`. **Diferença em relação à origem:** mover para a lixeira não aplica a retenção de 30 dias nem o limite de 100 itens, e ler a lixeira nunca expurga; o expurgo é uma unidade explícita. Retenção, limite, ordenação e a UX ficam em TFA-006.
+- **P05 (base):** edição e reversão condicionais por revisão de conteúdo, que o processamento de lembrete não altera. **Diferença em relação à origem:** a condição usa revisão persistida em vez de `updatedAt`. Plano, token e semântica de undo ficam em TFA-006.
+- **P06:** os codecs v1–v4 são reconhecidos para os payloads armazenados; isso **não** é importação de backup. Arquivo de backup, prévia e substituição ficam em TFA-007.
+- **P07 (base):** claim condicional de ocorrência persistido antes de qualquer efeito, no máximo um por ocorrência. Scheduler, notificação e entrega ficam em TFA-008.
+- **Substituição de API Chrome:** `chrome.storage` e `storage.onChanged` deram lugar ao banco SQLite local, a um coordenador único no main e a eventos de invalidação com revisão. A fila por instância e a leitura sem revisão da origem não foram transportadas.
+- **Não conclusões explícitas:** nenhuma paridade observável de interface foi verificada; o backup da extensão ainda não pode ser importado; nenhum dado é migrado automaticamente.
+
+Detalhes e evidências em [local-persistence-and-state-ipc.md](local-persistence-and-state-ipc.md).
+
 ## Riscos e gates futuros
 
 | Risco | Tratamento e destino |
