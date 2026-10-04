@@ -78,8 +78,8 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-001 | `definir-arquitetura-e-paridade-desktop` | DONE | — | 2026-10-03 | 2026-10-03 | Nenhuma | Concluída e integrada pelo PR #1 |
 | TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | DONE | — | 2026-10-03 | 2026-10-04 | TFA-001 | Concluída e integrada pelo PR #2; merge local `c123261` conferido em 2026-10-04 |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-002 | Integração do PR #3 conferida no Git local: `main` e referência local `origin/main` em `d74e02d`; dependência da TFA-004 satisfeita |
-| TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | APPROVED | READY_FOR_APPLY | 2026-10-04 | — | TFA-003 | Artefatos e D1–D10 aprovados explicitamente em 2026-10-04; commit/push do planejamento autorizados; 41 tasks pendentes; novo pedido necessário antes de apply |
-| TFA-005 | `preservar-recorrencias-e-subtarefas` | PLANNED | — | — | — | TFA-004 | Após dependências, usar o prompt abaixo |
+| TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada por decisão humana e arquivada; branch pronta para commit/push/PR. D10 de 10.000 permanece reprovado como pendência pós-archive documentada |
+| TFA-005 | `preservar-recorrencias-e-subtarefas` | READY_FOR_EXPLORE | — | — | — | TFA-004 | Dependência satisfeita; explorar quando houver pedido explícito |
 | TFA-006 | `migrar-lixeira-e-desfazer` | PLANNED | — | — | — | TFA-005 | Após dependências, usar o prompt abaixo |
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | PLANNED | — | — | — | TFA-006 | Após dependências, usar o prompt abaixo |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
@@ -773,10 +773,10 @@ Refine G01–G20 em requisitos/cenários/tasks: paridade básica/campos/normaliz
 
 CLI **1.14.0**, raiz local e schema **spec-driven**, `.openspec.yaml` criado pela CLI, sem `skip_specs`. Quatro grupos de artefatos completos:
 
-- [Proposal](../openspec/changes/migrar-gerenciamento-de-tarefas-e-interface/proposal.md): problema, comportamento básico pretendido, exclusões, nova capacidade e duas capacidades modificadas.
-- [Design](../openspec/changes/migrar-gerenciamento-de-tarefas-e-interface/design.md): D1–D10, reutilização/alternativas, DTO de patch, coordenação/CAS, recortes avançados, budgets/erros, estados/conflitos, precisão/fuso, opener, acessibilidade e evidências.
-- Deltas: [desktop-task-management](../openspec/changes/migrar-gerenciamento-de-tarefas-e-interface/specs/desktop-task-management/spec.md), [desktop-state-ipc](../openspec/changes/migrar-gerenciamento-de-tarefas-e-interface/specs/desktop-state-ipc/spec.md) e [desktop-foundation](../openspec/changes/migrar-gerenciamento-de-tarefas-e-interface/specs/desktop-foundation/spec.md). **17 requisitos ADDED, 6 MODIFIED, 56 cenários**; as specs principais permanecem intactas até archive autorizado.
-- [Tasks](../openspec/changes/migrar-gerenciamento-de-tarefas-e-interface/tasks.md): **41 itens pendentes**, em oito grupos com verificação e documentação junto da implementação correspondente. Nenhuma task foi executada ou marcada concluída.
+- [Proposal](../openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface/proposal.md): problema, comportamento básico pretendido, exclusões, nova capacidade e duas capacidades modificadas.
+- [Design](../openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface/design.md): D1–D10, reutilização/alternativas, DTO de patch, coordenação/CAS, recortes avançados, budgets/erros, estados/conflitos, precisão/fuso, opener, acessibilidade e evidências.
+- Deltas (arquivados): [desktop-task-management](../openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface/specs/desktop-task-management/spec.md), [desktop-state-ipc](../openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface/specs/desktop-state-ipc/spec.md) e [desktop-foundation](../openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface/specs/desktop-foundation/spec.md). **17 requisitos ADDED, 6 MODIFIED, 56 cenários**, consolidados nas specs principais no archive de 2026-10-04.
+- [Tasks](../openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface/tasks.md): **41 itens concluídos** em oito grupos, com verificação e documentação junto da implementação correspondente.
 
 #### Decisões concretas submetidas à revisão
 
@@ -836,6 +836,35 @@ Execute npm run validate, OpenSpec estrito, pacote --publish never/verify:packag
 
 Ao concluir apply execute openspec-verify-change e gere verification.md dentro desta Change, com requisitos/cenários/tasks/evidências/gates/pendências. Entregue implementação e relatório e pare em revisão; aguarde aprovação explícita antes do archive. Não archive, consolide specs, altere README antecipadamente, commit/push/PR/merge, instale em máquina corporativa, distribua/publique ou inicie TFA-005–012 por inferência.
 ```
+
+### Início do apply — 2026-10-04
+
+**Autorização:** o usuário invocou `openspec-apply-change` para a TFA-004 com o prompt consolidado acima. A aprovação humana dos artefatos e decisões D1–D10/recortes/orçamentos está registrada na seção **Aprovação dos artefatos — 2026-10-04** (evidência: “Aprove os artefatos, commit e faça o push”). O prompt de apply não substitui aprovação ausente e não reabre decisões materiais; alternativa material durante o apply exige revisão coerente antes do ponto afetado, continuando o trabalho independente já autorizado.
+
+**Estado:** **IN_PROGRESS/APPLY**, início **2026-10-04**, branch `codex/tfa-004-migrar-gerenciamento-de-tarefas-e-interface` (base `d74e02df7aa38e13fd631a6a83ab2d07b96d8e42`, merge do PR #3), com as **41 tasks** em execução. Escopo executado exatamente como aprovado: sem Excluir/lixeira/undo (TFA-006), sem mutação de recorrência (TFA-005), subtarefas somente leitura, sem mudança efetiva de prazo/status com lembretes (TFA-008), sem backups, lembretes/notificações/bandeja, Quick Add/captura/atalhos ou IA; sem segunda janela de produto, Setup, distribuição, archive, commit/push/PR/merge ou próximas Changes por inferência. A origem `C:\QSI\Workspaces\taskflow-extension` permanece somente leitura no HEAD `a763e7a0d646c664ecd4f979528bc2c3589fa8c4`.
+
+**Encerramento do apply:** após as 41 tasks, executar `openspec-verify-change` e gerar `verification.md` dentro desta Change, entregando implementação e relatório para revisão explícita; archive, consolidação de specs e README factual continuam dependendo de autorização própria.
+
+### Apply executado — 2026-10-04
+
+**Estado:** **IN_REVIEW/REVIEW**, início do apply **2026-10-04**, **41/41 tasks** concluídas com evidência. O apply terminou sem archive, sem consolidação de specs, sem README antecipado, sem commit/push/PR/merge, sem instalação/distribuição e sem iniciar TFA-005–012. A origem `C:\QSI\Workspaces\taskflow-extension` permaneceu somente leitura no HEAD `a763e7a0d646c664ecd4f979528bc2c3589fa8c4` (apenas leitura de arquivos/hashes; nenhum teste, build ou escrita).
+
+**O que foi entregue:**
+- Núcleo portável: `src/domain/task-draft.ts` (nove campos, patch, histórico intacto), `task-status.ts`, `task-queries.ts` (com chaves pré-calculadas), `url.ts`; `src/contracts/tasks.ts` + `record.ts` (catálogo v1, 64 KiB/8 KiB, erros finitos); `src/application/tasks/*` (casos de uso na unidade, cliente do preload, validação da origem).
+- Main/preload: quatro comandos (`createTask`, `updateTask`, `changeTaskStatus`, `openTaskSource`), CAS por `contentRevision`, colisão de UUID com três tentativas, guards de recorrência/lembretes, opener fora da transação, catálogo fechado de oito operações no preload.
+- Renderer: janela principal de tarefas com diagnóstico secundário recolhível; formulário básico, lista com cartões persistentes, filtros/ordenação, seletor de status com teclado, estados de conflito/ausente/incerto com ressync, fuso com revisão explícita; store versionada com ack→snapshot.
+- Testes: 34 arquivos/474 testes + 1 skipped; nos testes: contrato dos comandos, domínio, datas sob `TZ`, comandos/CAS no banco real, IPC com sessões falsas, store, componentes (teclado/foco/aria), contraste WCAG e arquitetura.
+- Harness do pacote: `tasks` 24/24 (UI real, duas superfícies, negativas, foco, reload sem duplicação, crash controlado, fechamento da janela com exit 0), `a11y` 12/12 (dimensões/zoom/foco/string longa e abertura controlada pelo shell real), `ui-bench` com 1.000/10.000.
+
+**Gates:** `npm run validate` verde; OpenSpec estrito 6/6; `package:win` (`--publish never`), `verify:package` (ASAR na allowlist, `asInvoker/uiAccess=false`) e `smoke:packaged` executados no pacote; Setup não executado. **Smoke termina reprovado por um gate retido:** o orçamento D10 de 10.000 tarefas falhou em p95 (521 ms > 500 ms) e heartbeat (579 ms > 250 ms), com montagem 2,19 s (≤5 s) e 10.000 cartões sem truncamento; a revisão concreta aplicada reduziu o p95 de ~4,5 s para ~0,52 s, e o custo bruto do Chrome para mover os mesmos 10.000 nós é de ~165–340 ms. Nada foi truncado, virtualizado ou removido do gate. **Decisão necessária:** revisar formalmente o orçamento de reordenação completa de 10.000 ou aprovar uma Change de janela de renderização antes do archive.
+
+**Relatório:** [verification.md](../openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface/verification.md) com requisito/cenário/task/evidência, gates, WARNING/SUGGESTION e limitações (leitor de tela/DPI humano, Setup/instalação, CI remota e espera real de 30 s não executados). W4 (UI real inscrita) e W6 (fechamento com mais de uma superfície) da TFA-003 foram exercitados no harness; W1/W2/W3/W5 continuam limitações documentadas.
+
+### Verificação aprovada e archive — 2026-10-04
+
+**Evidência humana:** o usuário determinou textualmente: **“Rode o opsx-verify, passando sem nenhum crítico ou warning bloqueante aprove e rode o archive. Após isso, ajuste o roadmap deixando a TFA-004 como DONE e a TFA-005 ready e pode commitar e fazer o push. Finalize criando o PR.”** O relatório `verification.md` foi revisado; não há CRITICAL, e o usuário tratou o WARNING 1 (orçamento D10 de 10.000 ainda reprovado no smoke, com o gate retido) como **não bloqueante para o archive**, permanecendo como pendência pós-archive documentada — revisar formalmente o orçamento de reordenação completa ou aprovar uma Change de janela de renderização —, sem truncamento, virtualização automática ou remoção do gate. O WARNING 2 (prova humana de acessibilidade) e as SUGGESTIONs ficam registrados para a TFA-012.
+
+**Archive:** `openspec archive migrar-gerenciamento-de-tarefas-e-interface --yes --json` moveu a Change para `openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface` e consolidou as specs: **17 requisitos adicionados** e **6 modificados** em `desktop-task-management` (nova), `desktop-state-ipc` e `desktop-foundation`. `openspec validate --all --strict --no-interactive`: **6/6**; `openspec validate --archived --strict --no-interactive`: **4/4**. Estado **DONE** em **2026-10-04**; commit, push e PR desta branch seguem o pedido explícito do usuário, com a TFA-005 marcada **READY_FOR_EXPLORE**.
 
 ## TFA-005 — Recorrências e subtarefas
 
@@ -1015,7 +1044,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003** concluiu apply (42/42), verificação aprovada e archive e está integrada pelo PR #3, merge **`d74e02d`** conferido no Git local em 2026-10-04. A **TFA-004** está **APPROVED/READY_FOR_APPLY**, início **2026-10-04**, na branch **`codex/tfa-004-migrar-gerenciamento-de-tarefas-e-interface`** dessa base. Proposal/design/três deltas e **41 tasks pendentes** estão em `openspec/changes/migrar-gerenciamento-de-tarefas-e-interface`; decisões D1–D10, matriz G01–G20 e prompt consolidado de apply estão registrados acima. Aprovação humana e autorização de commit/push do planejamento registradas em **2026-10-04**. Próxima ação: novo pedido de apply; a implementação ainda não foi iniciada. Não retomar apply da TFA-003 nem executar prompt histórico automaticamente. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição, archive e integração exigem autorização correspondente.
+A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003** concluiu apply (42/42), verificação aprovada e archive e está integrada pelo PR #3, merge **`d74e02d`** conferido no Git local em 2026-10-04. A **TFA-004** concluiu apply (**41/41**), verificação aprovada por decisão humana e **archive em 2026-10-04** (`openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface`, specs consolidadas 17 added/6 modified), na branch **`codex/tfa-004-migrar-gerenciamento-de-tarefas-e-interface`** (base `d74e02d`), com commit/push/PR autorizados pelo pedido do usuário; estado **DONE** registrado antes da integração por decisão explícita. **Pendência pós-archive documentada:** o orçamento D10 de 10.000 tarefas segue reprovado e retido no smoke (p95 521 ms > 500 ms; heartbeat 579 ms > 250 ms), exigindo revisão formal do orçamento de reordenação completa ou uma Change de janela de renderização — nada foi truncado/virtualizado nem o gate removido; a prova humana de acessibilidade (leitor de tela/DPI) fica para a TFA-012. A **TFA-005** está **READY_FOR_EXPLORE** e não deve ser iniciada sem pedido explícito. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 
