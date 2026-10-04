@@ -4,6 +4,8 @@
 
 Este documento descreve o que **existe** no aplicativo depois da TFA-003: armazenamento durável de tarefas e lixeira no perfil do usuário, coordenação de leitura/decisão/commit no main e um IPC mínimo de leitura e subscriptions. Não há UI de gerenciamento, comando remoto de criar/editar/status, importação, lembretes, undo funcional ou abertura externa de URLs: esses itens pertencem às TFA-004–012. O shell continua sendo a tela diagnóstica.
 
+> **Atualização da TFA-004 (apply em 2026-10-04):** os quatro comandos `createTask`, `updateTask`, `changeTaskStatus` e `openTaskSource` passaram a existir, com contrato/bytes/erros em [desktop-task-management.md](desktop-task-management.md). O restante deste documento continua sendo a evidência da TFA-003 para leitura, persistência, coordenação e subscriptions.
+
 Artefatos: [proposal](../openspec/changes/archive/2026-10-04-implementar-persistencia-local-e-fronteira-ipc/proposal.md), [design](../openspec/changes/archive/2026-10-04-implementar-persistencia-local-e-fronteira-ipc/design.md), [tasks](../openspec/changes/archive/2026-10-04-implementar-persistencia-local-e-fronteira-ipc/tasks.md) e [relatório de verificação](../openspec/changes/archive/2026-10-04-implementar-persistencia-local-e-fronteira-ipc/verification.md).
 
 ## Seleção portável reutilizada da extensão
@@ -194,6 +196,8 @@ Um processo **exclusivamente de teste** abre um banco fictício, para numa barre
 Erro é sempre `{ version: 1, status: 'error', code }`, com `code` em: `INVALID_REQUEST`, `UNAUTHORIZED`, `BUSY`, `SESSION_CLOSED`, `SNAPSHOT_STALE`, `RESOURCE_LIMIT`, `INCOMPATIBLE_DATA`, `CORRUPTED_DATA`, `STORAGE_UNAVAILABLE`. `CONFLICT` e `ID_EXISTS` são resultados internos e não têm canal remoto.
 
 Não existem na bridge: criar/editar/status, lixeira ou undo funcionais, SQL, caminhos, repositories, `Task` livre vinda do renderer, `UndoPlan`, callbacks remotos, canal genérico, `ipcRenderer`, abertura externa, clipboard, IA ou qualquer hook de escrita/teste.
+
+> **Atualizado na TFA-004:** o catálogo passou a oito operações com `createTask`, `updateTask`, `changeTaskStatus` e `openTaskSource`; `CONFLICT`, `NOT_FOUND`, `VALIDATION_FAILED` e os códigos de origem agora são resultados remotos desses comandos. Lixeira, undo, backup, lembretes, captura, atalhos e IA continuam fora da bridge. Ver [desktop-task-management.md](desktop-task-management.md).
 
 Exemplos conferidos contra os schemas:
 

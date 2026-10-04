@@ -1,5 +1,5 @@
 import type { Task } from '../domain/task.js'
-import { utf8ByteLength } from './text.js'
+import { asExactRecord, serializedBytes } from './record.js'
 
 // Catálogo fechado de estado v1. Separado de `foundation:verify:v1`.
 export const STATE_SNAPSHOT_CHANNEL = 'state:snapshot:v1'
@@ -108,8 +108,6 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 const REVISION_PATTERN = /^(?:0|[1-9][0-9]{0,18})$/
 const MAX_REVISION_TEXT = '9223372036854775807'
 
-type PlainRecord = Record<string, unknown>
-
 export function stateFailure(code: StateErrorCode): StateFailure {
   return { version: 1, status: 'error', code }
 }
@@ -125,35 +123,6 @@ export function isOpaqueToken(value: unknown): value is string {
 export function isRevisionText(value: unknown): value is string {
   if (typeof value !== 'string' || !REVISION_PATTERN.test(value)) return false
   return value.length < MAX_REVISION_TEXT.length || value <= MAX_REVISION_TEXT
-}
-
-/** Objeto simples com exatamente as chaves permitidas (as obrigatórias e, no máximo, as opcionais). */
-function asExactRecord(value: unknown, required: readonly string[], optional: readonly string[] = []): PlainRecord | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
-  try {
-    const prototype: unknown = Object.getPrototypeOf(value)
-    if (prototype !== Object.prototype && prototype !== null) return null
-    if (Object.getOwnPropertySymbols(value).length > 0) return null
-    const keys = Object.getOwnPropertyNames(value)
-    if (!required.every((key) => keys.includes(key))) return null
-    if (!keys.every((key) => required.includes(key) || optional.includes(key))) return null
-    for (const key of keys) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)
-      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) return null
-    }
-    return value as PlainRecord
-  } catch {
-    return null
-  }
-}
-
-function serializedBytes(value: unknown): number | null {
-  try {
-    const json: unknown = JSON.stringify(value)
-    return typeof json === 'string' ? utf8ByteLength(json) : null
-  } catch {
-    return null
-  }
 }
 
 function fitsRequestBudget(value: unknown): boolean {

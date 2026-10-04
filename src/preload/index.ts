@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { createStateClient, type StateTransport } from '../application/state/state-client.js'
+import { createTaskCommandClient, type TaskCommandTransport } from '../application/tasks/task-client.js'
 import type { TaskFlowDesktopApi } from '../contracts/desktop-api.js'
 import type { FoundationRequest, FoundationResult } from '../contracts/foundation.js'
 import {
@@ -12,6 +13,13 @@ import {
   type StateRequest,
   type UnsubscribeStateRequest,
 } from '../contracts/state.js'
+import {
+  TASK_COMMAND_CHANNELS,
+  type TaskCreateRequest,
+  type TaskOpenSourceRequest,
+  type TaskStatusRequest,
+  type TaskUpdateRequest,
+} from '../contracts/tasks.js'
 
 const FOUNDATION_CHANNEL = 'foundation:verify:v1'
 
@@ -37,6 +45,13 @@ const stateTransport: StateTransport = {
   },
 }
 
+const taskTransport: TaskCommandTransport = {
+  invoke(channel: string, request: unknown): Promise<unknown> {
+    if (!TASK_COMMAND_CHANNELS.includes(channel)) return Promise.reject(new Error('channel not allowed'))
+    return ipcRenderer.invoke(channel, request)
+  },
+}
+
 // Um único cliente por documento: listeners fixos instalados antes de qualquer subscribe.
 const stateClient = createStateClient(stateTransport, {
   setInterval: (callback, milliseconds) => setInterval(callback, milliseconds),
@@ -46,6 +61,7 @@ const stateClient = createStateClient(stateTransport, {
     return () => window.removeEventListener('focus', callback)
   },
 })
+const taskClient = createTaskCommandClient(taskTransport)
 
 const desktopApi: TaskFlowDesktopApi = Object.freeze({
   verifyFoundation: (request: FoundationRequest): Promise<FoundationResult> =>
@@ -54,6 +70,11 @@ const desktopApi: TaskFlowDesktopApi = Object.freeze({
   // `listener` é um callback local: fica no preload e nunca é argumento de invoke.
   subscribeState: (request: StateRequest, listener?: StateListener) => stateClient.subscribeState(request, listener),
   unsubscribeState: (request: UnsubscribeStateRequest) => stateClient.unsubscribeState(request),
+  // Requests são validados no preload; respostas validadas antes de voltar ao renderer.
+  createTask: (request: TaskCreateRequest) => taskClient.createTask(request),
+  updateTask: (request: TaskUpdateRequest) => taskClient.updateTask(request),
+  changeTaskStatus: (request: TaskStatusRequest) => taskClient.changeTaskStatus(request),
+  openTaskSource: (request: TaskOpenSourceRequest) => taskClient.openTaskSource(request),
 })
 
 contextBridge.exposeInMainWorld('taskflowDesktop', desktopApi)

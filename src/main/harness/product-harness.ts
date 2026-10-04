@@ -8,6 +8,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { formatRevision } from '../../application/storage/revisions.js'
+import type { UnitResult } from '../../application/storage/unit-of-work.js'
 import type { StateSnapshotResult } from '../../contracts/state.js'
 import { utf8ByteLength } from '../../contracts/text.js'
 import type { Task } from '../../domain/task.js'
@@ -33,6 +34,9 @@ export type ProductHarnessScenario =
   | { name: 'reopen' }
   | { name: 'bench' }
   | { name: 'drain' }
+  | { name: 'tasks' }
+  | { name: 'ui-bench' }
+  | { name: 'a11y' }
   | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' }
 
 export interface ProductHarnessDependencies {
@@ -49,6 +53,8 @@ export interface ProductHarnessDependencies {
   productDatabaseFile: string
   foundationProofFile: string
   shutdownStorage: () => ShutdownReport | undefined
+  /** Porta de abertura externa do main; o harness de teste pode substituí-la por um fake. */
+  opener: { openExternal(href: string): Promise<void> }
 }
 
 /** Aceita exatamente um argumento de harness com cenário conhecido; qualquer outra forma é ignorada. */
@@ -57,6 +63,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
+  if (value === 'tasks' || value === 'ui-bench' || value === 'a11y') return { name: value }
 
   const [name, point, unit, ...rest] = value.split('|')
   if (name !== 'crash' || rest.length > 0) return null
@@ -190,7 +197,16 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
   info['catalog'] = catalog
   checks['catalogClosed'] =
     JSON.stringify(catalog['keys']) ===
-      JSON.stringify(['getStateSnapshot', 'subscribeState', 'unsubscribeState', 'verifyFoundation']) &&
+      JSON.stringify([
+        'changeTaskStatus',
+        'createTask',
+        'getStateSnapshot',
+        'openTaskSource',
+        'subscribeState',
+        'unsubscribeState',
+        'updateTask',
+        'verifyFoundation',
+      ]) &&
     catalog['frozen'] === true &&
     (catalog['globals'] as string[]).every((kind) => kind === 'undefined')
 
@@ -341,7 +357,10 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
   await delay(400)
   const leaked = await evaluate<boolean>(surfaceB, `typeof window.__tf !== 'undefined'`)
   const resubscribed = await evaluate<SubscribeProbe>(surfaceB, SUBSCRIBE_SCRIPT)
-  checks['reloadInvalidatesSession'] = afterReload === 0 && reloadCommit.ok && reloadCommit.committed && !leaked
+  info['afterReload'] = { subscriptions: afterReload, newSubscription: resubscribed.subscriptionId }
+  // O documento novo (UI real) se reinscreve sozinho: a sessão anterior não vale mais e o token é novo.
+  checks['reloadInvalidatesSession'] =
+    reloadCommit.ok && reloadCommit.committed && !leaked && resubscribed.subscriptionId !== subscriptionB.subscriptionId
   checks['newDocumentResubscribes'] = resubscribed.status === 'ok' && resubscribed.revision === currentRevision()
 
   // Limite de documentos registrados no harness.
@@ -618,6 +637,519 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
   })
 }
 
+/** Espera uma condição dentro do renderer (polling) e devolve `true`/`false`. */
+function uiWait(predicate: string, timeoutMs = 20_000): string {
+  return `(async () => {
+    const deadline = Date.now() + ${timeoutMs};
+    while (Date.now() < deadline) {
+      try {
+        if (${predicate}) return true;
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  })()`
+}
+
+function uiBodyHas(text: string, timeoutMs = 20_000): string {
+  // `textContent` não depende de a árvore estar pintada (os cartões fora da viewport usam
+  // content-visibility); a checagem de presença não deve depender do scroll.
+  return uiWait(`(document.body.textContent || '').includes(${JSON.stringify(text)})`, timeoutMs)
+}
+
+function uiCardsAtLeast(count: number, timeoutMs = 30_000): string {
+  return uiWait(`document.querySelectorAll('[data-task-id]').length >= ${count}`, timeoutMs)
+}
+
+const UI_FIND_BUTTON = `(text) => [...document.querySelectorAll('button')].find((button) => (button.textContent || '').replace(/\\s+/g, ' ').trim().includes(text))`
+
+function uiCreate(title: string, sourceUrl: string | undefined): string {
+  const fields = JSON.stringify([['input[name="title"]', title], ...(sourceUrl === undefined ? [] : [['input[name="sourceUrl"]', sourceUrl]])])
+  return `(async () => {
+    const findButton = ${UI_FIND_BUTTON};
+    const open = findButton('Nova tarefa') ?? findButton('Criar primeira tarefa');
+    if (!open) return false;
+    open.click();
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !document.querySelector('form.task-form')) await new Promise((resolve) => setTimeout(resolve, 25));
+    for (const [selector, value] of ${fields}) {
+      const element = document.querySelector(selector);
+      if (!element) return false;
+      element.value = value;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const form = document.querySelector('form.task-form');
+    if (!form) return false;
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    return true;
+  })()`
+}
+
+function uiOpenEdit(title: string): string {
+  return `(async () => {
+    const card = [...document.querySelectorAll('[data-task-id]')].find((element) => (element.textContent || '').includes(${JSON.stringify(title)}));
+    const edit = card?.querySelector('[data-action="edit"]');
+    if (!edit) return false;
+    edit.click();
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !document.querySelector('form.task-form input[name="title"]')) await new Promise((resolve) => setTimeout(resolve, 25));
+    return Boolean(document.querySelector('form.task-form input[name="title"]'));
+  })()`
+}
+
+function uiEditTitle(title: string, nextTitle: string): string {
+  return `(async () => {
+    const card = [...document.querySelectorAll('[data-task-id]')].find((element) => (element.textContent || '').includes(${JSON.stringify(title)}));
+    const edit = card?.querySelector('[data-action="edit"]');
+    if (!edit) return false;
+    edit.click();
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !document.querySelector('form.task-form input[name="title"]')) await new Promise((resolve) => setTimeout(resolve, 25));
+    const input = document.querySelector('form.task-form input[name="title"]');
+    if (!input) return false;
+    input.value = ${JSON.stringify(nextTitle)};
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('form.task-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    return true;
+  })()`
+}
+
+function uiCardAction(title: string, action: string): string {
+  return `(() => {
+    const card = [...document.querySelectorAll('[data-task-id]')].find((element) => (element.textContent || '').includes(${JSON.stringify(title)}));
+    const control = card?.querySelector('[data-action="${action}"]');
+    if (!control) return false;
+    control.click();
+    return true;
+  })()`
+}
+
+const UI_CLICK_OPEN_SOURCE = `(() => {
+  const button = document.querySelector('form.task-form [data-action="open-source"]');
+  if (!button) return false;
+  button.click();
+  return true;
+})()`
+
+const UI_CANCEL_FORM = `(() => {
+  const button = [...document.querySelectorAll('form.task-form button')].find((candidate) => (candidate.textContent || '').includes('Cancelar') || (candidate.textContent || '').includes('Fechar'));
+  if (!button) return false;
+  button.click();
+  return true;
+})()`
+
+const UI_HEARTBEAT_START = `(() => {
+  window.__hb = { last: performance.now(), max: 0, timer: setInterval(() => {
+    const now = performance.now();
+    window.__hb.max = Math.max(window.__hb.max, now - window.__hb.last);
+    window.__hb.last = now;
+  }, 10) };
+  return true;
+})()`
+
+const UI_HEARTBEAT_READ = `(() => {
+  if (!window.__hb) return null;
+  clearInterval(window.__hb.timer);
+  return { max: window.__hb.max };
+})()`
+
+const UI_INTERACTION = (index: number): string => `(async () => {
+  const select = document.querySelector('[data-test="sort-key"]');
+  if (!select) return null;
+  const values = ['PRIORITY', 'STATUS', 'DUE_DATE'];
+  let moves = 0;
+  const originalInsert = Node.prototype.insertBefore;
+  Node.prototype.insertBefore = function (...args) { moves += 1; return originalInsert.apply(this, args); };
+  const started = performance.now();
+  select.value = values[${index} % 3];
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  Node.prototype.insertBefore = originalInsert;
+  const afterFlush = performance.now();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const afterMacrotask = performance.now();
+  void document.body.offsetHeight;
+  const afterLayout = performance.now();
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  const painted = performance.now();
+  return { flushMs: afterFlush - started, macrotaskMs: afterMacrotask - afterFlush, layoutMs: afterLayout - afterMacrotask, paintMs: painted - afterLayout, moves };
+})()`
+
+const CATALOG_SCRIPT = `({
+  keys: Object.keys(window.taskflowDesktop).sort(),
+  frozen: Object.isFrozen(window.taskflowDesktop),
+  globals: ['require', 'process', 'module', 'Buffer', 'ipcRenderer', 'electron', '__dirname'].map((name) => typeof window[name]),
+})`
+
+/**
+ * TFA-004: exercita a UI real de tarefas com dados fictícios no pacote — criar, editar, status,
+ * reabrir, abrir origem (opener falso), duas superfícies, negativas, reconciliação por foco,
+ * reload sem resposta e limpeza. Fecha a janela principal ao final (o runner valida a saída).
+ */
+async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
+  const { coordinator, mainWindow: surfaceA, stateIpc, sessions } = deps
+  const checks: Record<string, boolean> = {}
+  const info: Record<string, unknown> = { runtime: runtimeInfo(deps) }
+  const openedHrefs: string[] = []
+  // Opener falso: nenhuma URL real é aberta durante a suíte.
+  deps.opener.openExternal = async (href: string) => {
+    openedHrefs.push(href)
+  }
+
+  // Perfil fictício exclusivo do harness: limpa tarefas/lixeira antes do cenário.
+  expectOkUnit(await coordinator.run((unit) => {
+    unit.emptyTrash()
+    return unit.replaceAllTasks([], unit.baseRevision)
+  }))
+  checks['uiReadyEmpty'] = await evaluate<boolean>(surfaceA, uiBodyHas('Nenhuma tarefa ainda'))
+
+  const title = `UI fictícia ${Date.now()}`
+  const sourceUrl = 'https://example.invalid/tarefa-ui'
+  checks['createAccepted'] = await evaluate<boolean>(surfaceA, uiCreate(title, sourceUrl))
+  checks['createVisible'] = await evaluate<boolean>(surfaceA, uiBodyHas(title))
+  const listed = await coordinator.read((reader) => reader.listTasks())
+  const stored = listed.ok ? listed.value.find((item) => item.task.title === title) : undefined
+  checks['createPersisted'] = stored !== undefined && stored.task.sourceUrl === sourceUrl
+  const taskId = stored?.task.id ?? ''
+
+  // Segunda superfície com a UI real: converge pelo snapshot/eventos existentes.
+  const surfaceB = deps.createSurface(true)
+  if (surfaceB === null) throw new Error('second surface unavailable')
+  await loadSurface(surfaceB, deps.surfaceUrl)
+  checks['secondSurfaceConverges'] = await evaluate<boolean>(surfaceB, uiBodyHas(title))
+
+  // Edição real pela UI (patch básico).
+  const editedTitle = `${title} editada`
+  checks['editAccepted'] = await evaluate<boolean>(surfaceA, uiEditTitle(title, editedTitle))
+  checks['editVisible'] = await evaluate<boolean>(surfaceA, uiBodyHas(editedTitle))
+  checks['editPersisted'] = await waitFor(async () => {
+    const read = await coordinator.read((reader) => reader.getTask(taskId))
+    return read.ok && read.value?.task.title === editedTitle
+  })
+
+  // Abrir origem salva pelo gesto, com opener falso e sem alterar a tarefa.
+  checks['openSourceForm'] = await evaluate<boolean>(surfaceA, uiOpenEdit(editedTitle))
+  checks['openSourceClicked'] = await evaluate<boolean>(surfaceA, UI_CLICK_OPEN_SOURCE)
+  checks['openSourceFake'] = await waitFor(() => openedHrefs.length === 1 && openedHrefs[0] === sourceUrl)
+  const beforeOpen = await coordinator.read((reader) => reader.getTask(taskId))
+  checks['openSourceKeepsTask'] = beforeOpen.ok && beforeOpen.value?.task.sourceUrl === sourceUrl
+  await evaluate<boolean>(surfaceA, UI_CANCEL_FORM)
+
+  // Status: concluir registra completedAt; reabrir limpa.
+  checks['completeClicked'] = await evaluate<boolean>(surfaceA, uiCardAction(editedTitle, 'complete'))
+  checks['completePersisted'] = await waitFor(async () => {
+    const read = await coordinator.read((reader) => reader.getTask(taskId))
+    return read.ok && read.value?.task.status === 'DONE' && read.value.task.completedAt !== undefined
+  })
+  // O cartão só passa a oferecer Reabrir quando o snapshot da conclusão chega à UI.
+  checks['reopenControlReady'] = await evaluate<boolean>(
+    surfaceA,
+    uiWait(
+      `Boolean([...document.querySelectorAll('[data-task-id]')].find((element) => (element.textContent || '').includes(${JSON.stringify(editedTitle)}))?.querySelector('[data-action="reopen"]'))`,
+    ),
+  )
+  checks['reopenClicked'] = await evaluate<boolean>(surfaceA, uiCardAction(editedTitle, 'reopen'))
+  checks['reopenPersisted'] = await waitFor(async () => {
+    const read = await coordinator.read((reader) => reader.getTask(taskId))
+    return read.ok && read.value?.task.status === 'TODO' && read.value.task.completedAt === undefined
+  })
+
+  // Catálogo fechado e negativas na ponte real do pacote.
+  const catalog = await evaluate<{ keys: string[]; frozen: boolean; globals: string[] }>(surfaceA, CATALOG_SCRIPT)
+  info['catalog'] = catalog
+  checks['catalogEightClosed'] =
+    catalog.keys.length === 8 &&
+    catalog.frozen === true &&
+    catalog.globals.every((kind) => kind === 'undefined') &&
+    ['remove', 'delete', 'trash', 'undo', 'shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'recurrence', 'subtask', 'reminder'].every(
+      (name) => !catalog.keys.some((key) => key.toLowerCase().includes(name)),
+    )
+  const negatives = await evaluate<Array<{ status: string; code?: string }>>(
+    surfaceA,
+    `Promise.all([
+      window.taskflowDesktop.createTask({ version: 1, draft: { title: 'x', id: 'forjado' } }),
+      window.taskflowDesktop.updateTask({ version: 1, taskId: 'a', expectedContentRevision: '01', patch: {} }),
+      window.taskflowDesktop.changeTaskStatus({ version: 1, taskId: 'a', expectedContentRevision: '1', status: 'NOPE' }),
+      window.taskflowDesktop.openTaskSource({ version: 1, taskId: 'a', expectedContentRevision: '1', url: 'https://x.test' }),
+    ])`,
+  )
+  info['negatives'] = negatives.map((result) => result.code ?? result.status)
+  checks['negativeCommands'] =
+    negatives[0]?.code === 'INVALID_REQUEST' &&
+    negatives[1]?.code === 'INVALID_REQUEST' &&
+    negatives[2]?.code === 'VALIDATION_FAILED' &&
+    negatives[3]?.code === 'INVALID_REQUEST'
+
+  // Reconciliação por foco: dispara leitura coordenada mesmo sem evento novo visível.
+  const unitsBefore = coordinator.metrics.units
+  await evaluate<boolean>(surfaceA, `(() => { window.dispatchEvent(new Event('focus')); return true })()`)
+  checks['focusReconciles'] = await waitFor(() => coordinator.metrics.units > unitsBefore, 10_000)
+
+  // Reload com resposta possivelmente perdida: nenhuma duplicação e estado confirmado reaparece.
+  const lateTitle = `UI tardia ${Date.now()}`
+  await evaluate<string>(
+    surfaceA,
+    `(() => { window.__late = window.taskflowDesktop.createTask({ version: 1, draft: { title: ${JSON.stringify(lateTitle)} } }).catch(() => undefined); return 'issued' })()`,
+  )
+  const reloaded = new Promise<void>((resolve) => surfaceA.webContents.once('did-finish-load', () => resolve()))
+  surfaceA.webContents.reload()
+  await reloaded
+  checks['reloadReady'] = await evaluate<boolean>(surfaceA, uiBodyHas('Tarefas'))
+  const lateTasks = await coordinator.read((reader) => reader.listTasks())
+  const lateCount = lateTasks.ok ? lateTasks.value.filter((item) => item.task.title === lateTitle).length : -1
+  info['lateCount'] = lateCount
+  checks['reloadNoDuplicate'] =
+    lateCount <= 1 && (lateCount === 0 || (await evaluate<boolean>(surfaceA, uiBodyHas(lateTitle))))
+
+  // Crash controlado de uma superfície de teste (W6): sessão invalidada e nova superfície recupera
+  // o estado confirmado por snapshot, sem listener/timer acumulado.
+  surfaceB.webContents.forcefullyCrashRenderer()
+  await delay(500)
+  surfaceB.destroy()
+  await waitFor(() => sessions.size === 1, 10_000)
+  const surfaceC = deps.createSurface(true)
+  if (surfaceC === null) throw new Error('recovery surface unavailable')
+  await loadSurface(surfaceC, deps.surfaceUrl)
+  checks['crashRecovers'] = await evaluate<boolean>(surfaceC, uiBodyHas(editedTitle))
+  surfaceC.destroy()
+  await waitFor(() => sessions.size === 1 && stateIpc.trackedDocuments <= 1, 10_000)
+
+  // Limpeza: a superfície de teste libera sessão/estado transitório.
+  checks['testSurfaceReleased'] = sessions.size === 1 && stateIpc.trackedDocuments <= 1
+
+  emit({ scenario: 'tasks', ok: Object.values(checks).every(Boolean), checks, info })
+
+  // Fechamento da janela principal: o runner valida a saída 0 e a ausência de residual.
+  await new Promise<void>((resolve) => {
+    deps.mainWindow.once('closed', () => resolve())
+    deps.mainWindow.close()
+  })
+}
+
+/** Unidade que precisa ter sucesso; falha vira erro do cenário. */
+function expectOkUnit(result: UnitResult<unknown>): void {
+  if (!result.ok) throw new Error(`unit failed: ${result.reason}`)
+}
+
+/**
+ * TFA-004: mede montagem/consultas/heartbeat da UI real com 1.000 e 10.000 tarefas fictícias
+ * contra os alvos D10. Falha vira reprovação do cenário; nada é truncado ou removido do gate.
+ */
+async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
+  const { coordinator, mainWindow } = deps
+  const surface = mainWindow
+  const datasets: Array<Record<string, unknown>> = []
+
+  for (const size of [1_000, 10_000]) {
+    const tasks = buildFictitiousTasks(size, { idPrefix: `uibench${size}`, descriptionLength: 240 })
+    const payloadBytes = tasks.reduce((total, task) => total + utf8ByteLength(JSON.stringify(task)), 0)
+    expectOkUnit(
+      await coordinator.run((unit) => {
+        unit.emptyTrash()
+        return unit.replaceAllTasks(tasks, unit.baseRevision)
+      }),
+    )
+
+    const reloaded = new Promise<void>((resolve) => surface.webContents.once('did-finish-load', () => resolve()))
+    const started = performance.now()
+    surface.webContents.reload()
+    await reloaded
+    const cardsReady = await evaluate<boolean>(surface, uiCardsAtLeast(size))
+    const mountMs = performance.now() - started
+
+    // Diagnóstico: custo bruto do Chrome para reordenar os mesmos nós (sem Vue).
+    const rawMove = await evaluate<{
+      fragmentMs: number
+      fragmentSettleMs: number
+      insertMs: number
+      insertSettleMs: number
+    } | null>(
+      surface,
+      `(async () => {
+        const list = document.querySelector('.task-list');
+        if (!list) return null;
+        const items = [...list.children];
+        const fragmentStarted = performance.now();
+        const fragment = document.createDocumentFragment();
+        for (let index = items.length - 1; index >= 0; index -= 1) fragment.appendChild(items[index]);
+        list.appendChild(fragment);
+        const afterFragment = performance.now();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const afterFragmentSettle = performance.now();
+        const insertStarted = performance.now();
+        const top = list.firstChild;
+        for (let index = items.length - 1; index >= 0; index -= 1) list.insertBefore(items[index], top);
+        const afterInserts = performance.now();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const afterInsertSettle = performance.now();
+        return {
+          fragmentMs: afterFragment - fragmentStarted,
+          fragmentSettleMs: afterFragmentSettle - afterFragment,
+          insertMs: afterInserts - insertStarted,
+          insertSettleMs: afterInsertSettle - afterInserts,
+        };
+      })()`,
+    )
+
+    // Restaura o DOM reconciliado pelo Vue antes de medir as interações.
+    const restored = new Promise<void>((resolve) => surface.webContents.once('did-finish-load', () => resolve()))
+    surface.webContents.reload()
+    await restored
+    await evaluate<boolean>(surface, uiCardsAtLeast(size))
+
+    await evaluate<boolean>(
+      surface,
+      `(() => { const select = document.querySelector('[data-test="sort-key"]'); return select !== null })()`,
+    )
+    await evaluate<boolean>(surface, UI_HEARTBEAT_START)
+    const interactions: number[] = []
+    const flushTimes: number[] = []
+    const layoutTimes: number[] = []
+    const paintTimes: number[] = []
+    const moveCounts: number[] = []
+    for (let index = 0; index < 20; index += 1) {
+      const interactionStarted = performance.now()
+      const segments = await evaluate<{ flushMs: number; layoutMs: number; paintMs: number; moves: number } | null>(surface, UI_INTERACTION(index))
+      interactions.push(performance.now() - interactionStarted)
+      if (segments !== null) {
+        flushTimes.push(segments.flushMs)
+        layoutTimes.push(segments.layoutMs)
+        paintTimes.push(segments.paintMs)
+        moveCounts.push(segments.moves)
+      }
+    }
+    const heartbeat = await evaluate<{ max: number } | null>(surface, UI_HEARTBEAT_READ)
+    const dom = await evaluate<{ cards: number; elements: number }>(
+      surface,
+      `({ cards: document.querySelectorAll('[data-task-id]').length, elements: document.querySelectorAll('*').length })`,
+    )
+
+    datasets.push({
+      tasks: size,
+      payloadBytes,
+      payloadMiB: round(payloadBytes / (1024 * 1024)),
+      mountMs: round(mountMs),
+      cardsReady,
+      cards: dom.cards,
+      elements: dom.elements,
+      rawMove,
+      interactions: {
+        count: interactions.length,
+        p95Ms: round(percentile(interactions, 0.95)),
+        maxMs: round(Math.max(0, ...interactions)),
+        flushP95Ms: round(percentile(flushTimes, 0.95)),
+        layoutP95Ms: round(percentile(layoutTimes, 0.95)),
+        paintP95Ms: round(percentile(paintTimes, 0.95)),
+        maxMoves: Math.max(0, ...moveCounts),
+      },
+      heartbeatMaxMs: round(heartbeat?.max ?? Number.POSITIVE_INFINITY),
+    })
+  }
+
+  const first = datasets[0] ?? {}
+  const second = datasets[1] ?? {}
+  const firstInteractions = first['interactions'] as { p95Ms: number } | undefined
+  const secondInteractions = second['interactions'] as { p95Ms: number } | undefined
+  const gates = {
+    mount1000Within2s: Number(first['mountMs'] ?? Number.POSITIVE_INFINITY) <= 2_000,
+    mount10000Within5s: Number(second['mountMs'] ?? Number.POSITIVE_INFINITY) <= 5_000,
+    cardsComplete:
+      Number(first['cards'] ?? -1) === 1_000 && Number(second['cards'] ?? -1) === 10_000 &&
+      first['cardsReady'] === true && second['cardsReady'] === true,
+    interactionsP95Within500ms:
+      (firstInteractions?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500 &&
+      (secondInteractions?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500,
+    heartbeatWithin250ms:
+      Number(first['heartbeatMaxMs'] ?? Number.POSITIVE_INFINITY) <= 250 &&
+      Number(second['heartbeatMaxMs'] ?? Number.POSITIVE_INFINITY) <= 250,
+  }
+
+  emit({
+    scenario: 'ui-bench',
+    ok: Object.values(gates).every(Boolean),
+    gates,
+    datasets,
+    hardware: {
+      cpu: os.cpus()[0]?.model ?? 'unknown',
+      logicalCores: os.cpus().length,
+      memoryGiB: round(os.totalmem() / 1024 ** 3),
+      os: `${os.type()} ${os.release()}`,
+      arch: os.arch(),
+    },
+    runtime: runtimeInfo(deps),
+  })
+}
+
+/**
+ * TFA-004: evidência de pacote para dimensões/zoom/foco/strings longas e abertura de uma URL
+ * fictícia controlada pelo shell real. Não substitui leitor de tela/DPI humano; nenhum dado
+ * privado é aberto e o Setup não é executado.
+ */
+async function runA11y(deps: ProductHarnessDependencies): Promise<void> {
+  const { coordinator, mainWindow: surface } = deps
+  const checks: Record<string, boolean> = {}
+  const bounds = surface.getBounds()
+  const minimum = surface.getMinimumSize()
+  const info: Record<string, unknown> = { runtime: runtimeInfo(deps), bounds, minimum }
+
+  checks['initialBounds'] = bounds.width === 780 && bounds.height === 560
+  checks['minimumSize'] = minimum[0] === 360 && minimum[1] === 420
+  checks['uiLoaded'] = await evaluate<boolean>(surface, uiBodyHas('Tarefas'))
+
+  checks['openForm'] = await evaluate<boolean>(
+    surface,
+    `(() => { const findButton = ${UI_FIND_BUTTON}; const button = findButton('Nova tarefa') ?? findButton('Criar primeira tarefa'); button?.click(); return Boolean(button) })()`,
+  )
+  checks['titleExists'] = await evaluate<boolean>(surface, uiWait(`Boolean(document.querySelector('form.task-form input[name="title"]'))`))
+  checks['initialFocusOnTitle'] = await evaluate<boolean>(
+    surface,
+    `document.activeElement === document.querySelector('form.task-form input[name="title"]')`,
+  )
+  checks['accessibleNames'] = await evaluate<boolean>(
+    surface,
+    `(() => {
+      const controls = [...document.querySelectorAll('form.task-form button')];
+      return controls.length > 0 && controls.every((control) => (control.textContent || '').trim().length > 0 || (control.getAttribute('aria-label') || '').trim().length > 0);
+    })()`,
+  )
+
+  surface.webContents.setZoomFactor(2)
+  checks['zoom200CancelReachable'] = await evaluate<boolean>(
+    surface,
+    `(() => {
+      const button = [...document.querySelectorAll('form.task-form button')].find((candidate) => (candidate.textContent || '').includes('Cancelar'));
+      if (!button) return false;
+      const rect = button.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.top >= 0;
+    })()`,
+  )
+  surface.webContents.setZoomFactor(1)
+  checks['closeForm'] = await evaluate<boolean>(surface, UI_CANCEL_FORM)
+
+  // String longa Unicode permanece integral no cartão.
+  const longTitle = `Longa ${'ação 日本語 🚀 '.repeat(12)}`
+  const longTask = { ...buildFictitiousTask(995_001, { idPrefix: 'a11y-longa' }), title: longTitle }
+  expectOkUnit(await coordinator.run((unit) => unit.saveTask(longTask)))
+  checks['longStringVisible'] = await evaluate<boolean>(surface, uiBodyHas(longTitle, 15_000))
+
+  // Abertura real (shell do Windows) de uma URL fictícia controlada: sem dados privados.
+  const openerTask = { ...buildFictitiousTask(995_002, { idPrefix: 'a11y-opener' }), sourceUrl: 'https://example.invalid/tarefa-a11y' }
+  expectOkUnit(await coordinator.run((unit) => unit.saveTask(openerTask)))
+  const stored = await coordinator.read((reader) => reader.getTask(openerTask.id))
+  const revision = stored.ok ? stored.value?.contentRevision.toString() ?? '1' : '1'
+  const result = await evaluate<{ status: string; code?: string }>(
+    surface,
+    `window.taskflowDesktop.openTaskSource({ version: 1, taskId: ${JSON.stringify(openerTask.id)}, expectedContentRevision: ${JSON.stringify(revision)} })`,
+  )
+  info['openerResult'] = result
+  checks['windowsOpenerAccepted'] = result.status === 'ok'
+  const after = await coordinator.read((reader) => reader.getTask(openerTask.id))
+  checks['openerKeepsTask'] = after.ok && after.value?.contentRevision.toString() === revision
+
+  emit({ scenario: 'a11y', ok: Object.values(checks).every(Boolean), checks, info })
+}
+
 /**
  * Executa o cenário e reporta uma linha JSON no stdout. Cenários de verificação pontual
  * encerram o app ao final; `bridge` permanece vivo para o teste de segunda instância.
@@ -635,8 +1167,14 @@ export async function runProductHarness(
       await runCrash(deps, scenario.point, scenario.unit)
       return
     }
+    if (scenario.name === 'tasks') {
+      await runTasks(deps)
+      return
+    }
     if (scenario.name === 'reopen') await runReopen(deps)
     else if (scenario.name === 'drain') await runDrain(deps)
+    else if (scenario.name === 'ui-bench') await runUiBench(deps)
+    else if (scenario.name === 'a11y') await runA11y(deps)
     else await runBench(deps)
     deps.app.quit()
   } catch {

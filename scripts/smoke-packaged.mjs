@@ -16,6 +16,13 @@
 // origem real, subscriptions, ownership, kill do processo de teste em barreiras, drain e o
 // benchmark. O Setup não é executado e nenhum Node/npm externo participa do app em teste.
 // Evidência detalhada: release/product-harness-evidence.json (não versionado).
+//
+// TFA-004 — UI real de tarefas no mesmo fluxo: criar/editar/status/reabrir/abrir origem pela
+// interface com opener falso, duas superfícies, negativas dos oito comandos, foco/ressync,
+// reload sem duplicação e fechamento da janela principal; medição D10 com 1.000/10.000 tarefas
+// (montagem, p95 de consultas e heartbeat) e evidência de dimensões/zoom/strings longas com
+// abertura controlada de URL fictícia pelo shell real. Nada aqui substitui leitor de tela,
+// DPI humano, Setup ou instalação.
 
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -345,24 +352,72 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
   // P6 — limites síncronos medidos no runtime empacotado
   if (skipBench) {
     record('produto: benchmark de limites', true, 'pulado por --skip-bench')
-    return
+  } else {
+    const bench = await runScenario('bench', benchTimeoutMs)
+    evidence.bench = bench.marker
+    await waitForExit(bench.child, 30_000)
+    const large = bench.marker.datasets?.[1] ?? {}
+    const failedGates = Object.entries(bench.marker.gates ?? {})
+      .filter(([, ok]) => ok !== true)
+      .map(([name]) => name)
+    out(`BENCH ${JSON.stringify(bench.marker)}`)
+    assert(bench.marker.ok === true, `gate de limites reprovou: ${failedGates.join(', ') || 'sem resultado'}`)
+    record(
+      'produto: gate de limites (10.000 tarefas, >= 20 MiB)',
+      true,
+      `mutação p95 ${large.mutation.p95Ms} ms, página p95 ${large.page.p95Ms} ms, preflight ${large.preflight.ms} ms, saveMany ${large.saveManyMs} ms`,
+    )
+    assert((await reopen()).ok === true, 'banco do benchmark não reabriu')
+    record('produto: banco do benchmark reabre validado', true)
   }
-  const bench = await runScenario('bench', benchTimeoutMs)
-  evidence.bench = bench.marker
-  await waitForExit(bench.child, 30_000)
-  const large = bench.marker.datasets?.[1] ?? {}
-  const failedGates = Object.entries(bench.marker.gates ?? {})
+
+  // P7 — UI real, negativas, foco, reload sem duplicação e fechamento da janela principal
+  const tasks = await runScenario('tasks', 180_000)
+  evidence.tasks = tasks.marker
+  const tasksExit = await waitForExit(tasks.child, 30_000)
+  const failedTasks = Object.entries(tasks.marker.checks ?? {})
     .filter(([, ok]) => ok !== true)
     .map(([name]) => name)
-  out(`BENCH ${JSON.stringify(bench.marker)}`)
-  assert(bench.marker.ok === true, `gate de limites reprovou: ${failedGates.join(', ') || 'sem resultado'}`)
+  assert(tasks.marker.ok === true, `UI real de tarefas reprovou: ${failedTasks.join(', ') || 'sem resultado'}`)
+  assert(!tasksExit.timedOut && tasksExit.code === 0, `fechamento da janela principal não encerrou com saída 0 (${tasksExit.code})`)
+  record('produto: UI real, negativas, foco, reload e fechamento da janela', true)
+
+  // P8 — acessibilidade/zoom/strings longas e abertura controlada de URL fictícia (shell real)
+  const a11y = await runScenario('a11y')
+  evidence.a11y = a11y.marker
+  const a11yExit = await waitForExit(a11y.child, 20_000)
+  const failedA11y = Object.entries(a11y.marker.checks ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  assert(a11y.marker.ok === true, `acessibilidade/opener reprovou: ${failedA11y.join(', ') || 'sem resultado'}`)
+  assert(!a11yExit.timedOut, 'cenário a11y não encerrou')
   record(
-    'produto: gate de limites (10.000 tarefas, >= 20 MiB)',
+    'produto: dimensões/zoom/foco/strings longas e abertura controlada',
     true,
-    `mutação p95 ${large.mutation.p95Ms} ms, página p95 ${large.page.p95Ms} ms, preflight ${large.preflight.ms} ms, saveMany ${large.saveManyMs} ms`,
+    `opener ${a11y.marker.info?.openerResult?.status ?? '?'}`,
   )
-  assert((await reopen()).ok === true, 'banco do benchmark não reabriu')
-  record('produto: banco do benchmark reabre validado', true)
+
+  // P9 — UI real de tarefas com 1.000/10.000 tarefas fictícias contra os alvos D10.
+  // O gate NÃO é removido: uma falha é registrada e mantém o smoke reprovado no final.
+  if (skipBench) {
+    record('produto: UI real 1.000/10.000 contra D10', true, 'pulado por --skip-bench')
+    return
+  }
+  const uiBench = await runScenario('ui-bench', benchTimeoutMs)
+  evidence.uiBench = uiBench.marker
+  await waitForExit(uiBench.child, 30_000)
+  const failedUiGates = Object.entries(uiBench.marker.gates ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  out(`UI-BENCH ${JSON.stringify(uiBench.marker)}`)
+  const smallData = uiBench.marker.datasets?.[0] ?? {}
+  const largeData = uiBench.marker.datasets?.[1] ?? {}
+  record(
+    'produto: UI real 1.000/10.000 contra D10',
+    uiBench.marker.ok === true,
+    `montagem ${smallData.mountMs}/${largeData.mountMs} ms, p95 consultas ${smallData.interactions?.p95Ms}/${largeData.interactions?.p95Ms} ms, heartbeat ${smallData.heartbeatMaxMs}/${largeData.heartbeatMaxMs} ms, cards ${smallData.cards}/${largeData.cards}` +
+      (failedUiGates.length > 0 ? `; gates reprovados: ${failedUiGates.join(', ')}` : ''),
+  )
 }
 
 async function main() {

@@ -84,7 +84,7 @@ Guardas obrigatórias a refinar em TFA-003: `nodeIntegration: false`, `contextIs
 
 Não atravessam structured clone: callbacks de repository, subscriptions/funções, `File.text()`, `AbortSignal`, instâncias de erro esperando conservar protótipo, plano de undo livre ou caminho de arquivo arbitrário. O main recria funções, controllers e acesso a arquivos internamente. Tipos TypeScript não substituem autorização nem validação de runtime. Ver também [segurança Electron](https://www.electronjs.org/docs/latest/tutorial/security).
 
-**Resolvido na TFA-003 (2026-10-04) para o grupo de leitura de estado:** o preload expõe `getStateSnapshot`, `subscribeState` e `unsubscribeState`, além de `verifyFoundation`. As guardas acima estão implementadas para essas operações, com validação de documento/sessão também antes da execução enfileirada e do envio. Os comandos de criar/editar/status e os demais grupos da tabela continuam **não implementados**. Detalhes na seção TFA-003 abaixo.
+**Resolvido na TFA-003 (2026-10-04) para o grupo de leitura de estado:** o preload expõe `getStateSnapshot`, `subscribeState` e `unsubscribeState`, além de `verifyFoundation`. As guardas acima estão implementadas para essas operações, com validação de documento/sessão também antes da execução enfileirada e do envio. **Atualizado pela TFA-004 (apply em 2026-10-04):** os quatro comandos `createTask`, `updateTask`, `changeTaskStatus` e `openTaskSource` passaram a existir no catálogo, com schema/bytes/erros próprios e decisão dentro da unidade coordenada. Os demais grupos da tabela (lixeira/undo, backup, ciclo de vida, captura/atalhos, IA) continuam **não implementados**. Detalhes na seção TFA-004 abaixo e em [desktop-task-management.md](desktop-task-management.md).
 
 ## D4 — Persistência, ordem e recuperação
 
@@ -216,6 +216,31 @@ Esta seção registra o que **existe e foi verificado**. Contrato completo, matr
 - `DatabaseSync` é síncrono: os orçamentos valem antes de a unidade iniciar; não há timeout que interrompa um commit. O gate medido no pacote passou sem worker, WAL ou relaxamento.
 - Kill de processo e rollback/reopen não são prova de falha de energia; nenhum teste de corte de energia foi executado.
 - A evidência é de harness e bridge reais no pacote com perfil fictício; não houve instalação pelo Setup com dados de produto.
+
+## Comandos de tarefas TFA-004 implementados (apply em 2026-10-04)
+
+Esta seção registra o que **existe no branch da TFA-004** para os comandos de mutação e a abertura de origem; a interface, o store e as evidências de pacote/volume são consolidados ao final do apply em [desktop-task-management.md](desktop-task-management.md). O recorte conservador continua: recorrência presente é somente leitura (TFA-005), subtarefas existentes somente leitura, com lembretes não há mudança efetiva de prazo/status (TFA-008), e excluir/lixeira/undo ficam na TFA-006.
+
+### Catálogo e fronteiras
+
+- **Quatro comandos versionados** com canal dedicado: `task:create:v1`, `task:update:v1`, `task:status:v1` e `task:source:open:v1`; somados ao diagnóstico e às três operações de estado, o catálogo fechado tem oito operações. Nenhum `send`/canal livre, SQL, caminho, callback remoto, `Task` completa ou `UndoPlan`.
+- **Contratos portáveis** em `src/contracts/tasks.ts` e regras básicas em `src/domain/task-draft.ts`; casos de uso em `src/application/tasks/task-commands.ts`; validação da origem em `src/application/tasks/source-url.ts`; handlers em `src/main/ipc/tasks.ts`; wrappers explícitos no preload. O núcleo não importa Electron/Node/Vue.
+- **Autorização e bytes:** o serviço autoriza o documento antes de olhar o request, valida schema/versão/chaves/protótipo e o orçamento de 64 KiB antes de qualquer leitura; a resposta é conferida contra 8 KiB antes da entrega e contra a sessão corrente depois da unidade e antes do efeito. Erros são a união versionada por operação, sem detalhes sensíveis.
+
+### Decisão dentro da unidade
+
+- **Criação:** relógio e UUID injetados pela composição; colisão verificada em tarefas e lixeira com até três tentativas; falha final é `RESOURCE_LIMIT` sem commit e sem evento; nenhum ID existente é substituído.
+- **Edição/status por CAS:** existência, revisão de conteúdo, restrições e campos alterados são decididos na mesma unidade; base stale devolve `CONFLICT` com a revisão atual; no-op não grava, não incrementa revisão e não emite evento. Timestamp/global não substituem a revisão de conteúdo.
+- **Patch básico:** ausente conserva; `null`/`[]` limpam explicitamente; histórico intacto não é revalidado nem truncado. Campos avançados e `processedFor` são conservados porque a tarefa é relida e o patch é aplicado sobre ela.
+
+### Abertura externa
+
+- A operação lê a origem **salva** por ID/revisão numa leitura coordenada, valida controles/HTTP-HTTPS/host/ausência de credenciais e o limite de 2081 caracteres do Windows e chama o opener do main **fora da transação**, revalidando a sessão antes do efeito e antes da entrega. URL histórica nunca é truncada ou regravada; falha do shell não altera a tarefa e não autoriza repetição automática.
+
+### Limites explícitos
+
+- A suíte usa opener falso; a abertura real no Windows é prova manual separada no pacote, sem dados privados.
+- A resposta de criação com ID acima de 8 KiB vira `RESOURCE_LIMIT` sem truncamento; IDs normais são UUID.
 
 ## Riscos e decisões futuras
 
