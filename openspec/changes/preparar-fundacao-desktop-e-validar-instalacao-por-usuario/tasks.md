@@ -53,7 +53,7 @@ Cada grupo inclui verificações e documentação pertinentes. Evidências usam 
 - [x] 6.2 Executar instalação offline por lançamento normal e abrir exe/atalho instalado fora de dev; verificar F03/F04/F05, isolamento/diagnóstico SQLite F02/F08, manifests e ausência de prompt/admin/download/helper/serviço/efeitos globais, recolhendo evidências sanitizadas.
 - [x] 6.3 Executar matriz F06 de /currentuser, /allusers isolado/combinado, /S, /D canônico/não permitido, HKCU anterior inválido, all-users legado, caminhos com espaços/acentos/redirecionados/reparse e destino inacessível; verificar códigos/recusa sem alterar instalação/dados existentes e documentar cada PASS/FAIL/BLOCKED.
 - [x] 6.4 Executar reinício, segunda instância, upgrade fictício, uninstall e reinstalação na conta padrão; verificar F07/F08 por fingerprint do marcador antes/depois, versão/identidade, remoção só de binários/HKCU/atalhos e retenção da raiz de dados.
-- [ ] 6.5 Executar instalação/diagnóstico/manutenção na segunda conta; verificar isolamento de perfis/registro/atalhos e preservação da primeira instalação/marcador, documentando as evidências fictícias.
+- [x] 6.5 Executar instalação/diagnóstico/manutenção na segunda conta; verificar isolamento de perfis/registro/atalhos e preservação da primeira instalação/marcador, documentando as evidências fictícias.
 - [x] 6.6 Consolidar matriz F01–F09 e evidências sanitizadas no runbook/Change, com resultados por cenário, versões, hashes e limitações; verificar que bloqueios de política são registrados sem bypass e deixam o gate pendente, sem marcar teste de produto completo ou paridade migrada.
 
 ## 7. Integração e entrega para revisão
