@@ -2,7 +2,7 @@
 
 Aplicativo desktop **autocontido e local-first** para captura rápida e gerenciamento de tarefas pessoais e profissionais. É derivado da extensão TaskFlow para Google Chrome e tem como destino o Windows, distribuído por um instalador **por usuário** — sem exigir administrador e sem instalar serviços de sistema.
 
-> **O que o aplicativo faz hoje:** abre uma janela diagnóstica isolada e mantém um banco local de tarefas e lixeira, com leitura e acompanhamento de estado disponíveis para a interface. **Ainda não há tela de tarefas nem comandos para criar ou editar:** as funcionalidades listadas em "Propósito" são o alvo da migração e não estão disponíveis no aplicativo. O andamento está no [roadmap](docs/roadmap.md).
+> **O que o aplicativo faz hoje:** abre uma janela principal de tarefas com criação/edição dos campos básicos, conclusão/cancelamento/reabertura, pesquisa, filtros combináveis, três ordenações, prazos no fuso local e abertura da origem salva no navegador padrão, sobre um banco local de tarefas e lixeira com estado versionado. Exclusão/lixeira/desfazer, edição de recorrências e subtarefas, backups, lembretes, Quick Add/captura/atalhos e IA **ainda não** estão disponíveis. O andamento está no [roadmap](docs/roadmap.md).
 
 ## Propósito
 
@@ -36,8 +36,9 @@ O roadmap registra o tratamento planejado e a Change responsável por cada item.
 
 - **Stack:** Vue 3 + Pinia com Electron, builds separados de main/preload/renderer via `electron-vite`, TypeScript estrito em todos os projetos. O núcleo portável (contratos, domínio e aplicação) não importa Vue, Pinia, Electron, Node nem rede.
 - **Isolamento:** `contextIsolation`, `sandbox` e `webSecurity` ativos; renderer servido apenas por assets locais (`taskflow://app`) com CSP restritiva; navegação externa, janelas, webviews e permissões negadas por padrão.
-- **Bridge fechada:** quatro operações expostas ao renderer — `verifyFoundation`, `getStateSnapshot`, `subscribeState` e `unsubscribeState`. Todas são validadas no main por schema exato, limite de 1 KiB, `webContents` registrado, main frame, origem e URL reais e sessão do documento, com códigos de erro fechados. Não há comando de mutação, SQL, caminho ou canal genérico.
-- **Estado para a interface:** snapshot completo de tarefas e lixeira por revisão, paginado em até 256 KiB por mensagem, com eventos de invalidação e ressincronização automática (a cada 30 s e ao retomar o foco).
+- **Bridge fechada:** oito operações expostas ao renderer — `verifyFoundation`, `getStateSnapshot`, `subscribeState`, `unsubscribeState`, `createTask`, `updateTask`, `changeTaskStatus` e `openTaskSource`. Estado e diagnóstico são validados por schema exato e limite de 1 KiB; os comandos de tarefas têm schema, versão, chaves, protótipos e orçamento próprios (64 KiB de request, 8 KiB de resposta), `webContents` registrado, main frame, origem e URL reais e sessão do documento, com códigos de erro fechados. Edição e status usam revisão de conteúdo (CAS) e abertura externa usa apenas a origem salva validada no main. Não há SQL, caminho, canal genérico, `Task` livre ou URL arbitrária.
+- **Janela de tarefas:** formulário, lista de cartões, filtros/ordenação e seletor de status com teclado; identidade, foco, `aria` e contraste preservados. O diagnóstico da fundação fica em uma área secundária recolhível. Recorrência e subtarefas existentes aparecem em somente leitura nesta versão (Changes seguintes).
+- **Estado para a interface:** snapshot completo de tarefas e lixeira por revisão, paginado em até 256 KiB por mensagem, com eventos de invalidação e ressincronização automática (a cada 30 s e ao retomar o foco); a store aguarda snapshot de revisão igual ou superior ao ack antes de encerrar a sincronização e preserva rascunho/base em conflito, tarefa ausente ou resultado incerto.
 - **Perfis e ownership:** identidade `taskflow.app`/`TaskFlowApp.exe`; dados em `%LOCALAPPDATA%\TaskFlowApp\profiles\<dev|test|prod>\{user-data,session-data}`; instância única por perfil antes de abrir o armazenamento.
 - **Armazenamento:** SQLite pelo `node:sqlite` embarcado no Electron, sem addon nativo. O banco de tarefas e lixeira fica em `<user-data>\data\taskflow.sqlite`, com gravações transacionais, um único coordenador de leitura/decisão/commit no processo principal e revisões persistidas. Um banco existente vazio, incompatível ou corrompido bloqueia a abertura e é preservado — nunca é redefinido automaticamente. O diagnóstico usa um banco próprio, separado (`foundation-proof\proof.sqlite`).
 - **Instalador:** NSIS offline one-click **exclusivo por usuário** (`asInvoker`, sem elevate helper, updater ou serviços), com validação de argumentos/destino e ACE de leitura do AppContainer restrita ao diretório instalado. O desinstalador preserva os dados do usuário.
@@ -47,7 +48,7 @@ O roadmap registra o tratamento planejado e a Change responsável por cada item.
 
 A adaptação de captura já está confirmada: em vez de ler a aba ativa do Chrome, o aplicativo usará **links e textos copiados**, acionados por botão ou atalho global, sem navegador embutido, extensão auxiliar ou monitoramento contínuo da área de transferência. As demais diferenças previstas:
 
-- persistência em banco SQLite local no perfil do usuário, no lugar do armazenamento do navegador (já disponível como base; a interface de tarefas ainda não);
+- persistência em banco SQLite local no perfil do usuário, no lugar do armazenamento do navegador (implementada; a interface de tarefas cobre criação, edição e status básicos);
 - lembretes e notificações nativos do Windows, com ciclo de vida definido ao minimizar, fechar, suspender e reiniciar (TFA-008);
 - atalhos globais personalizáveis, com tratamento explícito de conflitos (TFA-009).
 
@@ -58,10 +59,10 @@ O backup atual da extensão exporta **tarefas**. Lixeira, credenciais de IA e es
 ```text
 src/contracts/        contratos tipados e validados da bridge
 src/domain/           tipos e regras puras de tarefa
-src/application/      codecs, unidade de trabalho e cliente de estado (portáveis)
+src/application/      codecs, unidade de trabalho, cliente de estado e casos de uso de tarefas (portáveis)
 src/main/             processo principal: armazenamento, coordenação, IPC e harness de teste
 src/preload/          bridge mínima exposta ao renderer
-src/renderer/         interface Vue (hoje, a tela diagnóstica)
+src/renderer/         interface Vue (janela de tarefas e diagnóstico secundário)
 tests/                testes unitários, de contrato, de armazenamento e de fronteiras
 scripts/              geração de ícone, inspeção do pacote e smoke empacotado
 build/                recursos do instalador (ícone e include NSIS)
@@ -89,7 +90,7 @@ npm run build           # build das três entradas
 npm run validate        # lint + typecheck + testes + build
 npm run package:win     # instalador NSIS x64 (--publish never)
 npm run verify:package  # inventário/manifests/hashes do pacote
-npm run smoke:packaged  # executa o exe empacotado em cópia de teste (fundação, banco e bridge)
+npm run smoke:packaged  # executa o exe empacotado em cópia de teste (fundação, banco, bridge e UI real de tarefas/volume)
 ```
 
 O detalhamento de versões, hashes, limitações e das provas executadas (incluindo a instalação por usuário) está em [Validação da fundação](docs/desktop-foundation-validation.md); o contrato de armazenamento e de estado, seus limites e evidências estão em [Persistência local e IPC de estado](docs/local-persistence-and-state-ipc.md). Os comandos `/opsx:*` são comandos de chat do assistente; os comandos `openspec` são de terminal.
@@ -103,6 +104,7 @@ O detalhamento de versões, hashes, limitações e das provas executadas (inclui
 - [Estratégia de testes](docs/test-strategy.md)
 - [Validação da fundação desktop](docs/desktop-foundation-validation.md)
 - [Persistência local e IPC de estado](docs/local-persistence-and-state-ipc.md)
+- [Gerenciamento de tarefas e interface](docs/desktop-task-management.md)
 
 ## Licença
 

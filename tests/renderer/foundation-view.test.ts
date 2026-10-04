@@ -1,4 +1,4 @@
-import { createPinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TaskFlowDesktopApi } from '../../src/contracts/desktop-api.js'
@@ -9,16 +9,22 @@ let wrapper: VueWrapper | undefined
 
 type FoundationApi = Pick<TaskFlowDesktopApi, 'verifyFoundation'>
 
-// O shell continua diagnóstico: a tela só usa verifyFoundation; as operações de estado
-// existem na bridge, mas nenhuma UI de gerenciamento as consome nesta Change.
-function mountFoundationView(foundation: FoundationApi): VueWrapper {
+// A janela tem o gerenciamento de tarefas em primeiro plano e o diagnóstico da fundação em área
+// secundária recolhível. A inscrição de estado falha nos testes de diagnóstico: o gerenciamento
+// fica em estado bloqueado explícito, sem lista vazia, e nenhum comando de tarefa é usado.
+function mountApp(foundation: FoundationApi): VueWrapper {
   const api: TaskFlowDesktopApi = {
     ...foundation,
     getStateSnapshot: vi.fn(),
-    subscribeState: vi.fn(),
+    subscribeState: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'STORAGE_UNAVAILABLE' }),
     unsubscribeState: vi.fn(),
+    createTask: vi.fn(),
+    updateTask: vi.fn(),
+    changeTaskStatus: vi.fn(),
+    openTaskSource: vi.fn(),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api })
+  setActivePinia(createPinia())
   wrapper = mount(App, { attachTo: document.body, global: { plugins: [createPinia()] } })
   return wrapper
 }
@@ -29,21 +35,24 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'taskflowDesktop')
 })
 
-describe('janela provisória acessível', () => {
-  it('oferece botão nativo focalizável e estado anunciado', () => {
+describe('janela principal com diagnóstico secundário', () => {
+  it('prioriza Tarefas e mantém o diagnóstico em details acessível por teclado', async () => {
     const api: FoundationApi = { verifyFoundation: vi.fn() }
-    const view = mountFoundationView(api)
-    const button = view.get('button')
+    const view = mountApp(api)
 
+    expect(view.get('h1').text()).toBe('Tarefas')
+    const details = view.get('details.diagnostic-section')
+    expect(details.find('summary').text()).toContain('Diagnóstico da fundação')
+    expect(details.attributes('open')).toBeUndefined()
+
+    const button = details.get('button')
     expect(button.element.tagName).toBe('BUTTON')
-    expect((button.element as HTMLButtonElement).type).toBe('button')
-    expect((button.element as HTMLButtonElement).tabIndex).toBe(0)
     ;(button.element as HTMLButtonElement).focus()
     expect(document.activeElement).toBe(button.element)
-    expect(view.get('[role="status"]').attributes('aria-live')).toBe('polite')
+    await vi.waitFor(() => expect(view.text()).toContain('armazenamento local está indisponível'))
   })
 
-  it('envia apenas versão 1 e apresenta o resultado sanitizado', async () => {
+  it('envia apenas versão 1 ao diagnóstico e apresenta o resultado sanitizado', async () => {
     const result: FoundationResult = {
       version: 1,
       status: 'verified',
@@ -53,49 +62,53 @@ describe('janela provisória acessível', () => {
       fingerprint: 'b'.repeat(64),
     }
     const api: FoundationApi = { verifyFoundation: vi.fn().mockResolvedValue(result) }
-    const view = mountFoundationView(api)
+    const view = mountApp(api)
 
-    await view.get('button').trigger('click')
+    await view.get('.diagnostic-section button').trigger('click')
     expect(api.verifyFoundation).toHaveBeenCalledExactlyOnceWith({ version: 1 })
-    expect(view.get('[role="status"]').text()).toContain('Fundação verificada')
-    expect(view.text()).toContain(result.fingerprint)
+    expect(view.get('.diagnostic-section [role="status"]').text()).toContain('Fundação verificada')
+    expect(view.get('.diagnostic-section').text()).toContain(result.fingerprint)
   })
 
-  it('não expõe stack nem caminho em erro', async () => {
+  it('não expõe stack nem caminho em erro do diagnóstico', async () => {
     const failure: FoundationResult = { version: 1, status: 'error', code: 'PROOF_UNAVAILABLE' }
     const api: FoundationApi = { verifyFoundation: vi.fn().mockResolvedValue(failure) }
-    const view = mountFoundationView(api)
+    const view = mountApp(api)
 
-    await view.get('button').trigger('click')
-    expect(view.get('[role="status"]').text()).toContain('Nenhum dado foi redefinido')
+    await view.get('.diagnostic-section button').trigger('click')
+    expect(view.get('.diagnostic-section [role="status"]').text()).toContain('Nenhum dado foi redefinido')
     expect(view.text()).not.toContain('PROOF_UNAVAILABLE')
     expect(view.text()).not.toContain('C:\\Users')
   })
 
-  it('mantém BUSY enquanto a chamada está pendente e captura rejeição sem stack', async () => {
+  it('mantém o controle ocupado sem perder foco', async () => {
     let resolveCall: ((result: FoundationResult) => void) | undefined
     const api: FoundationApi = {
-      verifyFoundation: vi.fn(() => new Promise<FoundationResult>((resolve) => {
-        resolveCall = resolve
-      })),
+      verifyFoundation: vi.fn(
+        () =>
+          new Promise<FoundationResult>((resolve) => {
+            resolveCall = resolve
+          }),
+      ),
     }
-    const view = mountFoundationView(api)
-    const button = view.get('button')
+    const view = mountApp(api)
+    const button = view.get('.diagnostic-section button')
 
     await button.trigger('click')
-    expect((button.element as HTMLButtonElement).disabled).toBe(true)
+    expect(button.attributes('aria-disabled')).toBe('true')
     resolveCall?.({ version: 1, status: 'error', code: 'BUSY' })
-    await vi.waitFor(() => expect(view.get('[role="status"]').text()).toContain('Nenhum dado'))
+    await vi.waitFor(() =>
+      expect(view.get('.diagnostic-section [role="status"]').text()).toContain('Nenhum dado'),
+    )
   })
 
   it('converte rejeição da bridge em mensagem segura', async () => {
-    const api: FoundationApi = {
+    const rejected: FoundationApi = {
       verifyFoundation: vi.fn().mockRejectedValue(new Error('C:\\Users\\private\\proof.sqlite')),
     }
-    const view = mountFoundationView(api)
-
-    await view.get('button').trigger('click')
-    expect(view.get('[role="status"]').text()).toContain('Não foi possível')
+    const view = mountApp(rejected)
+    await view.get('.diagnostic-section button').trigger('click')
+    expect(view.get('.diagnostic-section [role="status"]').text()).toContain('Não foi possível')
     expect(view.text()).not.toContain('private')
   })
 })

@@ -78,6 +78,20 @@ A TFA-003 **não entrega nenhuma funcionalidade visível** desta matriz: não h�
 
 Detalhes e evidências em [local-persistence-and-state-ipc.md](local-persistence-and-state-ipc.md).
 
+## TFA-004 — regras básicas portadas e restrições temporárias
+
+A TFA-004 (apply concluído e Change arquivada em 2026-10-04) transporta por cópia revisada as regras puras de P01 para o núcleo portável e as cobre com testes de domínio. A evidência de comandos, interface e pacote está consolidada em [desktop-task-management.md](desktop-task-management.md); nada de UI ou IPC é declarado disponível sem essa evidência.
+
+- **P01 (regras básicas):** campos, defaults TODO/MEDIUM, trim, tags distintas sem diferenciar caixa, limites 200/4000/120/10×30, URL HTTP/HTTPS, pesquisa substring/caixa em título/descrição/pessoas/tags/subtarefas (sem remover acentos e sem pesquisar `sourceUrl`), filtros AND, três ordenações com desempates e classificação de prazo ativo (< agora / [agora, agora+24 h]) foram portados com testes determinísticos. Status simples preserva `completedAt` (`DONE` registra, demais limpam) e o mesmo status é no-op.
+- **Edição por patch:** ausente conserva; `null` limpa apenas descrição/solicitante/responsável/prazo/origem; `[]` limpa tags. Valores históricos intactos (inclusive acima do limite de formulário) não são revalidados nem regravados; valores alterados precisam cumprir o limite. Prazo não alterado conserva o ISO original, com segundos/milissegundos.
+- **Comandos e concorrência:** os quatro comandos fechados (`createTask`, `updateTask`, `changeTaskStatus`, `openTaskSource`) decidem dentro da unidade coordenada, usam CAS por revisão de conteúdo (nunca timestamp/global), geram IDs/relógio no main com colisão protegida em tarefas/lixeira, devolvem ack curto e nunca aceitam auditoria/avançados/URL livre do renderer. Byte budgets: 64 KiB de request e 8 KiB de resposta, medidos em UTF-8 serializado, sem truncar dados legítimos; leitura/eventos continuam 1 KiB e páginas 256 KiB. A origem salva é validada no main (HTTP/HTTPS, host, sem credenciais/controles, href ≤2081) e aberta fora da transação, revalidando a sessão antes do efeito e da entrega.
+- **Diferenças temporárias explícitas (não implementadas nesta Change):**
+  - **P02 — recorrência:** presente no snapshot torna a tarefa **somente leitura** para mutação até a TFA-005; leitura, pesquisa e abertura de origem continuam disponíveis. `seriesId` isolado, sem regra, não bloqueia.
+  - **P03 — subtarefas:** itens existentes são apresentados/pesquisados **somente leitura**, sem adicionar, marcar ou reordenar, até a TFA-005; os dados são preservados integralmente.
+  - **P04 — lixeira/exclusão:** nenhum botão ou comando de excluir/lixeira/desfazer; a primitive existente não é exposta. Política e tela ficam na TFA-006.
+  - **P07 — lembretes:** dados e `processedFor` são preservados, mas mudança **efetiva** de prazo ou status com lembretes presentes é recusada (`ADVANCED_TASK_RESTRICTED`) até a TFA-008, porque a origem liquida/reconcilia ocorrências nessas ações. Edição independente continua válida.
+- **Nota das substituições:** a pesquisa não inclui `sourceUrl`, não remove acentos e não tokeniza palavras — igual à origem; o armazenamento continua sem aplicar limites de formulário a dados históricos.
+
 ## Riscos e gates futuros
 
 | Risco | Tratamento e destino |

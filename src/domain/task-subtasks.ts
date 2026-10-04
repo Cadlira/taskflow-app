@@ -1,5 +1,6 @@
 // Cópia revisada (recorte) de taskflow-extension@a763e7a src/domain/task-subtasks.ts.
-// Somente o tipo e o limite usados pelo codec; rascunhos, marcação e progresso ficam na TFA-005.
+// Somente o tipo, o limite e o progresso derivado usados para leitura; rascunhos, marcação e
+// reordenação ficam na TFA-005.
 
 /** Limite de subtarefas por tarefa. */
 export const MAX_SUBTASKS = 20
@@ -10,4 +11,17 @@ export interface Subtask {
   id: string
   title: string
   done: boolean
+}
+
+export interface SubtaskProgress {
+  done: number
+  total: number
+}
+
+/** Progresso derivado; nunca é persistido nem altera marcações. */
+export function countSubtaskProgress(subtasks: readonly Subtask[]): SubtaskProgress {
+  return {
+    done: subtasks.filter((subtask) => subtask.done).length,
+    total: subtasks.length,
+  }
 }

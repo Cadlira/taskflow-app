@@ -1,14 +1,21 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, session } from 'electron'
-import { randomBytes } from 'node:crypto'
+import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell } from 'electron'
+import { randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { FoundationResult } from '../contracts/foundation.js'
 import { STATE_SNAPSHOT_CHANNEL, STATE_SUBSCRIBE_CHANNEL, STATE_UNSUBSCRIBE_CHANNEL } from '../contracts/state.js'
+import {
+  TASK_CREATE_CHANNEL,
+  TASK_OPEN_SOURCE_CHANNEL,
+  TASK_STATUS_CHANNEL,
+  TASK_UPDATE_CHANNEL,
+} from '../contracts/tasks.js'
 import { runFoundationProof } from './foundation-proof.js'
 import { parseProductHarnessScenario, runProductHarness } from './harness/product-harness.js'
 import { DocumentSessions } from './ipc/document-sessions.js'
 import { FOUNDATION_CHANNEL, FoundationBusyGate, handleFoundationInvocation } from './ipc/foundation.js'
 import { StateIpcService } from './ipc/state.js'
+import { TaskCommandIpcService } from './ipc/tasks.js'
 import {
   resolveFoundationProofFile,
   resolveProductDatabaseFile,
@@ -55,6 +62,15 @@ if (!ownsProfile) {
     sessions,
     storage: coordinator,
     randomToken: () => randomBytes(24).toString('base64url'),
+  })
+  // Porta de abertura externa do main: recebe somente href já validado pelo serviço de comando.
+  const opener = { openExternal: (href: string): Promise<void> => shell.openExternal(href) }
+  const taskIpc = new TaskCommandIpcService({
+    sessions,
+    storage: coordinator,
+    clock: () => new Date(),
+    generateId: () => randomUUID(),
+    opener,
   })
   let mainWindow: BrowserWindow | null = null
   let shutdownStarted = false
@@ -157,6 +173,10 @@ if (!ownsProfile) {
     ipcMain.handle(STATE_SNAPSHOT_CHANNEL, (event, request: unknown) => stateIpc.handleSnapshot(event, request))
     ipcMain.handle(STATE_SUBSCRIBE_CHANNEL, (event, request: unknown) => stateIpc.handleSubscribe(event, request))
     ipcMain.handle(STATE_UNSUBSCRIBE_CHANNEL, (event, request: unknown) => stateIpc.handleUnsubscribe(event, request))
+    ipcMain.handle(TASK_CREATE_CHANNEL, (event, request: unknown) => taskIpc.handleCreate(event, request))
+    ipcMain.handle(TASK_UPDATE_CHANNEL, (event, request: unknown) => taskIpc.handleUpdate(event, request))
+    ipcMain.handle(TASK_STATUS_CHANNEL, (event, request: unknown) => taskIpc.handleStatus(event, request))
+    ipcMain.handle(TASK_OPEN_SOURCE_CHANNEL, (event, request: unknown) => taskIpc.handleOpenSource(event, request))
   }
 
   /**
@@ -167,7 +187,16 @@ if (!ownsProfile) {
   function shutdownStorage(): ShutdownReport | undefined {
     if (shutdownStarted) return undefined
     shutdownStarted = true
-    for (const channel of [FOUNDATION_CHANNEL, STATE_SNAPSHOT_CHANNEL, STATE_SUBSCRIBE_CHANNEL, STATE_UNSUBSCRIBE_CHANNEL]) {
+    for (const channel of [
+      FOUNDATION_CHANNEL,
+      STATE_SNAPSHOT_CHANNEL,
+      STATE_SUBSCRIBE_CHANNEL,
+      STATE_UNSUBSCRIBE_CHANNEL,
+      TASK_CREATE_CHANNEL,
+      TASK_UPDATE_CHANNEL,
+      TASK_STATUS_CHANNEL,
+      TASK_OPEN_SOURCE_CHANNEL,
+    ]) {
       ipcMain.removeHandler(channel)
     }
     for (const window of BrowserWindow.getAllWindows()) {
@@ -200,6 +229,7 @@ if (!ownsProfile) {
         productDatabaseFile: resolveProductDatabaseFile(app.getPath('userData')),
         foundationProofFile: resolveFoundationProofFile(app.getPath('userData')),
         shutdownStorage,
+        opener,
       })
     } else if (profile === 'test') {
       await runFoundationSmoke(mainWindow)

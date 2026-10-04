@@ -26,6 +26,15 @@ export default tseslint.config(
     },
   },
   {
+    // SFCs usam a sintaxe TS dentro do <script setup>: o parser do Vue delega ao typescript-eslint.
+    files: ['**/*.vue'],
+    languageOptions: {
+      parserOptions: {
+        parser: tseslint.parser,
+      },
+    },
+  },
+  {
     files: ['tests/**/*.ts'],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },

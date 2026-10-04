@@ -122,6 +122,35 @@ describe('fronteiras da fundação desktop', () => {
     expect(stateIpc).not.toMatch(/node:|ProductDatabase|storage\.run\(|writeRow|saveTask|from\s*['"]electron['"]/)
   })
 
+  it('renderer não detém autoridade de armazenamento, writer, SQL, canais ou opener', () => {
+    const authorityRules: Rule[] = [
+      {
+        label: 'armazenamento',
+        pattern: /StorageCoordinator|TaskStorageUnit|ProductDatabase|updateTaskConditionally|replaceAllTasks|moveToTrash/,
+      },
+      { label: 'SQLite', pattern: /node:sqlite/ },
+      { label: 'IPC bruto', pattern: /\bipcRenderer\b/ },
+      { label: 'opener', pattern: /shell\.openExternal/ },
+    ]
+    const sources = sourceFiles(rendererRoot)
+    expect(sources.length).toBeGreaterThan(0)
+    expect(violations(rendererRoot, authorityRules)).toEqual([])
+    // Fixtures negativas: o detector reconhece cada forma de autoridade indevida.
+    for (const source of [
+      'const unit: TaskStorageUnit = {} as never',
+      "import { DatabaseSync } from 'node:sqlite'",
+      "import { ipcRenderer } from 'electron'",
+      'await shell.openExternal(href)',
+    ]) {
+      expect(labelsFor(authorityRules, source).length).toBeGreaterThan(0)
+    }
+  })
+
+  it('preload fala somente com o Electron e o núcleo portável: sem shell, SQLite, filesystem ou canais livres', () => {
+    const preload = readFileSync(path.join(preloadRoot, 'index.ts'), 'utf8')
+    expect(preload).not.toMatch(/\bshell\b|node:sqlite|node:fs|ipcRenderer\.(?:send|sendSync|postMessage|sendToHost)\b/)
+  })
+
   it('fixtures de violação são detectadas pelas regras estáticas do núcleo, do renderer e do preload', () => {
     const coreFixtures = [
       { source: "import { ref } from 'vue'", label: 'Vue' },

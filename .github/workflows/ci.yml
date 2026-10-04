@@ -50,7 +50,7 @@ jobs:
         run: npm run verify:package
 
       - name: Smoke packaged executable
-        run: npm run smoke:packaged
+        run: npm run smoke:packaged -- --ci-runner
 
       - name: Hashes and CI notes
         run: |
