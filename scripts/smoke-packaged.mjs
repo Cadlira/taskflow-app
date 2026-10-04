@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // smoke:packaged — integração real do pacote (TFA-002).
 //
 // Copia release/win-unpacked para um diretório temporário de teste e concede a ACE

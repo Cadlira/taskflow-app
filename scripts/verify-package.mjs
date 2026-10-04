@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // verify:package — inspeção do artefato empacotado (TFA-002).
 //
 // Verifica identidade, inventário permitido do ASAR, ausência de addon externo,
