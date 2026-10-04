@@ -44,7 +44,7 @@ Cada grupo inclui verificações e documentação pertinentes. Evidências usam 
 - [x] 5.1 Implementar verify:package com inventário permitido, manifests, IDs, assets/preload/armazenamento/licenças e SHA-256; testar ausência de recurso necessário e inclusão de segredo/helper/dependência indevida como falhas, sem criptografia/segurança presumidas por ASAR.
 - [x] 5.2 Implementar smoke:packaged do exe em cwd externo/perfil test restrito e timeout 60 s, passando por renderer/preload/IPC reais até rollback/reopen, reinício e segunda instância; verificar fingerprint persistente, códigos de saída e nenhuma escrita em prod.
 - [x] 5.3 Verificar negativas integradas de preload/IPC/armazenamento inválidos, crash/timeout e tentativa de ampliar perfil/caminho/origem; confirmar reprovação e limpeza somente de processos/pastas test criados, sem afrouxar sandbox para passar o smoke.
-- [ ] 5.4 Criar workflow Windows PR/push com Node/npm/actions SHA fixados, npm ci e gates/build/NSIS --publish never/inspect/smoke, permissions mínimas e artefatos internos com retenção finita; verificar run e relatórios/hashes, sem release, segredo de assinatura ou execução de Setup na CI.
+- [x] 5.4 Criar workflow Windows PR/push com Node/npm/actions SHA fixados, npm ci e gates/build/NSIS --publish never/inspect/smoke, permissions mínimas e artefatos internos com retenção finita; verificar run e relatórios/hashes, sem release, segredo de assinatura ou execução de Setup na CI.
 - [x] 5.5 Atualizar docs/test-strategy.md/runbook com comandos e evidência CI/pacote, ambiente e níveis de validação; verificar que nenhum smoke no runner administrador é apresentado como prova em conta padrão/UAC ou de funcionalidades futuras.
 
 ## 6. Prova em ambiente Windows padrão autorizado

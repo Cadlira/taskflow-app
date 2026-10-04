@@ -76,7 +76,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | ID | Change sugerida | Estado | Etapa | Início | Conclusão | Dependências | Próxima ação |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TFA-001 | `definir-arquitetura-e-paridade-desktop` | DONE | — | 2026-10-03 | 2026-10-03 | Nenhuma | Concluída e integrada pelo PR #1 |
-| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | IN_PROGRESS | VERIFY | 2026-10-03 | — | TFA-001 | Apply na branch própria; relatório de verificação submetido à aprovação; pendentes o run de CI (5.4, requer push autorizado) e a segunda conta Windows (6.5, exige sessão interativa) |
+| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | IN_PROGRESS | VERIFY | 2026-10-03 | — | TFA-001 | Apply concluído; CI validada (run 37202267073); pendente a criação/execução da conta padrão dedicada (6.5); relatório de verificação aguardando aprovação |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | PLANNED | — | — | — | TFA-002 | Após dependências, usar o prompt abaixo |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | PLANNED | — | — | — | TFA-003 | Após dependências, usar o prompt abaixo |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | PLANNED | — | — | — | TFA-004 | Após dependências, usar o prompt abaixo |
@@ -315,12 +315,15 @@ O usuário autorizou retomar o apply na branch `codex/tfa-002-preparar-fundacao-
 
 ### Apply concluído para revisão — 2026-10-04
 
-O apply da TFA-002 foi conduzido na branch `codex/tfa-002-preparar-fundacao-desktop-e-validar-instalacao-por-usuario`, preservando o checkpoint `d92c8e7`. Nesta data: **31/33 tasks concluídas**; nenhum bypass de política; nada arquivado, commitado, publicado ou integrado.
+O apply da TFA-002 foi conduzido na branch `codex/tfa-002-preparar-fundacao-desktop-e-validar-instalacao-por-usuario`, preservando o checkpoint `d92c8e7`. Em 2026-10-04: **32/33 tasks concluídas**; nenhum bypass de política; nada arquivado, mesclado ou publicado (o push/PR em rascunho foi autorizado especificamente para a validação de CI; commit `dd46aae`).
 
-- **Pendências registradas (sem contorno):** task 5.4 — workflow de CI criado, mas o run hospedado não foi executado porque depende de push autorizado; task 6.5 — instalação/diagnóstico na segunda conta Windows exige sessão interativa/credencial e não foi executado nesta sessão. Ambos constam no relatório de verificação e não impedem a revisão do restante, mas impedem declarar a Change concluída.
+- **Pendência registrada (sem contorno):** task 6.5 — a máquina **não contém** as contas padrão fictícias antes informadas; as únicas contas não-administradoras são técnicas do sandbox, sem credenciais acessíveis. O usuário autorizou criar uma conta padrão dedicada; a prova de instalação/diagnóstico/manutenção nessa conta ficou pendente dessa criação. **Correção de premissa:** a execução F04–F07 feita na conta `cadli` usou token filtrado (sem elevação) de uma conta do grupo Administradores e, por isso, **não substitui** o critério de conta sem participação no grupo; a conta dedicada deve cobri-lo.
+- **Task 5.4 concluída:** workflow de CI executado no PR #2 — run [37202267073](https://github.com/Cadlira/taskflow-app/actions/runs/37202267073), 12/12 passos com sucesso (gates, pacote NSIS, `verify:package`, `smoke:packaged`, hashes e artefatos de revisão com retenção de 14 dias). Hashes do run registrados no relatório; o runner administrador não substitui a conta padrão (nota da própria CI).
 - **Evidências principais:** `npm run validate` (lint, typecheck em 5 projetos, 32 testes, build), `package:win` NSIS one-click per-user, `verify:package` (ASAR de 12 arquivos sem addon/updater/segredos; manifests `asInvoker/uiAccess=false` do app, Setup e desinstalador) e `smoke:packaged` (10 cenários) passaram; prova em conta padrão com F01–F09 executada no PC autorizado, incluindo matriz F06 com 15 PASS e 3 subcasos BLOCKED, upgrade fictício 0.1.0→0.1.1, uninstall com retenção de dados e reinstalação com fingerprint `862191a56034e6d2d67ccf99a08c23e7268778b0db9271d5820cc2f635965d70` estável. ACL do AppContainer restrita à pasta instalada; sem HKLM/serviços/writes globais. Detalhes, hashes e limitações em [desktop-foundation-validation.md](desktop-foundation-validation.md).
-- **Verificação:** relatório `verification.md` gerado dentro da Change via `openspec-verify-change` e submetido à **aprovação explícita** antes de qualquer archive (AGENTS.md, item 42). A etapa passou a `VERIFY`; o README operacional factual será ajustado após o archive autorizado (item 38), não agora.
+- **Verificação:** relatório `verification.md` atualizado (5.4 concluída; 6.5 pendente com premissa corrigida) e submetido à **aprovação explícita** antes de qualquer archive (AGENTS.md, item 42). A etapa permanece `VERIFY`; o README operacional factual será ajustado após o archive autorizado (item 38), não agora.
 - **Garantias de escopo:** nenhuma tarefa de TFA-003+ iniciada; sem archive/merge/release; a alteração material de G4 e a extensão da ACL do smoke ficaram registradas acima e nos artefatos.
+
+### Prompt consolidado para opsx:apply
 
 ### Prompt consolidado para opsx:apply
 

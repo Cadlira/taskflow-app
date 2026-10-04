@@ -9,16 +9,15 @@
 
 | Dimensão | Status |
 | --- | --- |
-| Completeness | 31/33 tasks (2 pendentes com causa: 5.4 e 6.5); 18 requisitos ADDED cobertos |
-| Correctness | 18/18 requisitos com implementação confirmada; 39/47 cenários confirmados; 8 parciais/bloqueados |
+| Completeness | 32/33 tasks (1 pendente com causa: 6.5); 18 requisitos ADDED cobertos |
+| Correctness | 18/18 requisitos com implementação confirmada; 40/47 cenários confirmados; 7 parciais/bloqueados |
 | Coherence | Design D1–D7 seguido (revisões de G4 e ACL registradas); padrões consistentes; sem segredos/dados reais |
 
 ## Completeness
 
-- **Task Tracking:** `tasks.md` presente e agregado pela CLI; 31/33 concluídas. **7.2** (este relatório) e **7.3** (roadmap atualizado) são concluídas com esta entrega.
-- **Pendentes:**
-  - **5.4** — workflow de CI criado em `.github/workflows/ci.yml`, mas o run hospedado **não foi executado** (depende de push autorizado). Não é defeito de implementação; é evidência externa pendente.
-  - **6.5** — instalação/diagnóstico na **segunda conta Windows** não executados: exigem sessão interativa/credencial da conta, indisponíveis nesta sessão. Registrado como BLOCKED, sem bypass.
+- **Task Tracking:** `tasks.md` presente e agregado pela CLI; 32/33 concluídas. **7.3** (roadmap atualizado) foi concluída com a revisão anterior; **5.4** foi concluída nesta rodada com o run hospedado da CI.
+- **Pendente:**
+  - **6.5** — instalação/diagnóstico/manutenção na **segunda conta padrão** não executados. **Correção de premissa (2026-10-04):** a máquina **não contém** contas padrão fictícias criadas pelo usuário; as únicas contas não-administradoras são contas técnicas de sandbox (`CodexSandboxOffline`/`CodexSandboxOnline`), sem credenciais acessíveis. O usuário autorizou criar uma conta padrão fictícia dedicada para a prova; a execução fica pendente dessa criação. Registrado como BLOCKED com causa, sem bypass.
 - **Specs:** 3 capacidades novas (`desktop-foundation`, `windows-per-user-installation`, `desktop-build-validation`), 18 requisitos ADDED, 47 cenários. A CLI valida a Change com `--strict` (sem REMOVED/RENAMED).
 
 ## Correctness — mapeamento requisito → evidência
@@ -48,11 +47,11 @@
 
 | Cenário | Situação | Causa/registro |
 | --- | --- | --- |
-| Segunda conta Windows (perfis) e “Outra conta instala o app” | **BLOCKED** | Exige sessão interativa/credencial da segunda conta; task 6.5. |
+| Segunda conta Windows (perfis) e “Outra conta instala o app” | **BLOCKED** | Não existem contas padrão fictícias na máquina (premissa corrigida em 2026-10-04); as contas não-admin presentes são técnicas do sandbox. Criação de conta dedicada autorizada pelo usuário e pendente de execução; task 6.5. |
 | Destino padrão com caracteres não ASCII | **BLOCKED** | O destino canônico deste PC não contém espaços/acentos e não há root redirecionado autorizado. |
 | Known Folder redirecionado | **Não verificado na prática** | Código recusa fora do perfil/reparse; redirecionar o perfil exigiria alteração administrativa não autorizada. A cadeia local foi conferida (sem reparse). |
 | Instalação all-users legada | **BLOCKED** | Exigiria criar HKLM/instalação de máquina (admin); não autorizado e não contornado. |
-| Run de revisão da CI | **Não verificado** | Workflow presente; run hospedado depende de push autorizado (task 5.4). O runner é administrador e não substitui conta padrão. |
+| Run de revisão da CI | **Confirmado** | Run 37202267073 (PR #2): 12/12 passos success, incluindo gates, `package:win`, `verify:package`, `smoke:packaged`, hashes e upload de artefatos. Hashes do run: Setup `e9d95a0272a536ef9fc801151f48ebaada2746661e9bccb69763494d7180d4af`; asar `c47c2c966c7e2a7c8d368825705be5f841a42895413b1c7dbb7eaeee45f8cbe4`; exe `c84c4d42edbeb5345281506e30a9bcef2105e1e27e5e861a139b5950969fd8c0`. `CI-NOTES.txt` registra o limite do runner administrador. |
 | Perfis “não se contaminam” (modo dev) | **Parcial** | test/prod comprovados no pacote/instalado; `npm run dev` não executa neste PC por política de ACL do sandbox, registrada sem contorno. |
 | Matriz padrão completa | **Parcial** | F04/F05/F07/F08 executados; subcasos F06 e a segunda conta permanecem BLOCKED. |
 
@@ -66,20 +65,21 @@
 
 ### CRITICAL
 
-1. **Task 5.4 incompleta — run de CI não executado.** Recomendação: após autorização de push, executar o workflow (push/`workflow_dispatch`), conferir relatórios/hashes do artefato e registrar o run; até então, não contar a CI como evidência.
-2. **Task 6.5 incompleta — prova na segunda conta não executada.** Recomendação: executar a sessão na segunda conta fictícia seguindo o runbook, registrar PASS/FAIL/BLOCKED e o isolamento de perfis/registro/atalhos; ou aceitar formalmente a pendência antes do archive.
+1. **Task 6.5 incompleta — prova na segunda conta não executada.** A máquina não contém conta padrão fictícia utilizável; o usuário autorizou criar uma conta dedicada. Recomendação: criar a conta padrão fictícia, executar instalação/diagnóstico/manutenção nela seguindo o runbook e registrar PASS/FAIL/BLOCKED com o isolamento de perfis/registro/atalhos; ou aceitar formalmente a pendência antes do archive.
 
 ### WARNING
 
-1. **Cenários BLOCKED de F06/segunda conta/CI** listados acima permanecem sem evidência prática; não tratar como aprovados.
-2. **Modo dev neste PC limitado pela política de ACL** do sandbox; documentado no runbook, sem `--no-sandbox` ou alteração de ACL fora do escopo aprovado.
-3. **Identidade provisória:** `CompanyName` usa “TaskFlow App” como placeholder e o pacote não é assinado; finalização em TFA-011.
+1. **Premissa de ambiente corrigida:** o registro anterior de “duas contas padrão fictícias” não corresponde à máquina; a prova F04 executada usou token filtrado de conta do grupo Administradores (sem elevação) e **não substitui** uma conta sem participação no grupo. A conta dedicada (6.5) deve cobrir esse critério à risca.
+2. **Cenários BLOCKED de F06 e da segunda conta** listados acima permanecem sem evidência prática; não tratar como aprovados.
+3. **Modo dev neste PC limitado pela política de ACL** do sandbox; documentado no runbook, sem `--no-sandbox` ou alteração de ACL fora do escopo aprovado.
+4. **Identidade provisória:** `CompanyName` usa “TaskFlow App” como placeholder e o pacote não é assinado; finalização em TFA-011.
 
 ### SUGGESTION
 
-1. O aplicativo 0.1.0 permanece instalado no PC de prova (estado final da prova) e o artefato 0.1.1 segue em `release/` para referência; removê-los é decisão do usuário fora desta Change.
-2. README factual será atualizado após o archive autorizado (AGENTS.md, item 38); status/datas ficam no roadmap.
+1. O run de CI emitiu aviso de depreciação do Node 20 nas actions fixadas (executadas forçadas em Node 24); atualizar os SHAs para as majors mais novas em manutenção futura, sem urgência.
+2. O aplicativo 0.1.0 permanece instalado no PC de prova (estado final da prova) e o artefato 0.1.1 segue em `release/` para referência; removê-los é decisão do usuário fora desta Change.
+3. README factual será atualizado após o archive autorizado (AGENTS.md, item 38); status/datas ficam no roadmap.
 
 ## Final Assessment
 
-**2 critical issues found (tasks 5.4 e 6.5 não concluídas). Corrigir/concluir antes do archive.** Além disso, não verificados na prática: run de CI, segunda conta, caracteres não ASCII no destino, Known Folder redirecionado e instalação all-users legada; o modo dev neste PC é limitado pela política de ACL (registrado). Todo o restante dos 18 requisitos e dos 47 cenários foi confirmado com testes, inspeção do pacote e prova em conta padrão, sem segredos, dados reais ou alterações na origem. O relatório aguarda **aprovação explícita** para prosseguir ao archive (item 42 do AGENTS.md).
+**1 critical issue found (task 6.5 não concluída).** Corrigir/concluir antes do archive. Não verificados na prática: segunda conta (premissa corrigida), caracteres não ASCII no destino, Known Folder redirecionado e instalação all-users legada; o modo dev neste PC é limitado pela política de ACL (registrado). A CI foi validada com sucesso (run 37202267073) e não substitui a conta padrão. Todo o restante dos 18 requisitos e cenários foi confirmado com testes, inspeção do pacote e prova em conta padrão (token não elevado), sem segredos, dados reais ou alterações na origem. O relatório aguarda **aprovação explícita** para prosseguir ao archive (item 42 do AGENTS.md).
