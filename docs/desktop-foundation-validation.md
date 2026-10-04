@@ -57,7 +57,7 @@ Em 2026-10-03, o usuário autorizou executar o instalador neste PC, informou Win
 
 ## Matriz aprovada e revalidação (2026-10-04)
 
-Referências de compatibilidade originais estão no [design D1/D5](../openspec/changes/preparar-fundacao-desktop-e-validar-instalacao-por-usuario/design.md). Nenhuma versão em uso mudou sem revisão; a única revisão material é a de G4 (driver embarcado).
+Referências de compatibilidade originais estão no [design D1/D5](../openspec/changes/archive/2026-10-04-preparar-fundacao-desktop-e-validar-instalacao-por-usuario/design.md). Nenhuma versão em uso mudou sem revisão; a única revisão material é a de G4 (driver embarcado).
 
 | Componente | Versão aprovada | Resultado |
 | --- | --- | --- |

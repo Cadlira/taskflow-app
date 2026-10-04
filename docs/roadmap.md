@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**. Estado: **planejamento documental concluído para TFA-001; implementação funcional ainda não iniciada**. A TFA-001 foi verificada, aprovada, arquivada e integrada à branch principal pelo PR #1 em 2026-10-03.
+Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 integrada à branch principal pelo PR #1; TFA-002 com apply, verificação e archive concluídos em 2026-10-04, aguardando o merge do PR #2 (que a conclui como `DONE`); TFA-003 pronta para iniciar após esse merge**. As funcionalidades de tarefas (TFA-003 a TFA-012) ainda não foram iniciadas.
 
 ## Objetivo e limites confirmados
 
@@ -76,8 +76,8 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | ID | Change sugerida | Estado | Etapa | Início | Conclusão | Dependências | Próxima ação |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TFA-001 | `definir-arquitetura-e-paridade-desktop` | DONE | — | 2026-10-03 | 2026-10-03 | Nenhuma | Concluída e integrada pelo PR #1 |
-| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | IN_PROGRESS | VERIFY | 2026-10-03 | — | TFA-001 | 33/33 tasks concluídas; CI validada e prova na conta padrão dedicada executada; relatório `verification.md` aguardando **aprovação explícita** para o archive |
-| TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | PLANNED | — | — | — | TFA-002 | Após dependências, usar o prompt abaixo |
+| TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | READY_FOR_MERGE | ARCHIVE | 2026-10-03 | — (conclui no merge do PR #2) | TFA-001 | Verificação aprovada e archive executado em 2026-10-04; o merge do PR #2 conclui a Change (`DONE`, conclusão em 2026-10-04) |
+| TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | READY_FOR_EXPLORE | — | — | — | TFA-002 | Iniciar explore após o merge do PR #2 (única pendência da dependência); prompt já registrado nesta seção |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | PLANNED | — | — | — | TFA-003 | Após dependências, usar o prompt abaixo |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | PLANNED | — | — | — | TFA-004 | Após dependências, usar o prompt abaixo |
 | TFA-006 | `migrar-lixeira-e-desfazer` | PLANNED | — | — | — | TFA-005 | Após dependências, usar o prompt abaixo |
@@ -279,10 +279,10 @@ Pedido explícito de `$openspec-propose` recebido com o prompt consolidado anexa
 
 Artefatos criados pela CLI OpenSpec 1.14.0, schema `spec-driven`, sem `skip_specs`:
 
-- [Proposal](../openspec/changes/preparar-fundacao-desktop-e-validar-instalacao-por-usuario/proposal.md): motivação, escopo/exclusões, três capacidades e impacto.
-- [Design](../openspec/changes/preparar-fundacao-desktop-e-validar-instalacao-por-usuario/design.md): matriz versionada, isolamento/diagnóstico, identidade/perfis, política NSIS/caminhos, SQLite, alternativas, F01–F09, riscos e gates G1–G6.
-- Specs: [desktop-foundation](../openspec/changes/preparar-fundacao-desktop-e-validar-instalacao-por-usuario/specs/desktop-foundation/spec.md), [windows-per-user-installation](../openspec/changes/preparar-fundacao-desktop-e-validar-instalacao-por-usuario/specs/windows-per-user-installation/spec.md) e [desktop-build-validation](../openspec/changes/preparar-fundacao-desktop-e-validar-instalacao-por-usuario/specs/desktop-build-validation/spec.md).
-- [Tasks](../openspec/changes/preparar-fundacao-desktop-e-validar-instalacao-por-usuario/tasks.md): **33 itens pendentes**, agrupados com suas verificações/documentação. Não são tarefas executadas pela criação do plano.
+- [Proposal](../openspec/changes/archive/2026-10-04-preparar-fundacao-desktop-e-validar-instalacao-por-usuario/proposal.md): motivação, escopo/exclusões, três capacidades e impacto.
+- [Design](../openspec/changes/archive/2026-10-04-preparar-fundacao-desktop-e-validar-instalacao-por-usuario/design.md): matriz versionada, isolamento/diagnóstico, identidade/perfis, política NSIS/caminhos, SQLite, alternativas, F01–F09, riscos e gates G1–G6.
+- Specs consolidadas em [desktop-foundation](../openspec/specs/desktop-foundation/spec.md), [windows-per-user-installation](../openspec/specs/windows-per-user-installation/spec.md) e [desktop-build-validation](../openspec/specs/desktop-build-validation/spec.md) (deltas arquivados em `openspec/changes/archive/2026-10-04-preparar-fundacao-desktop-e-validar-instalacao-por-usuario/specs/`).
+- [Tasks](../openspec/changes/archive/2026-10-04-preparar-fundacao-desktop-e-validar-instalacao-por-usuario/tasks.md): **33 itens**, criados como pendentes em 2026-10-03 e concluídos/verificados em 2026-10-04; [relatório de verificação](../openspec/changes/archive/2026-10-04-preparar-fundacao-desktop-e-validar-instalacao-por-usuario/verification.md).
 
 Recomendação submetida à revisão: Windows 11 x64, NSIS offline one-click exclusivo per-user, appId/AUMID `taskflow.app`, executable/pasta `TaskFlowApp`, dados LocalAppData separados em dev/test/prod; better-sqlite3 12.11.1 na prova com Electron 44.5.1, builder 26.17.0, Node 24.21.0/npm 11.21.0 de build, electron-vite 5/Vite 7/TS 5.9. O design contém patches e peers completos consultados; nenhum pacote foi instalado ou compilado. Dist-tags/majors mais novos não substituem a matriz automaticamente.
 
@@ -313,15 +313,16 @@ O usuário autorizou retomar o apply na branch `codex/tfa-002-preparar-fundacao-
 
 **ACL do smoke — aprovado em 2026-10-04:** o smoke do pacote (`smoke:packaged`) executa o executável do pacote fora do repo, cujo diretório de build não é legível pelo sandbox neste PC. O usuário aprovou estender a ACE de leitura/execução (`S-1-15-2-1`, herdável `(OI)(CI)(RX)`) **exclusivamente ao diretório temporário de teste criado pelo próprio smoke** (cópia do pacote), sem alterar pais, dados/perfis do usuário, roots globais ou outros diretórios. O instalador continua concedendo a ACE somente ao root canônico instalado `TaskFlowApp`. Nenhum modo inseguro ou `--no-sandbox` é usado.
 
-### Apply concluído para revisão — 2026-10-04
+### Apply, verificação e archive concluídos — 2026-10-04
 
 O apply da TFA-002 foi conduzido na branch `codex/tfa-002-preparar-fundacao-desktop-e-validar-instalacao-por-usuario`, preservando o checkpoint `d92c8e7`. Em 2026-10-04: **33/33 tasks concluídas**; nenhum bypass de política; nada arquivado, mesclado ou publicado (o push e o PR em rascunho #2 foram autorizados especificamente para validar a CI; commits `dd46aae`, `ca44322` e seguintes).
 
 - **Task 5.4 concluída:** workflow de CI executado no PR #2 — run [37202267073](https://github.com/Cadlira/taskflow-app/actions/runs/37202267073), 12/12 passos com sucesso (gates, pacote NSIS, `verify:package`, `smoke:packaged`, hashes e artefatos de revisão com retenção de 14 dias); reexecuções verdes após os ajustes de CI. O runner administrador não substitui a conta padrão (nota da própria CI).
 - **Task 6.5 concluída:** a máquina não continha contas padrão fictícias (premissa corrigida); com autorização do usuário, foi criada a conta padrão dedicada `TFAProva2` (não-administradora), na qual a prova executou com baseline limpo: instalação/diagnóstico/desinstalação/reinstalação com `exit 0`, pasta canônica própria, atalho/registro/ACL próprios, fingerprint próprio `59559d41c68a…` retido entre ciclos e desinstalação padrão **sem sobras** removendo binários/registro/atalho e mantendo os dados. A conta principal permaneceu intacta (`862191a5…`). Nota de execução: um disparo inicial da automação de teste operou com mapeamento de ambiente ambíguo e desinstalou/reinstalou a instalação da conta principal; os scripts de teste foram corrigidos com guardas de perfil explícitas e o estado final das duas contas foi reverificado — registro em [desktop-foundation-validation.md](desktop-foundation-validation.md). A credencial temporária de teste foi apagada ao final.
 - **Evidências principais:** `npm run validate` (lint, typecheck em 5 projetos, 32 testes, build), `package:win` NSIS one-click per-user, `verify:package` (ASAR de 12 arquivos sem addon/updater/segredos; manifests `asInvoker/uiAccess=false` do app, Setup e desinstalador) e `smoke:packaged` (10 cenários) passaram; prova em conta padrão com F01–F09 executada no PC autorizado, incluindo matriz F06 com 15 PASS e 3 subcasos BLOCKED, upgrade fictício 0.1.0→0.1.1, uninstall com retenção de dados e reinstalação com fingerprint estável; ACL do AppContainer restrita à pasta instalada; sem HKLM/serviços/writes globais. Detalhes, hashes e limitações em [desktop-foundation-validation.md](desktop-foundation-validation.md).
-- **Verificação:** relatório `verification.md` final (33/33; sem issues CRÍTICOS; 3 WARNING e sugestões) submetido à **aprovação explícita** antes de qualquer archive (AGENTS.md, item 42). A etapa permanece `VERIFY`; o README operacional factual será ajustado após o archive autorizado (item 38), não agora.
-- **Garantias de escopo:** nenhuma tarefa de TFA-003+ iniciada; sem archive/merge/release; a alteração material de G4 e a extensão da ACL do smoke ficaram registradas acima e nos artefatos.
+- **Verificação e archive:** relatório `verification.md` final (33/33; sem issues CRÍTICOS; 3 WARNING não bloqueantes e sugestões) **aprovado pelo usuário em 2026-10-04**; archive executado na mesma branch via OpenSpec 1.14.0 em `openspec/changes/archive/2026-10-04-preparar-fundacao-desktop-e-validar-instalacao-por-usuario/`, com consolidação das três capacidades em `openspec/specs/` (18 requisitos ADDED, 0 MODIFIED/REMOVED/RENAMED). Etapa `ARCHIVE` concluída; estado **`READY_FOR_MERGE`**.
+- **Pós-merge (já preparado neste roadmap):** ao integrar o PR #2, a TFA-002 passa a `DONE` com conclusão em **2026-10-04**, e a **TFA-003 fica pronta para iniciar** (`READY_FOR_EXPLORE`, dependência única satisfeita, prompt registrado na seção própria). O README operacional já foi ajustado ao funcionamento atual (item 38), sem status de desenvolvimento.
+- **Garantias de escopo:** nenhuma tarefa de TFA-003+ iniciada; sem merge ou release; a alteração material de G4 e a extensão da ACL do smoke ficaram registradas acima e nos artefatos.
 
 ### Prompt consolidado para opsx:apply
 
@@ -353,7 +354,7 @@ Atualize documentação operacional/testes/paridade somente do que existir e exe
 
 ## TFA-003 — Persistência local e fronteira IPC
 
-**Slug sugerido:** `implementar-persistencia-local-e-fronteira-ipc`. **Dependências:** TFA-002.
+**Slug sugerido:** `implementar-persistencia-local-e-fronteira-ipc`. **Dependências:** TFA-002. **Pronta para iniciar após o merge do PR #2**, que conclui a dependência; nenhum artefato criado ainda.
 
 **Resultado:** Substituir armazenamento Chrome por persistência durável no perfil do usuário, com comunicação segura e coordenação entre superfícies.
 
@@ -573,7 +574,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001** foi aprovada, verificada, arquivada e integrada à branch principal pelo PR #1 em 2026-10-03. **TFA-002** concluiu explore e propose em 2026-10-03; seus artefatos e decisões G1–G6 foram aprovados em 2026-10-03 e seu apply está em andamento na branch própria. A prova de instalação permanece limitada ao PC Windows 11 x64 autorizado, sem assinatura comercial e sem contorno de bloqueios. Não arquivar, integrar, publicar ou iniciar outras Changes sem autorização própria.
+A **TFA-001** foi aprovada, verificada, arquivada e integrada à branch principal pelo PR #1 em 2026-10-03. A **TFA-002** concluiu apply, verificação (relatório aprovado pelo usuário) e archive em 2026-10-04 na branch `codex/tfa-002-preparar-fundacao-desktop-e-validar-instalacao-por-usuario`; está `READY_FOR_MERGE` e o merge do PR #2 a conclui (`DONE`, conclusão em 2026-10-04). A **TFA-003** está pronta para iniciar após esse merge, com o prompt de explore registrado na própria seção. A prova de instalação permanece limitada ao PC Windows 11 x64 autorizado, sem assinatura comercial e sem contorno de bloqueios. Não arquivar artefatos futuros, integrar, publicar ou iniciar outras Changes sem autorização própria.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 

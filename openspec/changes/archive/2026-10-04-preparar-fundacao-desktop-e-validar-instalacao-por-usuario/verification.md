@@ -5,6 +5,8 @@
 **Escopo verificado:** apply da TFA-002 até a prova em conta padrão neste PC Windows 11 x64 autorizado, incluindo o run de CI e a prova em conta padrão dedicada. Os commit/push e o PR em rascunho foram autorizados especificamente para validar a CI; **não houve archive, merge, release ou publicação**.
 **Relatório:** gerado por `openspec-verify-change`; requer aprovação explícita antes do archive (AGENTS.md, item 42).
 
+**Aprovação:** aprovado pelo usuário em 2026-10-04, conforme a instrução registrada na conversa: “Commit, faça o push. Depois rode o opsx-verify e caso não haja nenhum crítico ou warning bloqueante aprove o relatório, faça o archive e mude o roadmap [...]”. A condição foi atendida: nenhum issue CRÍTICO e nenhum WARNING bloqueante — os WARNINGs são limitações de ambiente documentadas (F06 subcasos BLOCKED, modo dev limitado por ACL neste PC e identidade provisória até TFA-011).
+
 ## Summary
 
 | Dimensão | Status |
@@ -81,4 +83,4 @@ Nenhum issue crítico em aberto — todas as 33 tasks concluídas, requisitos im
 
 ## Final Assessment
 
-**No critical issues. 3 warnings to consider. Ready for archive (with noted limitations).** A CI foi validada com sucesso (runs 37202267073 e reexecuções verdes) e a prova em conta padrão dedicada cobre F04/F07/F08 à risca; não verificados na prática permanecem apenas os subcasos de ambiente (ASCII/redirecionado/all-users) e o modo dev neste PC (política de ACL). Todo o restante dos 18 requisitos e das 47 categorias de cenário foi confirmado com testes, inspeção do pacote e prova em conta padrão, sem segredos, dados reais ou alterações na origem. O relatório aguarda **aprovação explícita** para prosseguir ao archive (item 42 do AGENTS.md).
+**No critical issues. 3 warnings to consider. Ready for archive (with noted limitations).** A CI foi validada com sucesso (runs 37202267073 e reexecuções verdes) e a prova em conta padrão dedicada cobre F04/F07/F08 à risca; não verificados na prática permanecem apenas os subcasos de ambiente (ASCII/redirecionado/all-users) e o modo dev neste PC (política de ACL). Todo o restante dos 18 requisitos e das 47 categorias de cenário foi confirmado com testes, inspeção do pacote e prova em conta padrão, sem segredos, dados reais ou alterações na origem. **Relatório aprovado pelo usuário em 2026-10-04** conforme registro acima; archive executado na mesma branch, permanecendo `READY_FOR_MERGE` até o merge do PR #2.
