@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    # Runner administrador com UAC desabilitado: os gates aqui são regressão do
+    # pacote; eles NÃO comprovam instalação em conta padrão/UAC (isso é a prova
+    # manual autorizada, registrada em docs/desktop-foundation-validation.md).
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 24.21.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.21.0
+          # sem cache npm: evita a checagem de devEngines antes de fixar o npm 11.21.0
+
+      - name: Pin npm 11.21.0 (devEngines)
+        working-directory: ${{ runner.temp }}
+        run: npm install --global npm@11.21.0
+
+      - name: Toolchain versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install from lockfile
+        run: npm ci
+
+      - name: Gates (lint, typecheck, tests, build)
+        run: npm run validate
+
+      - name: Package NSIS x64 (no publish)
+        run: npm run package:win
+
+      - name: Inspect package
+        run: npm run verify:package
+
+      - name: Smoke packaged executable
+        run: npm run smoke:packaged
+
+      - name: Hashes and CI notes
+        run: |
+          $setup = Get-ChildItem release -Filter 'TaskFlowApp-*-win-x64-Setup.exe' | Select-Object -First 1
+          $assets = @(
+            $setup.FullName,
+            'release/win-unpacked/resources/app.asar',
+            'release/win-unpacked/TaskFlowApp.exe'
+          )
+          $lines = foreach ($file in $assets) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
+            $relative = Resolve-Path -Relative $file
+            '{0}  {1}' -f $hash, ($relative -replace '\\', '/')
+          }
+          $lines | Set-Content -Path release/SHA256SUMS.txt -Encoding ascii
+          Get-Content release/SHA256SUMS.txt
+          $notes = @(
+            "runner=windows-2022 (administrador, UAC desabilitado, sem conta padrão)",
+            "commit=$(git rev-parse HEAD)",
+            "node=$(node --version)",
+            "npm=$(npm --version)",
+            "artifact=$($setup.Name)",
+            'este run não comprova instalação em conta padrão, UAC, atalhos ou notificações;',
+            'a prova manual autorizada está em docs/desktop-foundation-validation.md'
+          )
+          $notes | Set-Content -Path release/CI-NOTES.txt -Encoding ascii
+          Get-Content release/CI-NOTES.txt
+
+      - name: Upload review artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: taskflow-app-windows-review
+          path: |
+            release/TaskFlowApp-*-win-x64-Setup.exe
+            release/win-unpacked/resources/app.asar
+            release/SHA256SUMS.txt
+            release/CI-NOTES.txt
+            release/builder-debug.yml
+          retention-days: 14
+          if-no-files-found: error

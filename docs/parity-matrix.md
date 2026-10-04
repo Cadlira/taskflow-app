@@ -54,6 +54,15 @@ Regras complementares a transportar: migrar backup v1 `processedAt` para `proces
 1. **Comparação pós-restore incompleta na origem:** `sameTask` em [backup-service.ts, linha 102](C:/QSI/Workspaces/taskflow-extension/src/application/backup/backup-service.ts:102) compara campos/tags/lembretes, mas não subtarefas, recurrence ou `seriesId`, embora o formato de backup os transporte. É uma lacuna de verificação do app a cobrir na **TFA-007**; não transforma a omissão em comportamento a preservar e não será corrigida na extensão.
 2. **Spec antiga de permissões de ícones:** a [spec extension-icons](C:/QSI/Workspaces/taskflow-extension/openspec/specs/extension-icons/spec.md) afirma exatamente `sidePanel`, `storage`, `alarms`, `notifications` e ausência de `host_permissions`/`optional_host_permissions`. No mesmo HEAD, [wxt.config.ts](C:/QSI/Workspaces/taskflow-extension/wxt.config.ts) declara também `activeTab`, `contextMenus` e `optional_host_permissions` HTTPS/loopback. Para a migração, inventariar permissões do código atual, não copiar a regra desatualizada; registrar a divergência na validação futura de identidade/capacidades **TFA-002/011/012**. Não alterar a origem.
 
+## TFA-002 — prova de fundação (2026-10-04)
+
+A fundação implementada **não migra nenhum comportamento** desta matriz: P01–P13 continuam com destino nas Changes funcionais. O que a prova registra:
+
+- **P14 (parcial):** o master SVG revisado foi derivado para um ICO Windows multirresolução (16/24/32/48/256 px) usado no pacote; identidade `taskflow.app`/`TaskFlowApp.exe` estável. Ícones de bandeja e acabamento de distribuição ficam para TFA-008/011; o pacote é provisório e não assinado.
+- **Infraestrutura de plataforma:** shell isolado, contrato diagnóstico, perfis separados, ownership de instância e prova `node:sqlite` no pacote foram implementados e verificados; detalhes e limites em [architecture.md](architecture.md) e [desktop-foundation-validation.md](desktop-foundation-validation.md).
+- **Não conclusões explícitas:** a prova não confirma paridade de tarefas, pesquisa, filtros, recorrência, subtarefas, lixeira, undo, backup, lembretes, captura, atalhos ou IA; não confirma durabilidade, recovery, migrações ou concorrência de dados (TFA-003) e não valida o produto completo em conta padrão além dos cenários executados.
+- A divergência de permissões de ícones da origem permanece registrada para TFA-011/012; a origem não foi alterada.
+
 ## Riscos e gates futuros
 
 | Risco | Tratamento e destino |
