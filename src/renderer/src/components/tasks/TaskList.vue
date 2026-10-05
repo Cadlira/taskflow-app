@@ -16,6 +16,7 @@ const emit = defineEmits<{
   edit: [task: Task]
   'change-status': [task: Task, status: TaskStatus, origin: StatusChangeOrigin]
   'toggle-subtask': [task: Task, subtaskId: string, done: boolean]
+  delete: [task: Task]
 }>()
 
 interface TaskCardHandle {
@@ -96,6 +97,10 @@ function forwardChangeStatus(task: Task, status: TaskStatus, origin: StatusChang
 function forwardToggleSubtask(task: Task, subtaskId: string, done: boolean): void {
   emit('toggle-subtask', task, subtaskId, done)
 }
+
+function forwardDelete(task: Task): void {
+  emit('delete', task)
+}
 </script>
 
 <template>
@@ -113,6 +118,7 @@ function forwardToggleSubtask(task: Task, subtaskId: string, done: boolean): voi
       @edit="forwardEdit"
       @change-status="forwardChangeStatus"
       @toggle-subtask="forwardToggleSubtask"
+      @delete="forwardDelete"
     />
   </ul>
 </template>

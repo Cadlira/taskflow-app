@@ -207,3 +207,37 @@ Main, preload e renderer mudam **no mesmo pacote**: não há negociação de dow
 | Responsividade | Cartões preservam identidade/cores/rótulos; sem redesign ou novas colunas; D10 herdado da TFA-004 segue medido e identificado quando reprovado. | Nenhuma virtualização, truncamento de registros ou remoção de gate para “passar”. |
 
 **Fora do escopo desta entrega (por decisão):** desfazer, lixeira funcional, backup/restauração, lembretes/notificações, captura/atalhos, IA, lifecycle/bandeja e distribuição. A UI não monta esses controles.
+
+## TFA-006 — catálogo v3, lixeira e desfazer (2026-10-04)
+
+### Catálogo final: 17 wrappers
+
+| Grupo | Operações | Versão |
+| --- | --- | --- |
+| Diagnóstico | `verifyFoundation` | v1 |
+| Estado/subscription | `getStateSnapshot`, `subscribeState`, `unsubscribeState` | v2 |
+| Tarefas | `createTask`, `updateTask`, `changeTaskStatus`, `setSubtaskDone` | **v3** (contexto + `outcome`) |
+| Origem | `openTaskSource` | v1 |
+| Contexto/confirmação | `clearUndoOffer`, `prepareTrashConfirmation` | v1 |
+| Lixeira | `moveTaskToTrash`, `restoreTrashItem`, `deleteTrashItem`, `emptyTrash`, `prepareTrashView` | v1 |
+| Desfazer | `undoLastTaskAction` | v1 |
+
+As quatro mutações de tarefas passam a exigir `contextSequence` estabelecido por `clearUndoOffer` e
+respondem `outcome: 'APPLIED' | 'UNCHANGED'`; update/status APPLIED podem trazer `undoToken`. As
+mutações v1/v2 são recusadas sem alias. Requests mantêm 64 KiB e respostas 8 KiB; estado/diagnóstico
+e eventos mantêm 1 KiB e a página 256 KiB.
+
+### Fluxos e limites
+
+| Fluxo | Comportamento | Limites transitórios |
+| --- | --- | --- |
+| Excluir | Confirmação recuperável com base lida no main (30 dias/limite 100/descartes/portadora); ack informa `retained` e oferece Desfazer quando retida. | Sem exclusão em lote nem restauração de descartes colaterais. |
+| Lixeira | Área com título, data pt-BR, Restaurar/Excluir definitivamente/Esvaziar; estados loading/stale/erro/vazio/manutenção distintos e Voltar. | Sem busca/ordenação própria da lixeira nem colunas novas. |
+| Restaurar | Sem confirmação adicional, sem geração e sem desfazer; recusas diferenciadas por código seguro. | ID ativo, vencimento e conflito de série conservam tudo. |
+| Definitiva/EMPTY | Confirmação irreversível opaca; EMPTY compara composição/identidades e recusa confirmação antiga. | Remoção lógica, sem promessa forense; sem undo dessas ações. |
+| Desfazer | Oferta na listagem, sem roubo de foco, consumida uma vez; sucesso devolve foco a Editar/ação principal. | Sem pilha/redo; encerrar/reload perde a oferta; ações futuras limpam. |
+| Acessibilidade | Confirmações com Escape/abandono sem efeito parcial, busy focável, anúncios status/alert e foco vizinho/último/Voltar. | Prova humana de leitor de tela/DPI segue pendente (roteiro próprio). |
+
+**Fora do escopo desta entrega (por decisão):** histórico persistente, undo de criação/check/
+restauração/definitiva/empty/purge, backup funcional, scheduler/notificações/bandeja, captura/IA,
+redesign, novas janelas de produto e outras Changes.

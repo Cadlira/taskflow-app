@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell } from 'ele
 import { randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { UndoRegistry } from '../application/undo/undo-registry.js'
 import type { FoundationResult } from '../contracts/foundation.js'
 import { STATE_SNAPSHOT_CHANNEL, STATE_SUBSCRIBE_CHANNEL, STATE_UNSUBSCRIBE_CHANNEL } from '../contracts/state.js'
 import {
@@ -11,12 +12,23 @@ import {
   TASK_SUBTASK_DONE_CHANNEL,
   TASK_UPDATE_CHANNEL,
 } from '../contracts/tasks.js'
+import {
+  TRASH_CLEAR_UNDO_OFFER_CHANNEL,
+  TRASH_DELETE_CHANNEL,
+  TRASH_EMPTY_CHANNEL,
+  TRASH_MOVE_CHANNEL,
+  TRASH_PREPARE_CONFIRMATION_CHANNEL,
+  TRASH_PREPARE_VIEW_CHANNEL,
+  TRASH_RESTORE_CHANNEL,
+  TRASH_UNDO_CHANNEL,
+} from '../contracts/trash.js'
 import { runFoundationProof } from './foundation-proof.js'
 import { harnessSkipsCoordinatorStart, parseProductHarnessScenario, runProductHarness } from './harness/product-harness.js'
 import { DocumentSessions } from './ipc/document-sessions.js'
 import { FOUNDATION_CHANNEL, FoundationBusyGate, handleFoundationInvocation } from './ipc/foundation.js'
 import { StateIpcService } from './ipc/state.js'
 import { TaskCommandIpcService } from './ipc/tasks.js'
+import { TrashCommandIpcService } from './ipc/trash.js'
 import {
   resolveFoundationProofFile,
   resolveProductDatabaseFile,
@@ -51,6 +63,9 @@ if (!ownsProfile) {
   const expectedOrigin = app.isPackaged ? packagedOrigin : devOrigin
   const busyGate = new FoundationBusyGate()
   const sessions = new DocumentSessions(expectedOrigin)
+  // Recibos/confirmações/contexto são temporários e por documento: sessão invalidada limpa tudo.
+  const undo = new UndoRegistry({ randomToken: () => randomBytes(24).toString('base64url') })
+  sessions.onInvalidated((key) => undo.forgetDocument(key))
   // Harness restrito ao perfil test: nunca é alcançável pelo preload/IPC nem pelo perfil prod.
   const harnessScenario = profile === 'test' ? parseProductHarnessScenario(process.argv) : null
   const harnessFaults: StorageFaults = {}
@@ -72,6 +87,13 @@ if (!ownsProfile) {
     clock: () => new Date(),
     generateId: () => randomUUID(),
     opener,
+    undo,
+  })
+  const trashIpc = new TrashCommandIpcService({
+    sessions,
+    storage: coordinator,
+    clock: () => new Date(),
+    undo,
   })
   let mainWindow: BrowserWindow | null = null
   let shutdownStarted = false
@@ -179,6 +201,16 @@ if (!ownsProfile) {
     ipcMain.handle(TASK_STATUS_CHANNEL, (event, request: unknown) => taskIpc.handleStatus(event, request))
     ipcMain.handle(TASK_SUBTASK_DONE_CHANNEL, (event, request: unknown) => taskIpc.handleSubtaskDone(event, request))
     ipcMain.handle(TASK_OPEN_SOURCE_CHANNEL, (event, request: unknown) => taskIpc.handleOpenSource(event, request))
+    ipcMain.handle(TRASH_CLEAR_UNDO_OFFER_CHANNEL, (event, request: unknown) => trashIpc.handleClearUndoOffer(event, request))
+    ipcMain.handle(TRASH_PREPARE_CONFIRMATION_CHANNEL, (event, request: unknown) =>
+      trashIpc.handlePrepareConfirmation(event, request),
+    )
+    ipcMain.handle(TRASH_MOVE_CHANNEL, (event, request: unknown) => trashIpc.handleMove(event, request))
+    ipcMain.handle(TRASH_RESTORE_CHANNEL, (event, request: unknown) => trashIpc.handleRestore(event, request))
+    ipcMain.handle(TRASH_DELETE_CHANNEL, (event, request: unknown) => trashIpc.handleDelete(event, request))
+    ipcMain.handle(TRASH_EMPTY_CHANNEL, (event, request: unknown) => trashIpc.handleEmpty(event, request))
+    ipcMain.handle(TRASH_PREPARE_VIEW_CHANNEL, (event, request: unknown) => trashIpc.handlePrepareView(event, request))
+    ipcMain.handle(TRASH_UNDO_CHANNEL, (event, request: unknown) => trashIpc.handleUndo(event, request))
   }
 
   /**
@@ -199,6 +231,14 @@ if (!ownsProfile) {
       TASK_STATUS_CHANNEL,
       TASK_SUBTASK_DONE_CHANNEL,
       TASK_OPEN_SOURCE_CHANNEL,
+      TRASH_CLEAR_UNDO_OFFER_CHANNEL,
+      TRASH_PREPARE_CONFIRMATION_CHANNEL,
+      TRASH_MOVE_CHANNEL,
+      TRASH_RESTORE_CHANNEL,
+      TRASH_DELETE_CHANNEL,
+      TRASH_EMPTY_CHANNEL,
+      TRASH_PREPARE_VIEW_CHANNEL,
+      TRASH_UNDO_CHANNEL,
     ]) {
       ipcMain.removeHandler(channel)
     }

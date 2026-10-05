@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { createStateClient, type StateTransport } from '../application/state/state-client.js'
 import { createTaskCommandClient, type TaskCommandTransport } from '../application/tasks/task-client.js'
+import { createTrashCommandClient, type TrashCommandTransport } from '../application/tasks/trash-client.js'
 import type { TaskFlowDesktopApi } from '../contracts/desktop-api.js'
 import type { FoundationRequest, FoundationResult } from '../contracts/foundation.js'
 import {
@@ -21,6 +22,17 @@ import {
   type TaskStatusRequest,
   type TaskUpdateRequest,
 } from '../contracts/tasks.js'
+import {
+  TRASH_COMMAND_CHANNELS,
+  type ClearUndoOfferRequest,
+  type DeleteTrashItemRequest,
+  type EmptyTrashRequest,
+  type MoveTaskToTrashRequest,
+  type PrepareTrashConfirmationRequest,
+  type PrepareTrashViewRequest,
+  type RestoreTrashItemRequest,
+  type UndoLastTaskActionRequest,
+} from '../contracts/trash.js'
 
 const FOUNDATION_CHANNEL = 'foundation:verify:v1'
 
@@ -53,6 +65,13 @@ const taskTransport: TaskCommandTransport = {
   },
 }
 
+const trashTransport: TrashCommandTransport = {
+  invoke(channel: string, request: unknown): Promise<unknown> {
+    if (!TRASH_COMMAND_CHANNELS.includes(channel)) return Promise.reject(new Error('channel not allowed'))
+    return ipcRenderer.invoke(channel, request)
+  },
+}
+
 // Um único cliente por documento: listeners fixos instalados antes de qualquer subscribe.
 const stateClient = createStateClient(stateTransport, {
   setInterval: (callback, milliseconds) => setInterval(callback, milliseconds),
@@ -63,6 +82,7 @@ const stateClient = createStateClient(stateTransport, {
   },
 })
 const taskClient = createTaskCommandClient(taskTransport)
+const trashClient = createTrashCommandClient(trashTransport)
 
 const desktopApi: TaskFlowDesktopApi = Object.freeze({
   verifyFoundation: (request: FoundationRequest): Promise<FoundationResult> =>
@@ -77,6 +97,14 @@ const desktopApi: TaskFlowDesktopApi = Object.freeze({
   changeTaskStatus: (request: TaskStatusRequest) => taskClient.changeTaskStatus(request),
   setSubtaskDone: (request: SubtaskDoneRequest) => taskClient.setSubtaskDone(request),
   openTaskSource: (request: TaskOpenSourceRequest) => taskClient.openTaskSource(request),
+  clearUndoOffer: (request: ClearUndoOfferRequest) => trashClient.clearUndoOffer(request),
+  prepareTrashConfirmation: (request: PrepareTrashConfirmationRequest) => trashClient.prepareTrashConfirmation(request),
+  moveTaskToTrash: (request: MoveTaskToTrashRequest) => trashClient.moveTaskToTrash(request),
+  restoreTrashItem: (request: RestoreTrashItemRequest) => trashClient.restoreTrashItem(request),
+  deleteTrashItem: (request: DeleteTrashItemRequest) => trashClient.deleteTrashItem(request),
+  emptyTrash: (request: EmptyTrashRequest) => trashClient.emptyTrash(request),
+  prepareTrashView: (request: PrepareTrashViewRequest) => trashClient.prepareTrashView(request),
+  undoLastTaskAction: (request: UndoLastTaskActionRequest) => trashClient.undoLastTaskAction(request),
 })
 
 contextBridge.exposeInMainWorld('taskflowDesktop', desktopApi)

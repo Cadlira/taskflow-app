@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 a TFA-005 integradas pelos PRs #1 a #5; TFA-005 em DONE, merge local `ab3ed68`; TFA-006 em APPROVED/READY_FOR_APPLY, proposta aprovada em 2026-10-04, aguardando novo pedido de apply**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2 e catálogo v2. A pendência D10 de desempenho permanece documentada (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
+Preparado em **2026-10-03**; atualizado em **2026-10-05**. Estado: **TFA-001 a TFA-006 integradas pelos PRs #1 a #5; TFA-006 arquivada em 2026-10-05 com 45/45 tasks e specs consolidadas, READY_FOR_MERGE na branch `codex/tfa-006-migrar-lixeira-e-desfazer` (PR em abertura)**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2, catálogo v3/17 wrappers, lixeira e desfazer. A pendência D10 de desempenho permanece documentada (p95 688,3 ms; heartbeat 760,5 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
 
 ## Objetivo e limites confirmados
 
@@ -80,7 +80,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-002 | Integração do PR #3 conferida no Git local: `main` e referência local `origin/main` em `d74e02d`; dependência da TFA-004 satisfeita |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada e archive; PR #4 integrado, merge local `64fe7ad` conferido. D10 de 10.000 permanece como pendência pós-archive documentada |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive; integração do PR #5 conferida na main e referência local origin/main em `ab3ed68` em 2026-10-04. D10 e prova humana de acessibilidade continuam pendentes |
-| TFA-006 | `migrar-lixeira-e-desfazer` | APPROVED | READY_FOR_APPLY | 2026-10-04 | — | TFA-005 | Proposal/design/sete deltas/45 tasks entregues e aprovados em 2026-10-04; aguardam novo pedido de apply. Confirmação antiga de esvaziamento será recusada por escolha humana |
+| TFA-006 | `migrar-lixeira-e-desfazer` | DONE | — | 2026-10-04 | 2026-10-05 | TFA-005 | Apply 45/45, verification aprovado, archive e PR na branch própria em 2026-10-05; DONE antecipado por pedido explícito (revisar se o PR for recusado). D10 herdado segue como pendência pós-archive |
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | PLANNED | — | — | — | TFA-006 | Após dependências, usar o prompt abaixo |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | PLANNED | — | — | — | TFA-008 | Após dependências, usar o prompt abaixo |
@@ -1142,7 +1142,7 @@ O histórico Git local contém o merge do PR #5 em **`ab3ed688f025064c16ce155ff5
 
 ## TFA-006 — Lixeira e desfazer
 
-**Slug:** `migrar-lixeira-e-desfazer`. **Dependências:** TFA-005 integrada pelo PR #5, com contratos de persistência/IPC da TFA-003 e interface da TFA-004. **Estado: APPROVED/READY_FOR_APPLY**; início **2026-10-04**, conclusão sem data. Branch `codex/tfa-006-migrar-lixeira-e-desfazer`, criada da `main` limpa em `ab3ed688f025064c16ce155ff5220fe62f9dbc59` por pedido explícito em 2026-10-04 e reutilizada no propose. Artefatos entregues e aprovados pelo usuário em 2026-10-04; apply aguarda pedido explícito.
+**Slug:** `migrar-lixeira-e-desfazer`. **Dependências:** TFA-005 integrada pelo PR #5, com contratos de persistência/IPC da TFA-003 e interface da TFA-004. **Estado: DONE**; início **2026-10-04**, conclusão **2026-10-05**. Branch `codex/tfa-006-migrar-lixeira-e-desfazer`, criada da `main` limpa em `ab3ed688f025064c16ce155ff5220fe62f9dbc59` por pedido explícito em 2026-10-04 e reutilizada no propose e no apply. Artefatos aprovados pelo usuário em 2026-10-04; apply executado com 45/45 tasks, relatório aprovado e archive em 2026-10-05, seguido de commit/push/PR por pedido explícito. O DONE foi registrado antes do merge por decisão explícita do usuário (revisar se o PR for recusado).
 
 **Resultado:** Conservar exclusão recuperável e desfazer seguro de ações recentes.
 
@@ -1292,19 +1292,19 @@ Refine L01–L12 em requisitos/cenários/tasks verificáveis: retenção/limite/
 
 **Artefatos criados:**
 
-- [Proposal — motivação, escopo, exclusões e impacto](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/proposal.md).
-- [Design — decisões D1–D11, alternativas, riscos, compatibilidade e matriz L01–L12](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/design.md).
-- [Tasks — 45 tarefas em oito grupos, todas pendentes, cada uma com verificação e documentação/testes no grupo correspondente](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/tasks.md).
+- [Proposal — motivação, escopo, exclusões e impacto](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/proposal.md).
+- [Design — decisões D1–D11, alternativas, riscos, compatibilidade e matriz L01–L12](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/design.md).
+- [Tasks — 45 tarefas em oito grupos, todas pendentes, cada uma com verificação e documentação/testes no grupo correspondente](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/tasks.md).
 
 | Delta | Conteúdo |
 | --- | --- |
-| [desktop-task-trash](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/specs/desktop-task-trash/spec.md) | Nova capacidade: retenção/limite, ações condicionais, manutenção e interface |
-| [desktop-task-undo](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/specs/desktop-task-undo/spec.md) | Nova capacidade: recibos próprios, reversões, lifecycle e recursos |
-| [local-task-persistence](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/specs/local-task-persistence/spec.md) | Cinco requisitos modificados de unidades/revisões/restore/condições/leituras |
-| [desktop-state-ipc](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/specs/desktop-state-ipc/spec.md) | Oito requisitos modificados de catálogo/contexto/tokens/budgets/erros/intenções/acks/provas |
-| [desktop-foundation](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/specs/desktop-foundation/spec.md) | Dois requisitos modificados de fronteira e encerramento |
-| [desktop-task-management](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/specs/desktop-task-management/spec.md) | Três requisitos modificados de foco/controles/evidências |
-| [desktop-task-recurrence](C:/QSI/Workspaces/taskflow-app/openspec/changes/migrar-lixeira-e-desfazer/specs/desktop-task-recurrence/spec.md) | Dois requisitos modificados de portadora e integração delimitada |
+| [desktop-task-trash](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/specs/desktop-task-trash/spec.md) | Nova capacidade: retenção/limite, ações condicionais, manutenção e interface |
+| [desktop-task-undo](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/specs/desktop-task-undo/spec.md) | Nova capacidade: recibos próprios, reversões, lifecycle e recursos |
+| [local-task-persistence](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/specs/local-task-persistence/spec.md) | Cinco requisitos modificados de unidades/revisões/restore/condições/leituras |
+| [desktop-state-ipc](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/specs/desktop-state-ipc/spec.md) | Oito requisitos modificados de catálogo/contexto/tokens/budgets/erros/intenções/acks/provas |
+| [desktop-foundation](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/specs/desktop-foundation/spec.md) | Dois requisitos modificados de fronteira e encerramento |
+| [desktop-task-management](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/specs/desktop-task-management/spec.md) | Três requisitos modificados de foco/controles/evidências |
+| [desktop-task-recurrence](C:/QSI/Workspaces/taskflow-app/openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/specs/desktop-task-recurrence/spec.md) | Dois requisitos modificados de portadora e integração delimitada |
 
 Total: **sete deltas, 39 requisitos (19 ADDED/20 MODIFIED), 115 cenários, 0/45 tasks concluídas**. Nomes dos requisitos e cenários anteriores foram conferidos contra as specs consolidadas; cenários anteriores preservados. Nenhuma spec principal foi alterada ou consolidada.
 
@@ -1350,6 +1350,73 @@ Marque tasks só com evidência. Ao concluir apply, execute openspec-verify-chan
 **Evidência humana nesta conversa:** após receber os artefatos para revisão, o usuário declarou: **“Aprovo os artefatos. COmmit e faça o push dos mesmos”**. A aprovação abrange a versão entregue de proposal, design, os sete deltas (desktop-task-trash, desktop-task-undo, local-task-persistence, desktop-state-ipc, desktop-foundation, desktop-task-management e desktop-task-recurrence) e tasks da TFA-006, incluindo as seis escolhas concretas propostas, os orçamentos de recursos e a escolha humana de recusar a confirmação antiga de esvaziamento. Estado atualizado para **APPROVED/READY_FOR_APPLY**. As 45 tasks continuam pendentes; apply não iniciado.
 
 Este pedido aprova os artefatos, seu registro no roadmap, o commit e o push dos mesmos; não solicita iniciar apply, implementar, arquivar, abrir PR ou avançar a outra Change. As observações de aprovação pendente feitas durante a elaboração descrevem aquele momento; este registro estabelece a aprovação posterior sem alterar o conteúdo técnico. Próxima ação: usar o prompt acima mediante pedido explícito de apply.
+
+### Apply executado e verificação entregue — 2026-10-04
+
+**Autorização e limites:** novo pedido explícito de apply com o prompt consolidado acima, na branch
+`codex/tfa-006-migrar-lixeira-e-desfazer` (base `ab3ed68`). Executadas somente as **45 tasks**
+aprovadas. Sem archive, consolidação de specs, README pós-archive, commit/push/PR/merge,
+instalação/Setup, distribuição ou próxima Change. A extensão e seu Git permaneceram somente leitura
+no HEAD `a763e7a0d646c664ecd4f979528bc2c3589fa8c4` (worktree limpo); nenhuma dependência, runtime
+ou lockfile foi alterado.
+
+**O que foi entregue (64 arquivos modificados/novos):** política portável de retenção/limite/ordem
+e liquidação pura no domínio; move/restore/definitiva/EMPTY/manutenção condicionados com identidade
+`content=edit=g` sem SQL novo; `UndoRegistry` com contexto monotônico, tokens de uso único e
+orçamento global de 64 MiB; fatos internos de undo em edição/status/fechamento/move; catálogo **17**
+(estado v2, quatro mutações **v3**, diagnóstico/origem v1 e oito wrappers v1); IPC com guards de
+admissão/execução/saída e consumos únicos; store com projeção tasks+trash e oferta; área da lixeira
+com confirmações/foco; harness `trash` (30 verificações), kills `move`/`restore`/`revert` e seção
+`receipts` no bench.
+
+**Evidências reais:** `npm run validate` — lint sem warnings, cinco typechecks, **46 arquivos / 664
+testes + 11 skipped**, build ok; OpenSpec estrito **9/9** em `--all` e **5/5** em `--archived`;
+`package:win --publish never` e `verify:package` OK; `smoke:packaged` com **todos os cenários de
+produto PASS** (bridge 27/27 com catálogo 17, `trash` 30/30, `recurrence` 21/21, `a11y` 12/12,
+crash 8 barreiras e bench de limites com 23,9 MiB e mutação p95 4,8–16,3 ms). O smoke termina com
+código 1 **somente** pelo gate D10 herdado de UI em 10.000 tarefas (rodada limpa: p95 688,3 ms,
+heartbeat 760,5 ms, montagem 3,0 s, 10.000 cartões completos), mantido sem truncamento,
+virtualização ou worker; números 700/700/250 não aprovados.
+
+**Relatório:** [verification.md](../openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/verification.md) com
+aderência aos sete deltas (39 requisitos/115 cenários), rastreabilidade L01–L12, gates, scorecard
+formal e pendências (D10 herdado, prova humana de a11y com roteiro em
+[a11y-manual-checklist-tfa006.md](a11y-manual-checklist-tfa006.md), campanha isolada de
+before-images extremas e primeira execução do smoke ampliado na CI). Evidência do pacote em
+[packaged-evidence-tfa006.md](packaged-evidence-tfa006.md). **Nenhum problema crítico; 2 warnings e
+1 sugestão.**
+
+**Estado: IN_REVIEW/REVIEW.** Próxima ação: aprovação explícita do relatório; archive,
+consolidação, README pós-archive, commit/push/PR/merge e a TFA-007 dependem de autorização
+correspondente.
+
+### Verificação aprovada, archive e conclusão — 2026-10-05
+
+**Evidência humana nesta conversa:** o usuário determinou textualmente: **“Rode o opsx-verify, não
+tendo nenhum critico ou warning bloqueante, rode o archive. Finalizando ajuste o roadmap para
+finalizar o TFA-006 (DONE) e commit, faça o push e abra o PR”**. O relatório
+[verification.md](../openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer/verification.md)
+foi reexecutado e revisado: **nenhum CRITICAL**; os 2 warnings (D10 herdado com gate retido e prova
+humana de acessibilidade pendente com roteiro entregue) e a sugestão foram tratados como **não
+bloqueantes** para o archive, permanecendo como pendências pós-archive documentadas. Gates finais
+reexecutados antes do archive: `npm run validate` (lint, cinco typechecks, **46 arquivos / 664
+testes + 11 skipped**, build) e OpenSpec estrito (Change 1/1; `--all` 9/9; `--archived` 5/5).
+
+**Archive:** `openspec archive migrar-lixeira-e-desfazer --yes --json` moveu a Change para
+`openspec/changes/archive/2026-10-05-migrar-lixeira-e-desfazer` e consolidou as specs: **19
+requisitos adicionados** e **20 modificados** em `desktop-task-trash` (nova), `desktop-task-undo`
+(nova), `local-task-persistence`, `desktop-state-ipc`, `desktop-foundation`,
+`desktop-task-management` e `desktop-task-recurrence`. `openspec validate --all --strict`: **10/10**;
+`--archived --strict`: **6/6**. README factual atualizado conforme o item 38. Estado **DONE** em
+**2026-10-05**, registrado antes do merge por decisão explícita do usuário (revisar se o PR for
+recusado); commit, push e PR executados pelo pedido explícito, com o registro do commit/PR
+atualizado nesta seção.
+
+**Pendências pós-archive:** D10 de UI em 10.000 tarefas (gate retido; p95 688,3 ms / heartbeat
+760,5 ms na rodada limpa; números 700/700/250 não aprovados), prova humana de acessibilidade
+(roteiro em [a11y-manual-checklist-tfa006.md](a11y-manual-checklist-tfa006.md)), campanha isolada
+de before-images extremas e primeira execução do smoke ampliado na CI. A TFA-007 permanece
+**PLANNED** com o prompt de explore próprio, sem início por inferência.
 
 ## TFA-007 — Backups e migração das atividades
 

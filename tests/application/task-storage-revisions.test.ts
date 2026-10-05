@@ -155,6 +155,7 @@ describe('revisões persistidas: claim, lixeira e reversão', () => {
             generated: { id: 'gerada', expectedContentRevision: 2n },
           },
           () => previous,
+          NOW,
         ),
       ),
     )
@@ -177,6 +178,7 @@ describe('revisões persistidas: claim, lixeira e reversão', () => {
         unit.revertConditionally(
           { target: { id: 'anterior', expectedContentRevision: 4n }, generated: { id: 'gerada', expectedContentRevision: 4n } },
           () => previous,
+          NOW,
         ),
       ),
     )
@@ -211,6 +213,7 @@ describe('revisões persistidas: claim, lixeira e reversão', () => {
         unit.revertConditionally(
           { target: { id: 'anterior', expectedContentRevision: 2n }, generated: { id: 'gerada', expectedContentRevision: 2n } },
           () => previous,
+          NOW,
         ),
       ),
     )

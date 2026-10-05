@@ -291,3 +291,17 @@ Esses gates não impedem a conclusão documental da TFA-001. A aprovação desta
 completo de anterior/gerada e lixeira que conserva regra sem gerar na restauração; TFA-008
 consumirá cópia de lembretes OFFSET com IDs novos, settlement de vencidos e reconcile após o
 commit. Nada disso está disponível na UI ou em serviços desta entrega.
+
+## TFA-006 — lixeira, desfazer e contexto ordenado (2026-10-04)
+
+| Decisão | Consequência arquitetural |
+| --- | --- |
+| Política portável no domínio | Retenção 30×24 h, capacidade 100, ordem `deletedAt`/revisão/ID UTF-16 e planejamento de inserção/substituição/corte são funções puras com clock injetado; o move aplica tudo num commit. |
+| Identidade de entrada sem SQL novo | A linha de lixeira nasce com `contentRevision = editRevision = g`; restore/definitiva/undo conferem a tupla `{taskId, contentRevision, deletedAt}` e a portadora no plano final. SQL 2 e codec 4 permanecem. |
+| Recibo no main | Uma oferta por documento, em memória, capturada na unidade e publicada após commit; token opaco consumido uma vez; orçamento lógico global de 64 MiB. O renderer recebe apenas token/rótulos. |
+| Contexto monotônico | `clearUndoOffer` estabelece a sequência por documento; comandos v3 e wrappers v1 exigem a sequência na admissão/execução; undo usa a sequência da oferta. Sequência menor é `STALE_CONTEXT`. |
+| Catálogo 17 | Estado v2, quatro mutações de tarefas v3, diagnóstico/origem v1 e oito operações v1 de contexto/confirmação/lixeira/undo; sem RPC genérico, Task/UndoPlan livre ou hook de teste. |
+| Manutenção explícita | `prepareTrashView` no startup válido/entrada e dentro do move; leitura nunca expurga; a apresentação filtra vencidos sem gravar. |
+| Backup e lembretes delimitados | Porta interna de invalidação global por época após sucesso do futuro backup (TFA-007) e liquidação pura `<= now` no restore/revert, mantendo a guarda D8 (TFA-008). |
+
+Detalhes operacionais em [task-trash-and-undo.md](task-trash-and-undo.md).

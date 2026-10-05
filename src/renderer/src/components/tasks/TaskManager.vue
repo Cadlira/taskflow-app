@@ -8,7 +8,8 @@ import type { TaskRecord } from '../../../../contracts/state.js'
 import type { TaskCancellation } from '../../../../contracts/tasks.js'
 import type { EditTaskPatch, TaskFieldErrors } from '../../../../domain/task-draft.js'
 import type { Task, TaskStatus } from '../../../../domain/task.js'
-import { useTasksStore, type TaskCommandStoreResult } from '../../stores/tasks.js'
+import { useTasksStore, type TaskCommandStoreResult, type TrashCommandStoreResult } from '../../stores/tasks.js'
+import TrashManager from '../trash/TrashManager.vue'
 import TaskCancellationDialog from './TaskCancellationDialog.vue'
 import TaskFilters from './TaskFilters.vue'
 import TaskForm, { type TaskFormSubmission } from './TaskForm.vue'
@@ -51,6 +52,9 @@ const pendingAction = ref<PendingListAction | null>(null)
 const pendingCancellation = ref<PendingCancellation | null>(null)
 const conflictInspect = ref<TaskRecord | null>(null)
 const reloadConfirm = ref(false)
+/** Exclusão recuperável aguardando confirmação (base preparada no main). */
+const deleteTarget = ref<Task | null>(null)
+const deletePanel = ref<HTMLElement | null>(null)
 
 const newTaskButton = ref<HTMLButtonElement | null>(null)
 const retryButton = ref<HTMLButtonElement | null>(null)
@@ -155,6 +159,8 @@ function resetMessages(): void {
 }
 
 function openCreate(): void {
+  // Abrir formulário é uma ação nova: limpa oferta/confirmação próprias antes do percurso.
+  void store.startAction()
   resetMessages()
   editingRecord.value = null
   formKey.value += 1
@@ -167,6 +173,7 @@ function openEdit(task: Task): void {
     actionError.value = 'A tarefa não está mais na lista atual.'
     return
   }
+  void store.startAction()
   resetMessages()
   store.clearConflict()
   store.clearNotFound()
@@ -183,6 +190,8 @@ function closeForm(focusButton = true): void {
   pendingCancellation.value = null
   store.clearConflict()
   store.clearNotFound()
+  // Voltar/cancelar explicitamente também limpa estado transitório próprio.
+  void store.startAction()
   if (focusButton) void nextTick(() => newTaskButton.value?.focus())
 }
 
@@ -497,220 +506,209 @@ function clearFilters(): void {
   store.clearFilters()
   void nextTick(() => clearFiltersButton.value?.focus())
 }
+
+// ---- Lixeira e desfazer (TFA-006) ----
+
+watch(deletePanel, (panel) => {
+  if (panel !== null) panel.focus()
+})
+
+/** Texto seguro para recusas da lixeira/undo; nunca reflete payload do main. */
+function trashFailureText(result: TrashCommandStoreResult): string {
+  switch (result.status) {
+    case 'not-found':
+      return 'A tarefa não está mais na lista atual.'
+    case 'not-in-trash':
+      return 'O item não está mais na lixeira.'
+    case 'entry-changed':
+      return 'O item mudou depois da confirmação; nada foi removido. Revise a lista.'
+    case 'entry-expired':
+      return 'O item venceu a retenção de 30 dias; nada foi restaurado.'
+    case 'id-exists':
+      return 'Já existe uma tarefa ativa com esse identificador; nada foi restaurado.'
+    case 'series-conflict':
+      return 'Há outra ocorrência da mesma série; nada foi alterado.'
+    case 'confirmation-changed':
+      return 'A lixeira mudou depois da preparação. Revise a lista e confirme novamente.'
+    case 'confirmation-invalid':
+      return 'A confirmação não é mais válida; abra o diálogo novamente.'
+    case 'stale-context':
+      return 'A ação ficou desatualizada por outra operação; tente novamente.'
+    case 'undo-not-available':
+      return 'A oferta de desfazer não está mais disponível.'
+    case 'removed':
+      return 'A tarefa não existe mais; nada foi desfeito.'
+    case 'changed':
+      return 'O conteúdo mudou depois da ação; nada foi desfeito.'
+    case 'generated-changed':
+      return 'A ocorrência gerada mudou depois da ação; nada foi desfeito.'
+    case 'uncertain':
+      return 'Resultado incerto: confira a lista antes de decidir; nada é reenviado automaticamente.'
+    case 'blocked':
+      return errorText(result.code)
+    default:
+      return 'A operação não foi concluída.'
+  }
+}
+
+async function focusAfterRemoval(taskId: string, position: number): Promise<void> {
+  await nextTick()
+  const task = store.visibleTasks.find((candidate) => candidate.id === taskId)
+  if (task !== undefined && taskList.value?.focusControl(task.id, 'edit') === true) return
+  const neighbor = store.visibleTasks[position] ?? store.visibleTasks.at(-1)
+  if (neighbor !== undefined && taskList.value?.focusControl(neighbor.id, 'edit') === true) return
+  if (store.totalTasks === 0) createFirstButton.value?.focus()
+  else clearFiltersButton.value?.focus()
+}
+
+async function handleDelete(task: Task): Promise<void> {
+  if (busyTaskId.value !== null || store.submitting) return
+  resetMessages()
+  const position = listPosition(task.id)
+  busyTaskId.value = task.id
+  const result = await store.requestDelete(task.id)
+  busyTaskId.value = null
+  if (result.status === 'confirmation') {
+    deleteTarget.value = task
+    void position
+    return
+  }
+  actionError.value = trashFailureText(result)
+  await nextTick()
+  taskList.value?.focusControl(task.id, 'delete')
+}
+
+async function confirmDelete(): Promise<void> {
+  const target = deleteTarget.value
+  if (target === null) return
+  const position = listPosition(target.id)
+  const result = await store.confirmMove()
+  deleteTarget.value = null
+  if (result.status === 'accepted') {
+    await store.waitForSnapshot(result.revision ?? store.revision ?? '0')
+    feedback.value =
+      result.retained === false
+        ? {
+            tone: 'warning',
+            text: 'A tarefa foi removida, mas a exclusão não foi retida pela lixeira (limite/relógio): não há desfazer.',
+          }
+        : { tone: 'success', text: 'Tarefa movida para a lixeira. Use Desfazer enquanto a oferta estiver visível.' }
+    await focusAfterRemoval(target.id, position)
+    return
+  }
+  actionError.value = trashFailureText(result)
+  await nextTick()
+  taskList.value?.focusControl(target.id, 'delete')
+}
+
+function abandonDelete(): void {
+  const target = deleteTarget.value
+  deleteTarget.value = null
+  void nextTick(() => {
+    if (target !== null) taskList.value?.focusControl(target.id, 'delete')
+    else newTaskButton.value?.focus()
+  })
+}
+
+async function handleUndo(): Promise<void> {
+  const current = store.offer
+  if (current === null || store.submitting) return
+  const result = await store.undoLastAction()
+  if (result.status === 'accepted') {
+    await store.waitForSnapshot(store.revision ?? '0')
+    feedback.value = { tone: 'success', text: 'Ação desfeita; a versão anterior foi restaurada.' }
+    await nextTick()
+    if (current.taskId !== undefined && taskList.value?.focusControl(current.taskId, 'edit') === true) return
+    if (store.totalTasks === 0) createFirstButton.value?.focus()
+    else if (store.noResults) clearFiltersButton.value?.focus()
+    else newTaskButton.value?.focus()
+    return
+  }
+  actionError.value = trashFailureText(result)
+}
+
+function openTrash(): void {
+  void store.enterTrash()
+}
 </script>
 
 <template>
   <main class="task-manager">
-    <header class="manager-header">
-      <h1>Tarefas</h1>
-      <div
-        v-if="mode === 'list'"
-        class="header-actions"
-      >
-        <button
-          ref="newTaskButton"
-          type="button"
-          @click="openCreate"
+    <TrashManager v-if="store.trashMode" />
+    <template v-else>
+      <header class="manager-header">
+        <h1>Tarefas</h1>
+        <div
+          v-if="mode === 'list'"
+          class="header-actions"
         >
-          Nova tarefa
-        </button>
-      </div>
-    </header>
+          <button
+            ref="newTaskButton"
+            type="button"
+            @click="openCreate"
+          >
+            Nova tarefa
+          </button>
+          <button
 
-    <div
-      aria-live="polite"
-      class="live-region"
-    >
-      <p
-        v-if="feedback"
-        class="feedback"
-        :class="`feedback-${feedback.tone}`"
-      >
-        {{ feedback.text }}
-      </p>
-    </div>
-    <p
-      v-if="actionError"
-      class="feedback feedback-error"
-      role="alert"
-    >
-      {{ actionError }}
-    </p>
-
-    <section
-      v-if="store.presentation === 'stale'"
-      class="state state-warning"
-      role="status"
-    >
-      <p>A lista pode estar desatualizada enquanto o armazenamento se recupera. As escritas ficam bloqueadas até a reconciliação.</p>
-      <button
-        type="button"
-        class="button-secondary"
-        @click="retry"
-      >
-        Tentar novamente
-      </button>
-    </section>
-
-    <section
-      v-if="store.conflict"
-      ref="conflictPanel"
-      class="state state-warning"
-      tabindex="-1"
-      role="alert"
-    >
-      <h2>A tarefa mudou</h2>
-      <p>O preenchimento não foi aplicado. Sua revisão-base e o que foi digitado foram mantidos.</p>
+            type="button"
+            class="button-secondary"
+            data-action="trash"
+            @click="openTrash"
+          >
+            Lixeira
+          </button>
+        </div>
+      </header>
 
       <div
-        v-if="conflictInspect"
-        class="conflict-inspect"
+        aria-live="polite"
+        class="live-region"
       >
-        <h3>Versão atual (somente leitura)</h3>
-        <dl>
-          <div>
-            <dt>Título</dt><dd>{{ conflictInspect.task.title }}</dd>
-          </div>
-          <div v-if="conflictInspect.task.description">
-            <dt>Descrição</dt><dd>{{ conflictInspect.task.description }}</dd>
-          </div>
-          <div v-if="conflictInspect.task.status">
-            <dt>Status</dt><dd>{{ STATUS_LABELS[conflictInspect.task.status] }}</dd>
-          </div>
-          <div v-if="conflictInspect.task.dueAt">
-            <dt>Prazo</dt><dd>{{ conflictInspect.task.dueAt }}</dd>
-          </div>
-        </dl>
+        <p
+          v-if="feedback"
+          class="feedback"
+          :class="`feedback-${feedback.tone}`"
+        >
+          {{ feedback.text }}
+        </p>
       </div>
-
-      <div class="state-actions">
-        <button
-          type="button"
-          class="button-secondary"
-          @click="inspectConflict"
-        >
-          Conferir versão atual
-        </button>
-        <template v-if="conflictForEditing">
-          <template v-if="!reloadConfirm">
-            <button
-              type="button"
-              class="button-secondary"
-              @click="reloadConfirm = true"
-            >
-              Recarregar tarefa
-            </button>
-          </template>
-          <template v-else>
-            <p>Recarregar descarta o preenchimento atual. Confirmar?</p>
-            <button
-              type="button"
-              @click="confirmReload"
-            >
-              Descartar e recarregar
-            </button>
-            <button
-              type="button"
-              class="button-secondary"
-              @click="reloadConfirm = false"
-            >
-              Cancelar
-            </button>
-          </template>
-        </template>
-        <button
-          v-else
-          type="button"
-          class="button-secondary"
-          @click="discardConflict"
-        >
-          Descartar aviso
-        </button>
-      </div>
-    </section>
-
-    <section
-      v-if="store.notFound"
-      class="state state-error"
-      role="alert"
-    >
-      <h2>Tarefa não encontrada</h2>
-      <p>A tarefa não existe mais na lista. Nada foi recriado.</p>
-      <div class="state-actions">
-        <button
-          type="button"
-          class="button-secondary"
-          @click="retry"
-        >
-          Conferir lista
-        </button>
-        <button
-          type="button"
-          class="button-secondary"
-          @click="closeNotFound"
-        >
-          Fechar aviso
-        </button>
-      </div>
-    </section>
-
-    <section
-      v-if="store.outcomeUnknown"
-      class="state state-warning"
-      role="alert"
-    >
-      <h2>Resultado incerto</h2>
-      <p>
-        Não foi possível confirmar se a operação foi concluída. Confira a lista antes de decidir;
-        um título igual não prova que a tarefa foi criada. Nada é reenviado automaticamente.
-      </p>
-      <button
-        type="button"
-        @click="reviewUncertain"
-      >
-        Conferir lista
-      </button>
-    </section>
-
-    <template v-if="mode === 'form'">
       <p
-        v-if="formMessage"
-        ref="formMessageAlert"
-        tabindex="-1"
+        v-if="actionError"
         class="feedback feedback-error"
         role="alert"
       >
-        {{ formMessage }}
-      </p>
-      <TaskForm
-        ref="taskForm"
-        :key="formKey"
-        :task="editingRecord?.task ?? null"
-        :errors="formErrors"
-        :saving="store.submitting"
-        @submit="handleSubmit"
-        @cancel="closeForm()"
-        @open-source="handleOpenSource"
-      />
-    </template>
-
-    <template v-else>
-      <p
-        v-if="store.presentation === 'loading'"
-        class="state"
-        role="status"
-      >
-        Carregando tarefas…
+        {{ actionError }}
       </p>
 
       <section
-        v-else-if="store.presentation === 'blocked'"
-        class="state state-error"
-        role="alert"
+        v-if="store.offer !== null && mode === 'list'"
+        class="state offer-banner"
+        role="status"
       >
-        <p>{{ errorText(store.initialError ?? 'STORAGE_UNAVAILABLE') }} Nenhum dado foi redefinido.</p>
+        <p>
+          {{ store.offer.kind === 'delete' ? 'Tarefa movida para a lixeira.' : 'Alteração concluída.' }}
+          A oferta de desfazer vale até a próxima ação desta janela; nada é mantido após fechar.
+        </p>
         <button
-          ref="retryButton"
+
+          type="button"
+          class="button-secondary"
+          data-action="undo"
+          :aria-disabled="store.submitting ? 'true' : undefined"
+          @click="handleUndo"
+        >
+          Desfazer
+        </button>
+      </section>
+
+      <section
+        v-if="store.presentation === 'stale'"
+        class="state state-warning"
+        role="status"
+      >
+        <p>A lista pode estar desatualizada enquanto o armazenamento se recupera. As escritas ficam bloqueadas até a reconciliação.</p>
+        <button
           type="button"
           class="button-secondary"
           @click="retry"
@@ -720,83 +718,300 @@ function clearFilters(): void {
       </section>
 
       <section
-        v-else-if="store.presentation === 'empty'"
-        class="state"
+        v-if="store.conflict"
+        ref="conflictPanel"
+        class="state state-warning"
+        tabindex="-1"
+        role="alert"
       >
-        <h2>Nenhuma tarefa ainda</h2>
-        <p>Crie sua primeira tarefa para começar a organizar o que precisa ser feito.</p>
-        <button
-          ref="createFirstButton"
-          type="button"
-          @click="openCreate"
+        <h2>A tarefa mudou</h2>
+        <p>O preenchimento não foi aplicado. Sua revisão-base e o que foi digitado foram mantidos.</p>
+
+        <div
+          v-if="conflictInspect"
+          class="conflict-inspect"
         >
-          Criar primeira tarefa
+          <h3>Versão atual (somente leitura)</h3>
+          <dl>
+            <div>
+              <dt>Título</dt><dd>{{ conflictInspect.task.title }}</dd>
+            </div>
+            <div v-if="conflictInspect.task.description">
+              <dt>Descrição</dt><dd>{{ conflictInspect.task.description }}</dd>
+            </div>
+            <div v-if="conflictInspect.task.status">
+              <dt>Status</dt><dd>{{ STATUS_LABELS[conflictInspect.task.status] }}</dd>
+            </div>
+            <div v-if="conflictInspect.task.dueAt">
+              <dt>Prazo</dt><dd>{{ conflictInspect.task.dueAt }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="state-actions">
+          <button
+            type="button"
+            class="button-secondary"
+            @click="inspectConflict"
+          >
+            Conferir versão atual
+          </button>
+          <template v-if="conflictForEditing">
+            <template v-if="!reloadConfirm">
+              <button
+                type="button"
+                class="button-secondary"
+                @click="reloadConfirm = true"
+              >
+                Recarregar tarefa
+              </button>
+            </template>
+            <template v-else>
+              <p>Recarregar descarta o preenchimento atual. Confirmar?</p>
+              <button
+                type="button"
+                @click="confirmReload"
+              >
+                Descartar e recarregar
+              </button>
+              <button
+                type="button"
+                class="button-secondary"
+                @click="reloadConfirm = false"
+              >
+                Cancelar
+              </button>
+            </template>
+          </template>
+          <button
+            v-else
+            type="button"
+            class="button-secondary"
+            @click="discardConflict"
+          >
+            Descartar aviso
+          </button>
+        </div>
+      </section>
+
+      <section
+        v-if="store.notFound"
+        class="state state-error"
+        role="alert"
+      >
+        <h2>Tarefa não encontrada</h2>
+        <p>A tarefa não existe mais na lista. Nada foi recriado.</p>
+        <div class="state-actions">
+          <button
+            type="button"
+            class="button-secondary"
+            @click="retry"
+          >
+            Conferir lista
+          </button>
+          <button
+            type="button"
+            class="button-secondary"
+            @click="closeNotFound"
+          >
+            Fechar aviso
+          </button>
+        </div>
+      </section>
+
+      <section
+        v-if="store.outcomeUnknown"
+        class="state state-warning"
+        role="alert"
+      >
+        <h2>Resultado incerto</h2>
+        <p>
+          Não foi possível confirmar se a operação foi concluída. Confira a lista antes de decidir;
+          um título igual não prova que a tarefa foi criada. Nada é reenviado automaticamente.
+        </p>
+        <button
+          type="button"
+          @click="reviewUncertain"
+        >
+          Conferir lista
         </button>
       </section>
 
-      <template v-else>
-        <TaskFilters
-          :filters="store.filters"
-          :sort-key="store.sortKey"
-          :has-active-filters="store.hasActiveFilters"
-          @update:filters="store.setFilters"
-          @update:sort-key="store.setSortKey"
-          @clear="store.clearFilters"
-        />
-
+      <template v-if="mode === 'form'">
         <p
-          class="result-count"
+          v-if="formMessage"
+          ref="formMessageAlert"
+          tabindex="-1"
+          class="feedback feedback-error"
+          role="alert"
+        >
+          {{ formMessage }}
+        </p>
+        <TaskForm
+          ref="taskForm"
+          :key="formKey"
+          :task="editingRecord?.task ?? null"
+          :errors="formErrors"
+          :saving="store.submitting"
+          @submit="handleSubmit"
+          @cancel="closeForm()"
+          @open-source="handleOpenSource"
+        />
+      </template>
+
+      <template v-else>
+        <p
+          v-if="store.presentation === 'loading'"
+          class="state"
           role="status"
         >
-          {{ store.visibleTasks.length }} de {{ store.totalTasks }}
-          {{ store.totalTasks === 1 ? 'tarefa' : 'tarefas' }}
+          Carregando tarefas…
         </p>
 
         <section
-          v-if="store.visibleTasks.length === 0"
-          class="state"
+          v-else-if="store.presentation === 'blocked'"
+          class="state state-error"
+          role="alert"
         >
-          <h2>Nenhuma tarefa encontrada</h2>
-          <p>Nenhuma tarefa corresponde à pesquisa e aos filtros atuais.</p>
+          <p>{{ errorText(store.initialError ?? 'STORAGE_UNAVAILABLE') }} Nenhum dado foi redefinido.</p>
           <button
-            ref="clearFiltersButton"
+            ref="retryButton"
             type="button"
             class="button-secondary"
-            @click="clearFilters"
+            @click="retry"
           >
-            Limpar filtros
+            Tentar novamente
           </button>
         </section>
 
         <section
-          v-else
-          aria-labelledby="task-list-heading"
+          v-else-if="store.presentation === 'empty'"
+          class="state"
         >
-          <h2
-            id="task-list-heading"
-            class="visually-hidden"
-          >
-            Lista de tarefas
-          </h2>
-          <TaskList
-            ref="taskList"
-            :tasks="store.visibleTasks"
-            :now="store.now"
-            :busy-task-id="busyTaskId"
-            @edit="openEdit"
-            @change-status="handleChangeStatus"
-            @toggle-subtask="handleToggleSubtask"
-          />
+          <h2>Nenhuma tarefa ainda</h2>
+          <p>Crie sua primeira tarefa para começar a organizar o que precisa ser feito.</p>
+          <div class="state-actions">
+            <button
+              ref="createFirstButton"
+              type="button"
+              @click="openCreate"
+            >
+              Criar primeira tarefa
+            </button>
+            <button
+              type="button"
+              class="button-secondary"
+              data-action="trash"
+              @click="openTrash"
+            >
+              Abrir lixeira
+            </button>
+          </div>
         </section>
-      </template>
-    </template>
 
-    <TaskCancellationDialog
-      v-if="pendingCancellation !== null"
-      :task-title="pendingCancellation.taskTitle"
-      @choose="resolveCancellation"
-      @cancel="abandonCancellation"
-    />
+        <template v-else>
+          <TaskFilters
+            :filters="store.filters"
+            :sort-key="store.sortKey"
+            :has-active-filters="store.hasActiveFilters"
+            @update:filters="store.setFilters"
+            @update:sort-key="store.setSortKey"
+            @clear="store.clearFilters"
+          />
+
+          <p
+            class="result-count"
+            role="status"
+          >
+            {{ store.visibleTasks.length }} de {{ store.totalTasks }}
+            {{ store.totalTasks === 1 ? 'tarefa' : 'tarefas' }}
+          </p>
+
+          <section
+            v-if="store.visibleTasks.length === 0"
+            class="state"
+          >
+            <h2>Nenhuma tarefa encontrada</h2>
+            <p>Nenhuma tarefa corresponde à pesquisa e aos filtros atuais.</p>
+            <button
+              ref="clearFiltersButton"
+              type="button"
+              class="button-secondary"
+              @click="clearFilters"
+            >
+              Limpar filtros
+            </button>
+          </section>
+
+          <section
+            v-else
+            aria-labelledby="task-list-heading"
+          >
+            <h2
+              id="task-list-heading"
+              class="visually-hidden"
+            >
+              Lista de tarefas
+            </h2>
+            <TaskList
+              ref="taskList"
+              :tasks="store.visibleTasks"
+              :now="store.now"
+              :busy-task-id="busyTaskId"
+              @edit="openEdit"
+              @change-status="handleChangeStatus"
+              @toggle-subtask="handleToggleSubtask"
+              @delete="handleDelete"
+            />
+          </section>
+        </template>
+      </template>
+
+      <TaskCancellationDialog
+        v-if="pendingCancellation !== null"
+        :task-title="pendingCancellation.taskTitle"
+        @choose="resolveCancellation"
+        @cancel="abandonCancellation"
+      />
+
+      <section
+        v-if="deleteTarget !== null"
+        ref="deletePanel"
+        class="state state-warning"
+        tabindex="-1"
+        role="alertdialog"
+        aria-modal="true"
+        :aria-label="`Excluir ${deleteTarget.title}`"
+        @keydown.esc="abandonDelete"
+      >
+        <h2>Mover para a lixeira?</h2>
+        <p>
+          “{{ deleteTarget.title }}” ficará recuperável por <strong>30 dias</strong>; a lixeira mantém até
+          <strong>100</strong> entradas. Descartados por limite, idade, substituição do mesmo ID ou relógio
+          ajustado não têm desfazer.
+        </p>
+        <p v-if="store.confirmation?.hasRecurrence">
+          Esta ocorrência carrega a regra da série: excluí-la interrompe novas ocorrências enquanto estiver
+          na lixeira; nenhuma próxima é criada agora.
+        </p>
+        <div class="state-actions">
+          <button
+            type="button"
+            :aria-disabled="store.submitting ? 'true' : undefined"
+            @click="confirmDelete"
+          >
+            Excluir
+          </button>
+          <button
+            type="button"
+            class="button-secondary"
+            @click="abandonDelete"
+          >
+            Cancelar
+          </button>
+        </div>
+      </section>
+    </template>
   </main>
 </template>
 

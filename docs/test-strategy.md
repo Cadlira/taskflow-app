@@ -104,3 +104,14 @@ Regras para os testes de armazenamento: dados e perfis exclusivamente fictícios
 | AC06 | Este plano distingue teste portátil, UI, adapter/IPC, integração e Windows instalado; testes desktop continuam planejados. |
 | AC07 | Links, consistência documental e validação estrita são revisados no projeto app; origem só leitura; sem cópia de código/dados/segredo/scaffold. |
 | AC08 | [roadmap.md](roadmap.md) mantém IDs, dependências, datas e estado de revisão, sem `DONE`, archive ou TFA-002 por inferência. |
+
+## TFA-006 — lixeira e desfazer (2026-10-04)
+
+| Nível | Cobertura |
+| --- | --- |
+| Domínio puro | `tests/domain/task-trash.test.ts` (29d/30d/30d+1ms/31d/futuro/DST, empates por revisão/ID UTF-16, 100→101, relógio recuado, composição) e `tests/domain/task-reminders.test.ts` (liquidação `<= now`, AT/OFFSET, terminal, sem prazo, gatilho extremo, preservação de marcadores). |
+| Unidades/aplicação | `tests/application/trash-commands.test.ts` (move/restore/definitiva/EMPTY/manutenção/reversão/undo, portadora final, claims/ABA, concorrência restore×restore e restore→delete, falha entre efeitos) e `tests/application/undo-registry.test.ts` (contexto, tokens de uso único, orçamento 64 MiB, época/backup, oito sessões). |
+| Contratos/IPC | `tests/contracts/trash-command-contract.test.ts` (shapes/versões/budgets/negativas), `tests/main/ipc-trash.test.ts` (oito wrappers, guards, recusas exatas, consumo único, sessão, orçamento), `tests/main/ipc-tasks.test.ts` (v3 + contexto) e `tests/preload/bridge-catalog.test.ts` (17 wrappers, canais fechados). |
+| Componentes/UI | `tests/renderer/task-manager.test.ts`, `tests/renderer/tasks-store.test.ts` e `tests/renderer/trash-manager.test.ts` (lixeira, confirmações, oferta, foco, busy, Escape/abandono, estados). |
+| Pacote real | `smoke:packaged`: bridge catálogo17 (27 verificações), cenário `trash` (30 verificações: tokens/contexto, duas superfícies, UI de excluir/restaurar/esvaziar com foco) e kills `move`/`restore`/`revert` nas barreiras. |
+| Não executado | Prova humana de leitor de tela/DPI (roteiro em [a11y-manual-checklist-tfa006.md](a11y-manual-checklist-tfa006.md)); D10 herdado permanece retido (números históricos 661,6/636,1/141,7 ms, sem truncamento/virtualização/worker). |

@@ -31,11 +31,11 @@ function byteLength(value: unknown): number {
 }
 
 function createRequest(draft: Record<string, unknown>): unknown {
-  return { version: 2, draft }
+  return { version: 3, contextSequence: 1, draft }
 }
 
 function updateRequest(patch: Record<string, unknown>, extra: Record<string, unknown> = {}): unknown {
-  return { version: 2, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch, ...extra }
+  return { version: 3, contextSequence: 1, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch, ...extra }
 }
 
 /** Draft completo com campos básicos nos limites e 20 títulos de subtarefa de 200 caracteres. */
@@ -54,11 +54,11 @@ function boundaryDraft(): Record<string, unknown> {
   }
 }
 
-describe('contrato dos comandos de tarefas v2', () => {
+describe('contrato dos comandos de tarefas v3', () => {
   it('aceita criação mínima e completa com básicos, regra e títulos de subtarefa', () => {
     const minimal = parseTaskCreateRequest(createRequest({ title: 'Comprar leite' }))
     expect(minimal.kind).toBe('ok')
-    if (minimal.kind === 'ok') expect(minimal.value).toEqual<TaskCreateRequest>({ version: 2, draft: { title: 'Comprar leite' } })
+    if (minimal.kind === 'ok') expect(minimal.value).toEqual<TaskCreateRequest>({ version: 3, contextSequence: 1, draft: { title: 'Comprar leite' } })
 
     const complete = parseTaskCreateRequest(
       createRequest({
@@ -78,7 +78,8 @@ describe('contrato dos comandos de tarefas v2', () => {
     expect(complete.kind).toBe('ok')
     if (complete.kind !== 'ok') return
     expect(complete.value).toEqual<TaskCreateRequest>({
-      version: 2,
+      version: 3,
+      contextSequence: 1,
       draft: {
         title: 'Comprar leite',
         description: 'Integral',
@@ -159,7 +160,7 @@ describe('contrato dos comandos de tarefas v2', () => {
     expect(parseTaskStatusRequest({ version: 1, taskId: 'a', expectedContentRevision: REVISION, status: 'DONE' }).kind).toBe('invalid-request')
     expect(parseSubtaskDoneRequest({ version: 1, taskId: 'a', expectedContentRevision: REVISION, subtaskId: 's', done: true }).kind).toBe('invalid-request')
     // openTaskSource conserva v1: a versão 2 é que é recusada.
-    expect(parseTaskOpenSourceRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION }).kind).toBe('invalid-request')
+    expect(parseTaskOpenSourceRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION }).kind).toBe('invalid-request')
     expect(parseTaskOpenSourceRequest({ version: 1, taskId: 'a', expectedContentRevision: REVISION }).kind).toBe('ok')
   })
 
@@ -239,18 +240,18 @@ describe('contrato dos comandos de tarefas v2', () => {
     class DraftLike {
       title = 'ok'
     }
-    expect(parseTaskCreateRequest({ version: 2, draft: new DraftLike() }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: new DraftLike() }).kind).toBe('invalid-request')
     const accessor = { get title(): string { return 'ok' } }
-    expect(parseTaskCreateRequest({ version: 2, draft: accessor }).kind).toBe('invalid-request')
-    expect(parseTaskCreateRequest({ version: 2, draft: { title: 'ok' }, extra: true }).kind).toBe('invalid-request')
-    expect(parseTaskCreateRequest({ version: 2, draft: null }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: accessor }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: { title: 'ok' }, extra: true }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: null }).kind).toBe('invalid-request')
   })
 
   it('update aceita ID/revisão de edição exatos e distingue omitido/null/[] por campo', () => {
     const empty = parseTaskUpdateRequest(updateRequest({}))
     expect(empty.kind).toBe('ok')
     if (empty.kind === 'ok') {
-      expect(empty.value).toEqual<TaskUpdateRequest>({ version: 2, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch: {} })
+      expect(empty.value).toEqual<TaskUpdateRequest>({ version: 3, contextSequence: 1, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch: {} })
     }
 
     const cleared = parseTaskUpdateRequest(
@@ -333,62 +334,62 @@ describe('contrato dos comandos de tarefas v2', () => {
 
   it('aceita ID histórico não vazio e recusa ID/revisão fora de representação', () => {
     expect(
-      parseTaskUpdateRequest({ version: 2, taskId: 'tarefa histórica/única — 🚀', expectedEditRevision: '0', patch: {} }).kind,
+      parseTaskUpdateRequest({ version: 3, contextSequence: 1, taskId: 'tarefa histórica/única — 🚀', expectedEditRevision: '0', patch: {} }).kind,
     ).toBe('ok')
-    expect(parseTaskUpdateRequest({ version: 2, taskId: 'a', expectedEditRevision: '9223372036854775807', patch: {} }).kind).toBe('ok')
+    expect(parseTaskUpdateRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '9223372036854775807', patch: {} }).kind).toBe('ok')
 
     for (const taskId of ['', 7, null]) {
-      expect(parseTaskUpdateRequest({ version: 2, taskId, expectedEditRevision: '1', patch: {} }).kind).toBe('invalid-request')
+      expect(parseTaskUpdateRequest({ version: 3, contextSequence: 1, taskId, expectedEditRevision: '1', patch: {} }).kind).toBe('invalid-request')
     }
     for (const revision of ['', '00', '-1', '1.5', '9223372036854775808', ' 1', 1, null]) {
-      expect(parseTaskUpdateRequest({ version: 2, taskId: 'a', expectedEditRevision: revision, patch: {} }).kind).toBe('invalid-request')
-      expect(parseTaskStatusRequest({ version: 2, taskId: 'a', expectedEditRevision: revision, status: 'DONE' }).kind).toBe('invalid-request')
+      expect(parseTaskUpdateRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: revision, patch: {} }).kind).toBe('invalid-request')
+      expect(parseTaskStatusRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: revision, status: 'DONE' }).kind).toBe('invalid-request')
       expect(
-        parseSubtaskDoneRequest({ version: 2, taskId: 'a', expectedEditRevision: revision, subtaskId: 's', done: true }).kind,
+        parseSubtaskDoneRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: revision, subtaskId: 's', done: true }).kind,
       ).toBe('invalid-request')
       expect(parseTaskOpenSourceRequest({ version: 1, taskId: 'a', expectedContentRevision: revision }).kind).toBe('invalid-request')
     }
   })
 
   it('status e setSubtaskDone têm shapes exatos; done exige boolean; cancellation é SKIP/END', () => {
-    const status = parseTaskStatusRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, status: 'CANCELLED', cancellation: 'END' })
+    const status = parseTaskStatusRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, status: 'CANCELLED', cancellation: 'END' })
     expect(status.kind).toBe('ok')
     if (status.kind === 'ok') {
-      expect(status.value).toEqual({ version: 2, taskId: 'a', expectedEditRevision: REVISION, status: 'CANCELLED', cancellation: 'END' })
+      expect(status.value).toEqual({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, status: 'CANCELLED', cancellation: 'END' })
     }
-    expect(parseTaskStatusRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, status: 'NOPE' })).toEqual({
+    expect(parseTaskStatusRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, status: 'NOPE' })).toEqual({
       kind: 'validation',
       fields: { status: 'INVALID_VALUE' },
     })
-    expect(parseTaskStatusRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, status: 'TODO', task: {} }).kind).toBe('invalid-request')
+    expect(parseTaskStatusRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, status: 'TODO', task: {} }).kind).toBe('invalid-request')
 
-    const done = parseSubtaskDoneRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 'sub-1', done: false })
+    const done = parseSubtaskDoneRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 'sub-1', done: false })
     expect(done.kind).toBe('ok')
     if (done.kind === 'ok') {
-      expect(done.value).toEqual({ version: 2, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 'sub-1', done: false })
+      expect(done.value).toEqual({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 'sub-1', done: false })
     }
     for (const value of ['true', 1, null, undefined]) {
-      expect(parseSubtaskDoneRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 's', done: value })).toEqual({
+      expect(parseSubtaskDoneRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 's', done: value })).toEqual({
         kind: 'invalid-request',
       })
     }
-    expect(parseSubtaskDoneRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, subtaskId: '', done: true }).kind).toBe('invalid-request')
+    expect(parseSubtaskDoneRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, subtaskId: '', done: true }).kind).toBe('invalid-request')
     expect(
-      parseSubtaskDoneRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 's', done: true, cancellation: 'SKIP' }).kind,
+      parseSubtaskDoneRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, subtaskId: 's', done: true, cancellation: 'SKIP' }).kind,
     ).toBe('invalid-request')
 
     // Escolha extrínseca: só SKIP/END passam; presente no request de update/status.
     for (const cancellation of ['skip', 'BOTH', 'ITEM', 1, null]) {
       expect(parseTaskUpdateRequest(updateRequest({}, { cancellation })).kind).toBe('invalid-request')
-      expect(parseTaskStatusRequest({ version: 2, taskId: 'a', expectedEditRevision: REVISION, status: 'CANCELLED', cancellation }).kind).toBe(
+      expect(parseTaskStatusRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: REVISION, status: 'CANCELLED', cancellation }).kind).toBe(
         'invalid-request',
       )
     }
-    expect(parseTaskCreateRequest({ version: 2, draft: { title: 'x' }, cancellation: 'SKIP' }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: { title: 'x' }, cancellation: 'SKIP' }).kind).toBe('invalid-request')
   })
 
   it('mede o request completo: básicos nos limites e 20 subtarefas abaixo de 64 KiB', () => {
-    const within = { version: 2, draft: boundaryDraft() }
+    const within = { version: 3, contextSequence: 1, draft: boundaryDraft() }
     expect(byteLength(within)).toBeLessThanOrEqual(TASK_COMMAND_LIMITS.requestBytes)
     const parsed = parseTaskCreateRequest(within)
     expect(parsed.kind).toBe('ok')
@@ -399,12 +400,12 @@ describe('contrato dos comandos de tarefas v2', () => {
     }
 
     // Excesso medido no envelope completo é recusado explicitamente, sem truncar o draft.
-    const over = { version: 2, draft: { ...boundaryDraft(), description: '\u0000'.repeat(12_000) } }
+    const over = { version: 3, contextSequence: 1, draft: { ...boundaryDraft(), description: '\u0000'.repeat(12_000) } }
     expect(byteLength(over)).toBeGreaterThan(TASK_COMMAND_LIMITS.requestBytes)
     expect(parseTaskCreateRequest(over).kind).toBe('invalid-request')
 
     // O orçamento de resposta é conferido no ack serializado; nunca há truncamento.
-    const ack = { version: 2, status: 'ok', taskId: 'x', revision: '1', contentRevision: '1', editRevision: '1' }
+    const ack = { version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '1', contentRevision: '1', editRevision: '1' }
     expect(fitsResponseBudget(ack)).toBe(true)
     expect(TASK_COMMAND_LIMITS.responseBytes).toBe(8 * 1024)
     expect(parseTaskCreateResult(ack)).toEqual(ack)
@@ -415,13 +416,13 @@ describe('contrato dos comandos de tarefas v2', () => {
 
   it('mede IDs históricos longos/estranhos no request completo e recusa o excesso sem truncar', () => {
     const longId = 'x'.repeat(30_000)
-    const within = { version: 2, taskId: longId, expectedEditRevision: '1', patch: {} }
+    const within = { version: 3, contextSequence: 1, taskId: longId, expectedEditRevision: '1', patch: {} }
     expect(byteLength(within)).toBeLessThanOrEqual(TASK_COMMAND_LIMITS.requestBytes)
     const parsed = parseTaskUpdateRequest(within)
     expect(parsed.kind).toBe('ok')
     if (parsed.kind === 'ok') expect(parsed.value.taskId).toHaveLength(30_000)
 
-    const over = { version: 2, taskId: 'y'.repeat(70_000), expectedEditRevision: '1', patch: {} }
+    const over = { version: 3, contextSequence: 1, taskId: 'y'.repeat(70_000), expectedEditRevision: '1', patch: {} }
     expect(byteLength(over)).toBeGreaterThan(TASK_COMMAND_LIMITS.requestBytes)
     expect(parseTaskUpdateRequest(over).kind).toBe('invalid-request')
     expect(parseTaskOpenSourceRequest({ version: 1, taskId: longId, expectedContentRevision: '1' }).kind).toBe('ok')
@@ -430,18 +431,20 @@ describe('contrato dos comandos de tarefas v2', () => {
 
   it('valida as respostas: ack com as duas revisões, erro por código e campos restritos', () => {
     expect(
-      parseTaskCreateResult({ version: 2, status: 'ok', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' }),
-    ).toEqual({ version: 2, status: 'ok', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' })
-    expect(parseTaskMutationResult({ version: 2, status: 'ok', revision: '8', contentRevision: '8', editRevision: '3' })).toEqual({
-      version: 2,
+      parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' }),
+    ).toEqual({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' })
+    expect(parseTaskMutationResult({ version: 3, status: 'ok', outcome: 'APPLIED', revision: '8', contentRevision: '8', editRevision: '3' })).toEqual({
+      version: 3,
       status: 'ok',
+      outcome: 'APPLIED',
       revision: '8',
       contentRevision: '8',
       editRevision: '3',
     })
-    expect(parseSubtaskDoneResult({ version: 2, status: 'ok', revision: '9', contentRevision: '9', editRevision: '3' })).toEqual({
-      version: 2,
+    expect(parseSubtaskDoneResult({ version: 3, status: 'ok', outcome: 'APPLIED', revision: '9', contentRevision: '9', editRevision: '3' })).toEqual({
+      version: 3,
       status: 'ok',
+      outcome: 'APPLIED',
       revision: '9',
       contentRevision: '9',
       editRevision: '3',
@@ -449,20 +452,20 @@ describe('contrato dos comandos de tarefas v2', () => {
     expect(parseTaskOpenSourceResult({ version: 1, status: 'ok' })).toEqual({ version: 1, status: 'ok' })
 
     // `taskId` é só da criação; ack sem editRevision ou versão v1 não passam.
-    expect(parseTaskMutationResult({ version: 2, status: 'ok', taskId: 'x', revision: '8', contentRevision: '8', editRevision: '3' })).toBeNull()
-    expect(parseTaskCreateResult({ version: 2, status: 'ok', taskId: 'x', revision: '8', contentRevision: '8' })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '8', contentRevision: '8', editRevision: '3' })).toBeNull()
+    expect(parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '8', contentRevision: '8' })).toBeNull()
     expect(parseTaskCreateResult({ version: 1, status: 'ok', taskId: 'x', revision: '1', contentRevision: '1' })).toBeNull()
-    expect(parseTaskCreateResult({ version: 2, status: 'ok', taskId: '', revision: '1', contentRevision: '1', editRevision: '1' })).toBeNull()
-    expect(parseTaskCreateResult({ version: 2, status: 'ok', taskId: 'x', revision: '01', contentRevision: '1', editRevision: '1' })).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'ok', revision: '8', contentRevision: '3', editRevision: '3', extra: true })).toBeNull()
+    expect(parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: '', revision: '1', contentRevision: '1', editRevision: '1' })).toBeNull()
+    expect(parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '01', contentRevision: '1', editRevision: '1' })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'ok', outcome: 'APPLIED', revision: '8', contentRevision: '3', editRevision: '3', extra: true })).toBeNull()
 
     // Todo código fechado da união de mutação passa; um código só da origem não.
     for (const code of TASK_MUTATION_ERROR_CODES) {
       const failure = code === 'VALIDATION_FAILED' ? { ...taskMutationFailure(code), fields: { title: 'REQUIRED' } } : taskMutationFailure(code)
-      expect(parseTaskMutationResult(failure)).toMatchObject({ version: 2, status: 'error', code })
+      expect(parseTaskMutationResult(failure)).toMatchObject({ version: 3, status: 'error', code })
     }
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'SOURCE_NOT_ALLOWED' })).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'SQLITE_BUSY' })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'SOURCE_NOT_ALLOWED' })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'SQLITE_BUSY' })).toBeNull()
     for (const code of TASK_SOURCE_ERROR_CODES) {
       expect(parseTaskOpenSourceResult(taskSourceFailure(code))).toMatchObject({ version: 1, status: 'error', code })
     }
@@ -471,23 +474,23 @@ describe('contrato dos comandos de tarefas v2', () => {
 
     // CONFLICT pode expor as duas revisões atuais; nunca conteúdo, stack ou causa.
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'CONFLICT', currentContentRevision: '9', currentEditRevision: '8' }),
-    ).toEqual({ version: 2, status: 'error', code: 'CONFLICT', currentContentRevision: '9', currentEditRevision: '8' })
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'CONFLICT', currentContentRevision: '9' })).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'CONFLICT', currentEditRevision: '8' })).toBeNull()
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'CONFLICT', currentContentRevision: '9', currentEditRevision: '8' }),
+    ).toEqual({ version: 3, status: 'error', code: 'CONFLICT', currentContentRevision: '9', currentEditRevision: '8' })
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'CONFLICT', currentContentRevision: '9' })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'CONFLICT', currentEditRevision: '8' })).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'NOT_FOUND', currentContentRevision: '9', currentEditRevision: '9' }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'NOT_FOUND', currentContentRevision: '9', currentEditRevision: '9' }),
     ).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'CONFLICT', currentContentRevision: '9', currentEditRevision: '9', task: {} }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'CONFLICT', currentContentRevision: '9', currentEditRevision: '9', task: {} }),
     ).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'BUSY', stack: 'Error at C:\\x' })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'BUSY', stack: 'Error at C:\\x' })).toBeNull()
     expect(parseTaskMutationResult(new Error('boom'))).toBeNull()
 
     // VALIDATION_FAILED exige fields com códigos avançados posicionais e finitos.
     expect(
       parseTaskMutationResult({
-        version: 2,
+        version: 3,
         status: 'error',
         code: 'VALIDATION_FAILED',
         fields: {
@@ -498,7 +501,7 @@ describe('contrato dos comandos de tarefas v2', () => {
         },
       }),
     ).toEqual({
-      version: 2,
+      version: 3,
       status: 'error',
       code: 'VALIDATION_FAILED',
       fields: {
@@ -508,28 +511,28 @@ describe('contrato dos comandos de tarefas v2', () => {
         subtasks: { list: 'TOO_MANY', items: [{ index: 0, title: 'TOO_LONG', id: 'UNKNOWN_ID' }] },
       },
     })
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED' })).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'CONFLICT', fields: { title: 'REQUIRED' } })).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { unknown: 'REQUIRED' } })).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { title: 'NOPE' } })).toBeNull()
-    expect(parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: {} })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED' })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'CONFLICT', fields: { title: 'REQUIRED' } })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { unknown: 'REQUIRED' } })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { title: 'NOPE' } })).toBeNull()
+    expect(parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: {} })).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { recurrence: { frequency: 'NOPE' } } }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { recurrence: { frequency: 'NOPE' } } }),
     ).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { recurrence: {} } }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { recurrence: {} } }),
     ).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [] } } }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [] } } }),
     ).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [{ index: 20, title: 'REQUIRED' }] } } }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [{ index: 20, title: 'REQUIRED' }] } } }),
     ).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [{ index: 0 }] } } }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [{ index: 0 }] } } }),
     ).toBeNull()
     expect(
-      parseTaskMutationResult({ version: 2, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [{ index: 0, extra: 1 }] } } }),
+      parseTaskMutationResult({ version: 3, status: 'error', code: 'VALIDATION_FAILED', fields: { subtasks: { items: [{ index: 0, extra: 1 }] } } }),
     ).toBeNull()
 
     // openTaskSource: CONFLICT pode trazer somente a revisão de conteúdo atual.
@@ -543,7 +546,7 @@ describe('contrato dos comandos de tarefas v2', () => {
     })
     expect(parseTaskOpenSourceResult({ version: 1, status: 'error', code: 'NOT_FOUND', currentContentRevision: '9' })).toBeNull()
     expect(parseTaskOpenSourceResult({ version: 1, status: 'error', code: 'SOURCE_NOT_AVAILABLE', fields: {} })).toBeNull()
-    expect(parseTaskOpenSourceResult({ version: 2, status: 'error', code: 'NOT_FOUND' })).toBeNull()
+    expect(parseTaskOpenSourceResult({ version: 3, status: 'error', code: 'NOT_FOUND' })).toBeNull()
     expect(parseTaskOpenSourceResult({ version: 1, status: 'error', code: 'SOURCE_NOT_ALLOWED', stack: 'x' })).toBeNull()
   })
 })

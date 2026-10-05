@@ -375,6 +375,9 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     ['crash|unit:after-commit', true],
     ['crash|unit:before-publish', true],
     ['crash|unit:before-publish|claim', true],
+    ['crash|unit:before-commit|move', false],
+    ['crash|unit:after-commit|restore', true],
+    ['crash|unit:before-commit|revert', false],
   ]
   for (const [scenario, committed] of barriers) {
     rmSync(barrierFile, { force: true })
@@ -398,7 +401,15 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     const expected = (BigInt(armed.marker.baseRevision) + (committed ? 1n : 0n)).toString()
     assert(after.summary.revision === expected, `${scenario}: revisão ${after.summary.revision}, esperada ${expected}`)
     if (!committed) {
-      assert(after.summary.digest === current.digest, `${scenario}: estado anterior não está inteiro`)
+      const prepared = armed.marker.preparedSummary
+      const expectedDigest = prepared?.digest ?? current.digest
+      assert(after.summary.digest === expectedDigest, `${scenario}: estado anterior não está inteiro`)
+      if (prepared !== undefined) {
+        assert(
+          after.summary.tasks === prepared.tasks && after.summary.trash === prepared.trash,
+          `${scenario}: coleções divergentes do estado preparado`,
+        )
+      }
     }
     // O app não apaga nem interpreta journal: um journal quente é revertido pelo motor na
     // abertura; um journal sem páginas gravadas não é quente e o motor o reaproveita na
@@ -491,6 +502,26 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     'produto: recorrência/subtarefas por UI/preload/main/SQLite com duas superfícies',
     true,
     `${Object.keys(recurrence.marker.checks).length} verificações`,
+  )
+
+  // P7c — TFA-006: lixeira e desfazer no pacote (bridge catálogo17, tokens/contexto, duas
+  // superfícies, UI de excluir/restaurar/esvaziar com foco).
+  const trash = await runScenario('trash', 180_000)
+  evidence.trash = trash.marker
+  const trashExit = await waitForExit(trash.child, 30_000)
+  const failedTrash = Object.entries(trash.marker.checks ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  out(`TRASH ${JSON.stringify(trash.marker)}`)
+  assert(trash.marker.ok === true, `lixeira/desfazer reprovou: ${failedTrash.join(', ') || 'sem resultado'}`)
+  assert(
+    !trashExit.timedOut && trashExit.code === 0,
+    `cenário trash não encerrou com saída 0 (${trashExit.code})`,
+  )
+  record(
+    'produto: lixeira/desfazer com tokens/contexto, duas superfícies e foco',
+    true,
+    `${Object.keys(trash.marker.checks).length} verificações`,
   )
 
   // P8 — acessibilidade/zoom/strings longas e abertura controlada (shell real na referência;

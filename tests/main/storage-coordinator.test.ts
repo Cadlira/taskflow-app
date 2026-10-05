@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MAX_REVISION } from '../../src/application/storage/revisions.js'
 import { storageFailureReasonOf, StorageFailure } from '../../src/application/storage/task-storage-error.js'
 import type { TaskStorageUnit } from '../../src/application/storage/unit-of-work.js'
+import { settleElapsedReminders } from '../../src/domain/task-reminders.js'
 import type { Task } from '../../src/domain/task.js'
 import { buildFictitiousTask, buildFictitiousTasks, buildMinimalFictitiousTask, fictitiousText } from '../../src/main/harness/fixtures.js'
 import { QUEUE_LIMITS } from '../../src/main/storage/coordinator.js'
@@ -15,6 +16,7 @@ afterEach(cleanupStorage)
 
 const DELETED_AT = '2026-09-12T08:00:00.000Z'
 const DUE = '2026-09-20T10:00:00.000Z'
+const NOW = new Date('2026-10-04T12:00:00.000Z')
 
 function sha256(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
@@ -555,12 +557,14 @@ describe('edição e reversão condicionais', () => {
             generated: { id: generated.id, expectedContentRevision: 2n },
           },
           () => previous,
+          NOW,
         ),
       ),
     )
 
     expect(reverted.value).toMatchObject({ status: 'REVERTED', contentRevision: 3n })
-    expect((await readState(coordinator)).tasks).toEqual([previous])
+    // A reversão preserva a before-image e liquida de forma pura os lembretes vencidos <= now.
+    expect((await readState(coordinator)).tasks).toEqual([settleElapsedReminders(previous, NOW)])
   })
 
   it('reversão recusa quando a tarefa mudou, sumiu ou a gerada mudou', async () => {
@@ -572,16 +576,17 @@ describe('edição e reversão condicionais', () => {
     const before = await readState(coordinator)
 
     const changed = expectOk(
-      await coordinator.run((unit) => unit.revertConditionally({ target: { id: target.id, expectedContentRevision: 9n } }, () => target)),
+      await coordinator.run((unit) => unit.revertConditionally({ target: { id: target.id, expectedContentRevision: 9n } }, () => target, NOW)),
     )
     const removed = expectOk(
-      await coordinator.run((unit) => unit.revertConditionally({ target: { id: 'x', expectedContentRevision: 1n } }, () => target)),
+      await coordinator.run((unit) => unit.revertConditionally({ target: { id: 'x', expectedContentRevision: 1n } }, () => target, NOW)),
     )
     const generatedChanged = expectOk(
       await coordinator.run((unit) =>
         unit.revertConditionally(
           { target: { id: target.id, expectedContentRevision: 1n }, generated: { id: generated.id, expectedContentRevision: 1n } },
           () => ({ ...target, title: 'Revertida' }),
+          NOW,
         ),
       ),
     )
