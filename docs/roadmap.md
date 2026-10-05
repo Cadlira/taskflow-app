@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 a TFA-005 integradas/arquivadas; TFA-004 em DONE, merge local `64fe7ad`; TFA-005 em DONE — archive em 2026-10-04 com 44/44 tasks, specs consolidadas (17 adicionados, 21 modificados, 1 renomeado) e otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms); commit/push/PR em sequência pelo pedido do usuário**. Já existem persistência, IPC e gerenciamento com interface, agora com recorrências/subtarefas, SQL 2 e catálogo v2. A pendência D10 de desempenho permanece documentada e melhorada, com o gate retido até decisão dos números do orçamento.
+Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 a TFA-004 integradas pelos PRs #1 a #4; TFA-004 em DONE, merge local `64fe7ad`; TFA-005 em READY_FOR_MERGE — archive em 2026-10-04 com 44/44 tasks, specs consolidadas (17 adicionados, 21 modificados, 1 renomeado), otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms) e PR #5 aberto aguardando integração**. Já existem persistência, IPC e gerenciamento com interface, agora com recorrências/subtarefas, SQL 2 e catálogo v2. A pendência D10 de desempenho permanece documentada e melhorada, com o gate retido até decisão dos números do orçamento.
 
 ## Objetivo e limites confirmados
 
@@ -79,7 +79,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | DONE | — | 2026-10-03 | 2026-10-04 | TFA-001 | Concluída e integrada pelo PR #2; merge local `c123261` conferido em 2026-10-04 |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-002 | Integração do PR #3 conferida no Git local: `main` e referência local `origin/main` em `d74e02d`; dependência da TFA-004 satisfeita |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada e archive; PR #4 integrado, merge local `64fe7ad` conferido. D10 de 10.000 permanece como pendência pós-archive documentada |
-| TFA-005 | `preservar-recorrencias-e-subtarefas` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive em 2026-10-04; specs consolidadas (17 ADDED/21 MODIFIED/1 RENAMED); otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms); commit/push/PR autorizados. D10 retido como pendência pós-archive |
+| TFA-005 | `preservar-recorrencias-e-subtarefas` | READY_FOR_MERGE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive em 2026-10-04; specs consolidadas (17 ADDED/21 MODIFIED/1 RENAMED); otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms); commit `49eee44`, push e PR #5 abertos. D10 retido como pendência pós-archive |
 | TFA-006 | `migrar-lixeira-e-desfazer` | PLANNED | — | — | — | TFA-005 | Após dependências, usar o prompt abaixo |
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | PLANNED | — | — | — | TFA-006 | Após dependências, usar o prompt abaixo |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
@@ -868,7 +868,7 @@ Ao concluir apply execute openspec-verify-change e gere verification.md dentro d
 
 ## TFA-005 — Recorrências e subtarefas
 
-**Slug:** `preservar-recorrencias-e-subtarefas`. **Dependências:** TFA-004, arquivada e integrada pelo PR #4, merge local `64fe7ad` conferido em 2026-10-04. **Estado: DONE**; início **2026-10-04**, apply concluído em **2026-10-04** com **44/44 tasks** e archive em **2026-10-04**. Branch local `codex/tfa-005-preservar-recorrencias-e-subtarefas`, criada na exploração a partir da `main` limpa. Artefatos aprovados pelo usuário em 2026-10-04; implementação, verificação aprovada, archive, README, commit, push e PR executados nos pedidos seguintes.
+**Slug:** `preservar-recorrencias-e-subtarefas`. **Dependências:** TFA-004, arquivada e integrada pelo PR #4, merge local `64fe7ad` conferido em 2026-10-04. **Estado: READY_FOR_MERGE**; início **2026-10-04**, apply concluído em **2026-10-04** com **44/44 tasks**, archive em **2026-10-04** e PR #5 aberto. Branch local `codex/tfa-005-preservar-recorrencias-e-subtarefas`, criada na exploração a partir da `main` limpa. Artefatos aprovados pelo usuário em 2026-10-04; implementação, verificação aprovada, archive, README, commit, push e PR executados nos pedidos seguintes.
 
 **Resultado:** Manter regras avançadas de tarefas e sua integridade sobre a persistência desktop.
 
@@ -1120,8 +1120,11 @@ proposto e prova humana com roteiro entregue para execução.
 (nova), `desktop-task-subtasks` (nova), `desktop-task-management`, `desktop-state-ipc`,
 `desktop-foundation` e `local-task-persistence`. `openspec validate --all --strict --no-interactive`:
 **8/8**; `--archived --strict`: **5/5**. README factual, datas e links atualizados neste archive;
-commit, push e PR desta branch seguem o pedido explícito do usuário. Estado **DONE** em
-**2026-10-04**; a **TFA-006** permanece PLANNED com seu prompt de explore próprio.
+commit **`49eee44`**, push para `origin/codex/tfa-005-preservar-recorrencias-e-subtarefas` e
+**PR #5** abertos pelo pedido explícito do usuário
+([Cadlira/taskflow-app#5](https://github.com/Cadlira/taskflow-app/pull/5)). Estado
+**READY_FOR_MERGE** em **2026-10-04**; a **TFA-006** permanece PLANNED com seu prompt de explore
+próprio.
 
 **Prompt consolidado para o archive (não inicia nada por si):**
 
@@ -1289,7 +1292,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003**, pelo PR #3 (`d74e02d`). A **TFA-004** concluiu apply (**41/41**), verificação aprovada e archive em 2026-10-04, e está integrada pelo **PR #4**, merge **`64fe7adc42b7eb0f4435c02970363f7d6b060e3f`**, conferido na `main` e referência local `origin/main` na exploração. **Pendência pós-archive documentada:** D10 de 10.000 segue reprovado, com melhora após as otimizações da TFA-005 (interações p95 661,6 ms > 500 ms; heartbeat 636,1 ms > 250 ms; histórico 521,5/578,9), gate retido, sem virtualização ou truncamento; a decisão dos números do orçamento (proposta p95/heartbeat ≤ 700 ms e fechamento ≤ 250 ms) ou uma Change de janela de renderização fica registrada para revisão própria. Prova humana de acessibilidade tem roteiro entregue e execução pendente (TFA-012 se não ocorrer agora). A **TFA-005** foi arquivada em **2026-10-04** com **44/44 tasks**, verificação aprovada pelo usuário e specs consolidadas; branch **`codex/tfa-005-preservar-recorrencias-e-subtarefas`**, com commit/push/PR executados no pedido correspondente. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
+A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003**, pelo PR #3 (`d74e02d`). A **TFA-004** concluiu apply (**41/41**), verificação aprovada e archive em 2026-10-04, e está integrada pelo **PR #4**, merge **`64fe7adc42b7eb0f4435c02970363f7d6b060e3f`**, conferido na `main` e referência local `origin/main` na exploração. **Pendência pós-archive documentada:** D10 de 10.000 segue reprovado, com melhora após as otimizações da TFA-005 (interações p95 661,6 ms > 500 ms; heartbeat 636,1 ms > 250 ms; histórico 521,5/578,9), gate retido, sem virtualização ou truncamento; a decisão dos números do orçamento (proposta p95/heartbeat ≤ 700 ms e fechamento ≤ 250 ms) ou uma Change de janela de renderização fica registrada para revisão própria. Prova humana de acessibilidade tem roteiro entregue e execução pendente (TFA-012 se não ocorrer agora). A **TFA-005** está **READY_FOR_MERGE**, arquivada em **2026-10-04** com **44/44 tasks**, verificação aprovada pelo usuário e specs consolidadas; branch **`codex/tfa-005-preservar-recorrencias-e-subtarefas`**, commit **`49eee44`**, push feito e **PR #5** aberto aguardando integração. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 
