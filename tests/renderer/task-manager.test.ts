@@ -14,8 +14,8 @@ function record(task: Task, contentRevision = '1', editRevision = contentRevisio
   return { task, contentRevision, editRevision }
 }
 
-function snapshot(revision: string, tasks: TaskRecord[]): StateSnapshot {
-  return { revision, tasks, trash: [] }
+function snapshot(revision: string, tasks: TaskRecord[], undoEpoch = 1): StateSnapshot {
+  return { revision, undoEpoch, tasks, trash: [] }
 }
 
 type Mock = ReturnType<typeof vi.fn>
@@ -50,13 +50,13 @@ function setupHarness(initial: StateSnapshot, subscribeFails = false): Harness {
 
   const api = {
     verifyFoundation: vi.fn(),
-    getStateSnapshot: vi.fn(async () => ({ version: 2 as const, status: 'ok' as const, snapshot: current })),
+    getStateSnapshot: vi.fn(async () => ({ version: 3 as const, status: 'ok' as const, snapshot: current })),
     subscribeState: vi.fn(async (_request: unknown, next?: (update: StateUpdate) => void) => {
-      if (subscribeFails) return { version: 2 as const, status: 'error' as const, code: 'STORAGE_UNAVAILABLE' as const }
+      if (subscribeFails) return { version: 3 as const, status: 'error' as const, code: 'STORAGE_UNAVAILABLE' as const }
       listener = next
-      return { version: 2 as const, status: 'ok' as const, subscriptionId: 'sub'.padEnd(24, 'S'), snapshot: current }
+      return { version: 3 as const, status: 'ok' as const, subscriptionId: 'sub'.padEnd(24, 'S'), snapshot: current }
     }),
-    unsubscribeState: vi.fn(async () => ({ version: 2 as const, status: 'ok' as const })),
+    unsubscribeState: vi.fn(async () => ({ version: 3 as const, status: 'ok' as const })),
     createTask: vi.fn(),
     updateTask: vi.fn(),
     changeTaskStatus: vi.fn(),
@@ -140,8 +140,9 @@ describe('TaskManager: estados e fluxo básico', () => {
     await view.get('button').trigger('click')
     await view.get('input[name="title"]').setValue('Comprar leite')
     harness.api.createTask.mockResolvedValue({
-      version: 2,
+      version: 3,
       status: 'ok',
+      outcome: 'APPLIED',
       taskId: 'nova',
       revision: '2',
       contentRevision: '2',
@@ -171,7 +172,7 @@ describe('TaskManager: estados e fluxo básico', () => {
     await view.get('button[data-action="edit"]').trigger('click')
     await view.get('input[name="title"]').setValue('Meu draft')
     harness.api.updateTask.mockResolvedValue({
-      version: 2,
+      version: 4,
       status: 'error',
       code: 'CONFLICT',
       currentContentRevision: '7',
@@ -225,17 +226,19 @@ describe('TaskManager: estados e fluxo básico', () => {
     const view = await mountManager()
 
     harness.api.changeTaskStatus.mockResolvedValue({
-      version: 2,
+      version: 4,
       status: 'ok',
+      outcome: 'APPLIED',
       revision: '4',
       contentRevision: '4',
       editRevision: '6',
+      undoEpoch: 1,
     })
     await view.get('button[data-action="complete"]').trigger('click')
     await flushPromises()
 
     expect(harness.api.changeTaskStatus).toHaveBeenCalledExactlyOnceWith({
-      version: 3,
+      version: 4,
       contextSequence: expect.any(Number),
       taskId: 'a',
       expectedEditRevision: '5',
@@ -270,7 +273,7 @@ describe('TaskManager: cancelamento recorrente SKIP/END', () => {
     const harness = setupHarness(snapshot('3', [record(recurring(), '3', '3')]))
     const view = await mountManager()
 
-    harness.api.changeTaskStatus.mockResolvedValue({ version: 2, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
+    harness.api.changeTaskStatus.mockResolvedValue({ version: 4, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
     const cancelButton = view.get('button[data-action="cancel"]')
     ;(cancelButton.element as HTMLElement).focus()
     await cancelButton.trigger('click')
@@ -301,9 +304,9 @@ describe('TaskManager: cancelamento recorrente SKIP/END', () => {
     const view = await mountManager()
 
     harness.api.changeTaskStatus
-      .mockResolvedValueOnce({ version: 2, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
-      .mockResolvedValueOnce({ version: 2, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
-      .mockResolvedValueOnce({ version: 2, status: 'ok', revision: '4', contentRevision: '4', editRevision: '4' })
+      .mockResolvedValueOnce({ version: 4, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
+      .mockResolvedValueOnce({ version: 4, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
+      .mockResolvedValueOnce({ version: 4, status: 'ok', revision: '4', contentRevision: '4', editRevision: '4', undoEpoch: 1 })
 
     await view.get('button[data-action="cancel"]').trigger('click')
     await flushPromises()
@@ -319,7 +322,7 @@ describe('TaskManager: cancelamento recorrente SKIP/END', () => {
 
     expect(harness.api.changeTaskStatus).toHaveBeenCalledTimes(3)
     expect(harness.api.changeTaskStatus.mock.calls[2]?.[0]).toEqual({
-      version: 3,
+      version: 4,
       contextSequence: expect.any(Number),
       taskId: 'rec',
       expectedEditRevision: '3',
@@ -338,8 +341,8 @@ describe('TaskManager: cancelamento recorrente SKIP/END', () => {
     await view.get('input[name="title"]').setValue('Rotina nova')
 
     harness.api.updateTask
-      .mockResolvedValueOnce({ version: 2, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
-      .mockResolvedValueOnce({ version: 2, status: 'ok', revision: '4', contentRevision: '4', editRevision: '4' })
+      .mockResolvedValueOnce({ version: 4, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
+      .mockResolvedValueOnce({ version: 4, status: 'ok', revision: '4', contentRevision: '4', editRevision: '4', undoEpoch: 1 })
 
     await view.get('form').trigger('submit')
     await flushPromises()
@@ -375,9 +378,9 @@ describe('TaskManager: cancelamento recorrente SKIP/END', () => {
     const view = await mountManager()
 
     harness.api.changeTaskStatus
-      .mockResolvedValueOnce({ version: 2, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
+      .mockResolvedValueOnce({ version: 4, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
       .mockResolvedValueOnce({
-        version: 2,
+        version: 4,
         status: 'error',
         code: 'CONFLICT',
         currentContentRevision: '9',
@@ -410,7 +413,7 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     const view = await mountManager()
 
     // Status com lembretes: recusa do main vira o motivo D8 no aviso da lista.
-    harness.api.changeTaskStatus.mockResolvedValueOnce({ version: 2, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
+    harness.api.changeTaskStatus.mockResolvedValueOnce({ version: 4, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
     await view.get('button[data-action="complete"]').trigger('click')
     await flushPromises()
     expect(view.text()).toContain('Esta tarefa tem lembretes. Alterar prazo ou status e gerar outra ocorrência depende da integração de lembretes.')
@@ -419,7 +422,7 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     // Edição independente (título) é aceita pelo main e conclui normalmente.
     await view.get('button[data-action="edit"]').trigger('click')
     await view.get('input[name="title"]').setValue('Título novo')
-    harness.api.updateTask.mockResolvedValueOnce({ version: 2, status: 'ok', revision: '3', contentRevision: '3', editRevision: '3' })
+    harness.api.updateTask.mockResolvedValueOnce({ version: 4, status: 'ok', outcome: 'APPLIED', revision: '3', contentRevision: '3', editRevision: '3', undoEpoch: 1 })
     await view.get('form').trigger('submit')
     await flushPromises()
     harness.emit({ type: 'snapshot', snapshot: snapshot('3', [record(buildTask({ id: 'lem', title: 'Título novo', reminders: task.reminders }), '3', '3')]) })
@@ -430,7 +433,7 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     // Mudança efetiva de prazo no formulário recebe o mesmo motivo D8.
     await view.get('button[data-action="edit"]').trigger('click')
     await view.get('input[name="dueAt"]').setValue('2026-10-10T10:00')
-    harness.api.updateTask.mockResolvedValueOnce({ version: 2, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
+    harness.api.updateTask.mockResolvedValueOnce({ version: 4, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
     await view.get('form').trigger('submit')
     await flushPromises()
     expect(view.text()).toContain('Esta tarefa tem lembretes.')
@@ -451,8 +454,9 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     ;(checkbox.element as HTMLElement).focus()
 
     harness.api.setSubtaskDone.mockResolvedValueOnce({
-      version: 2,
+      version: 3,
       status: 'ok',
+      outcome: 'APPLIED',
       revision: '3',
       contentRevision: '3',
       editRevision: '2',
@@ -480,7 +484,7 @@ describe('TaskManager: D8, subtarefas e foco', () => {
 
     // Item ausente: erro claro e foco no controle do cartão, sem marcação falsa. O snapshot que
     // remove o item chega antes da resposta para exercitar a recuperação de foco do gerente.
-    harness.api.setSubtaskDone.mockResolvedValueOnce({ version: 2, status: 'error', code: 'SUBTASK_NOT_FOUND' })
+    harness.api.setSubtaskDone.mockResolvedValueOnce({ version: 3, status: 'error', code: 'SUBTASK_NOT_FOUND' })
     await view.get('input[type="checkbox"]').trigger('click')
     harness.emit({
       type: 'snapshot',
@@ -528,11 +532,13 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     await flushPromises()
 
     harness.api.changeTaskStatus.mockResolvedValueOnce({
-      version: 2,
+      version: 4,
       status: 'ok',
+      outcome: 'APPLIED',
       revision: '4',
       contentRevision: '4',
       editRevision: '4',
+      undoEpoch: 1,
     })
     await view.get('[data-task-id="a"] button[data-action="complete"]').trigger('click')
     await flushPromises()

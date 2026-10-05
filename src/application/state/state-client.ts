@@ -4,12 +4,14 @@ import {
   STATE_SNAPSHOT_CHANNEL,
   STATE_SUBSCRIBE_CHANNEL,
   STATE_UNAVAILABLE_EVENT,
+  STATE_UNDO_INVALIDATED_EVENT,
   STATE_UNSUBSCRIBE_CHANNEL,
   parseSnapshotPageResult,
   parseStateChangedEvent,
   parseStateRequest,
   parseStateUnavailableEvent,
   parseSubscribeWireResult,
+  parseUndoInvalidatedEvent,
   parseUnsubscribeRequest,
   parseUnsubscribeResult,
   stateFailure,
@@ -21,6 +23,7 @@ import {
   type StateSnapshotResult,
   type StateUpdate,
   type SubscribeStateResult,
+  type UndoInvalidationReason,
   type UnsubscribeStateResult,
 } from '../../contracts/state.js'
 import { MalformedSnapshotError, SnapshotAssembler } from './snapshot-assembler.js'
@@ -48,17 +51,29 @@ export interface StateClient {
 
 type Assembly = { ok: true; snapshot: StateSnapshot } | { ok: false; code: StateErrorCode }
 
+interface BufferedChanged {
+  revision: bigint
+  epoch: number
+}
+
+interface BufferedEpoch {
+  epoch: number
+  reason: UndoInvalidationReason
+}
+
 /** Quantas inscrições desconhecidas ficam em buffer durante o handshake. */
 const HANDSHAKE_BUFFER_LIMIT = 4
 
 /**
  * Lado do documento do contrato de estado: reúne páginas, bufferiza invalidações durante o
- * handshake, nunca regride de revisão e ressincroniza por snapshot. Eventos são apenas
- * invalidações; nenhuma escrita é repetida. Montagens são serializadas por documento.
+ * handshake, nunca regride de revisão/época e ressincroniza por snapshot. Eventos são apenas
+ * invalidações; nenhuma escrita é repetida. A época do undo é coalescida separadamente da revisão
+ * SQL: UNCHANGED (revisão igual) ainda limpa ofertas e dispara ressincronização.
  */
 export function createStateClient(transport: StateTransport, environment: StateClientEnvironment): StateClient {
   let lastSnapshot: StateSnapshot | undefined
   let lastRevision: bigint | undefined
+  let lastEpoch: number | undefined
   let stale = false
   let subscriptionId: string | undefined
   let pendingRevision: bigint | undefined
@@ -68,7 +83,8 @@ export function createStateClient(transport: StateTransport, environment: StateC
   let reconcileTimer: unknown
   let removeFocus: (() => void) | undefined
   const listeners = new Set<StateListener>()
-  const handshakeChanged = new Map<string, bigint>()
+  const handshakeChanged = new Map<string, BufferedChanged>()
+  const handshakeEpoch = new Map<string, BufferedEpoch>()
   const handshakeUnavailable = new Map<string, StateErrorCode>()
 
   function serialize<T>(work: () => Promise<T>): Promise<T> {
@@ -92,16 +108,36 @@ export function createStateClient(transport: StateTransport, environment: StateC
     if (subscriptionId !== undefined) notify({ type: 'stale', code })
   }
 
+  /** Época maior (ou primeira conhecida) avança a barreira; igual/anterior é ignorada. */
+  function applyEpoch(epoch: number, reason: UndoInvalidationReason): boolean {
+    if (!stale && lastEpoch !== undefined && epoch <= lastEpoch) return false
+    lastEpoch = epoch
+    notify({ type: 'undo-invalidated', undoEpoch: epoch, reason })
+    return true
+  }
+
   /** Publica o snapshot sem regredir; devolve o estado completo vigente. */
   function adopt(snapshot: StateSnapshot): StateSnapshot {
     const revision = BigInt(snapshot.revision)
-    if (lastRevision !== undefined && lastSnapshot !== undefined && revision < lastRevision) {
-      return lastSnapshot
+    if (lastRevision !== undefined && lastSnapshot !== undefined) {
+      const olderRevision = revision < lastRevision
+      const olderEpoch = lastEpoch !== undefined && snapshot.undoEpoch < lastEpoch
+      if (olderRevision && olderEpoch) return lastSnapshot
     }
 
-    const changed = lastRevision === undefined || revision > lastRevision || stale
+    const changed =
+      lastRevision === undefined ||
+      revision > lastRevision ||
+      lastEpoch === undefined ||
+      snapshot.undoEpoch > lastEpoch ||
+      stale
     lastSnapshot = snapshot
     lastRevision = revision
+    if (lastEpoch === undefined || snapshot.undoEpoch > lastEpoch) {
+      // Adoção de época maior também limpa ofertas, mesmo quando a revisão SQL é igual.
+      applyEpoch(snapshot.undoEpoch, 'BACKUP_RESTORED')
+      lastEpoch = snapshot.undoEpoch
+    }
     stale = false
     if (pendingRevision !== undefined && pendingRevision <= revision) pendingRevision = undefined
     if (changed && subscriptionId !== undefined) notify({ type: 'snapshot', snapshot })
@@ -124,7 +160,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
     try {
       for (;;) {
         if (page === undefined) {
-          const result = parseSnapshotPageResult(await invoke(STATE_SNAPSHOT_CHANNEL, { version: 2 }))
+          const result = parseSnapshotPageResult(await invoke(STATE_SNAPSHOT_CHANNEL, { version: 3 }))
           if (result === null) return { ok: false, code: 'STORAGE_UNAVAILABLE' }
           if (result.status === 'error') return { ok: false, code: result.code }
           page = result.page
@@ -134,7 +170,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
         if (snapshot !== undefined) return { ok: true, snapshot }
 
         const result = parseSnapshotPageResult(
-          await invoke(STATE_SNAPSHOT_CHANNEL, { version: 2, cursor: page.cursor }),
+          await invoke(STATE_SNAPSHOT_CHANNEL, { version: 3, cursor: page.cursor }),
         )
         if (result === null) return { ok: false, code: 'STORAGE_UNAVAILABLE' }
         if (result.status === 'error') return { ok: false, code: result.code }
@@ -194,10 +230,32 @@ export function createStateClient(transport: StateTransport, environment: StateC
     const revision = BigInt(event.revision)
     if (subscriptionId === undefined) {
       const buffered = handshakeChanged.get(event.subscriptionId)
-      if (buffered === undefined || revision > buffered) remember(handshakeChanged, event.subscriptionId, revision)
+      if (buffered === undefined || revision > buffered.revision) {
+        remember(handshakeChanged, event.subscriptionId, { revision, epoch: event.undoEpoch })
+      }
       return
     }
-    if (event.subscriptionId === subscriptionId) applyChanged(revision)
+    if (event.subscriptionId !== subscriptionId) return
+    // Época maior é barreira mesmo quando a revisão SQL é igual (no-op/UNCHANGED).
+    if (lastEpoch !== undefined && event.undoEpoch > lastEpoch) {
+      applyEpoch(event.undoEpoch, 'BACKUP_RESTORED')
+      scheduleResync()
+    }
+    applyChanged(revision)
+  })
+
+  const removeUndoInvalidated = transport.on(STATE_UNDO_INVALIDATED_EVENT, (payload) => {
+    const event = parseUndoInvalidatedEvent(payload)
+    if (event === null || disposed) return
+    if (subscriptionId === undefined) {
+      remember(handshakeEpoch, event.subscriptionId, { epoch: event.undoEpoch, reason: event.reason })
+      return
+    }
+    if (event.subscriptionId !== subscriptionId) return
+    if (lastEpoch !== undefined && event.undoEpoch <= lastEpoch) return
+    applyEpoch(event.undoEpoch, event.reason)
+    // Época mudou sem evento SQL: reconcilia para adotar o snapshot (mesma revisão se for o caso).
+    scheduleResync()
   })
 
   const removeUnavailable = transport.on(STATE_UNAVAILABLE_EVENT, (payload) => {
@@ -229,6 +287,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
     pendingRevision = undefined
     listeners.clear()
     handshakeChanged.clear()
+    handshakeEpoch.clear()
     handshakeUnavailable.clear()
     stopReconciliation()
   }
@@ -242,7 +301,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
       if (parseStateRequest(request) === null) return Promise.resolve(failure('INVALID_REQUEST'))
       return serialize(async () => {
         const result = await runCycle()
-        return result.ok ? { version: 2, status: 'ok', snapshot: result.snapshot } : failure(result.code)
+        return result.ok ? { version: 3, status: 'ok', snapshot: result.snapshot } : failure(result.code)
       })
     },
 
@@ -252,36 +311,46 @@ export function createStateClient(transport: StateTransport, environment: StateC
       }
 
       return serialize(async () => {
-        const wire = parseSubscribeWireResult(await invoke(STATE_SUBSCRIBE_CHANNEL, { version: 2 }))
+        const wire = parseSubscribeWireResult(await invoke(STATE_SUBSCRIBE_CHANNEL, { version: 3 }))
         if (wire === null) return failure('STORAGE_UNAVAILABLE')
         if (wire.status === 'error') return failure(wire.code)
 
         subscriptionId = wire.subscriptionId
         if (listener !== undefined) listeners.add(listener as StateListener)
 
-        // Invalidações que chegaram antes da resposta: só a maior revisão interessa.
-        const buffered = handshakeChanged.get(wire.subscriptionId)
+        // Invalidações que chegaram antes da resposta: maior revisão e maior época, separadas.
+        const bufferedChanged = handshakeChanged.get(wire.subscriptionId)
+        const bufferedEpoch = handshakeEpoch.get(wire.subscriptionId)
         const unavailable = handshakeUnavailable.get(wire.subscriptionId)
         handshakeChanged.clear()
+        handshakeEpoch.clear()
         handshakeUnavailable.clear()
-        if (buffered !== undefined && (pendingRevision === undefined || buffered > pendingRevision)) {
-          pendingRevision = buffered
+        if (
+          bufferedChanged !== undefined &&
+          (pendingRevision === undefined || bufferedChanged.revision > pendingRevision)
+        ) {
+          pendingRevision = bufferedChanged.revision
         }
 
         const result = await runCycle(wire.page)
         if (!result.ok) {
           const id = wire.subscriptionId
           clearSubscription()
-          await invoke(STATE_UNSUBSCRIBE_CHANNEL, { version: 2, subscriptionId: id })
+          await invoke(STATE_UNSUBSCRIBE_CHANNEL, { version: 3, subscriptionId: id })
           return failure(result.code)
         }
 
         startReconciliation()
         if (unavailable !== undefined) markStale(unavailable)
+        // Época perdida durante o handshake é aplicada depois do snapshot adotado.
+        if (bufferedEpoch !== undefined && (lastEpoch === undefined || bufferedEpoch.epoch > lastEpoch)) {
+          applyEpoch(bufferedEpoch.epoch, bufferedEpoch.reason)
+          scheduleResync()
+        }
         if (pendingRevision !== undefined && lastRevision !== undefined && pendingRevision > lastRevision) {
           scheduleResync()
         }
-        return { version: 2, status: 'ok', subscriptionId: wire.subscriptionId, snapshot: result.snapshot }
+        return { version: 3, status: 'ok', subscriptionId: wire.subscriptionId, snapshot: result.snapshot }
       })
     },
 
@@ -301,6 +370,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
       disposed = true
       clearSubscription()
       removeChanged()
+      removeUndoInvalidated()
       removeUnavailable()
     },
   }

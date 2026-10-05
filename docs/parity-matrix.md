@@ -143,3 +143,23 @@ A TFA-001 não copia ou executa os testes listados, não cria runtime e não con
 | Expurgo por leitura (startup/list) | `prepareTrashView` explícito no startup válido/entrada e no move; snapshots puros. | Filtro temporal só na apresentação (60 s/foco), sem timer de escrita. |
 | Desfazer com expiração/limpeza | Oferta sem prazo por documento; ações/áreas/falha/no-op limpam; filtros/minimizar não. | Histórico temporário não é persistido nem exportado; fechar/reabrir perde a oferta. |
 | Backup/lixeira/credenciais no arquivo | Backup continua transportando somente tarefas; contrato interno invalida recibos após sucesso futuro (TFA-007). | Lixeira e undo não entram no backup; nenhum percurso funcional de backup nesta Change. |
+
+## TFA-007 — backup e migração (apply 2026-10-05)
+
+| Comportamento da origem | Tratamento no desktop | Diferenças explícitas |
+| --- | --- | --- |
+| Formato v1–v4 com migrações e validação estrita | Cópia revisada do leitor/validador no núcleo portável, com a cadeia v1→v2→v3→v4, versão original separada e projeção explícita de todos os níveis. | Problemas são dados seguros (campo/código/índice, ≤ 5 + contagem) em vez de título/mensagem livre; unknown aninhado é descartado, não persistido nem exportado. |
+| Comparação pós-restore incompleta (`sameTask` omitia série/regra/subtarefas) | Comparador próprio por conjunto de IDs e conteúdo completo, incluindo `seriesId`/`recurrence`/`subtasks` e a ordem das listas; metadata SQL conferida separadamente. | Lacuna da origem corrigida no app; não copiada. |
+| 20 MiB antes da leitura | 20 MiB medidos em bytes UTF-8 reais no arquivo completo, com leitura limitada por handle regular (limite + 1), BOM único e encoding estrito; a exportação também respeita o teto e recusa sem truncar. | Estatuto simétrico (importar e exportar); dado histórico aceito pelo codec mas recusado pelo formato recebe `LOCAL_DATA_NOT_EXPORTABLE` sem normalização; coleção legítima que exceda 20 MiB não é exportada e ampliar exige revisão. |
+| Exportação ilimitada e substituição por tarefa na origem | Snapshot coordenado de todas as tarefas após o save dialog, temporário exclusivo/sync/substituição única/readback (`SAVED`/`SAVED_WITH_WARNING`) e substituição total de tarefas em uma unidade com CAS global. | Diálogos/I-O no main com renderer sem paths/JSON; fingerprint e janela residual documentados; energia não comprovada. |
+| Prévia sem estado-base | Prévia imutável com token/TTL de 5 min e revisão global; confirmar sobre base mudada recusa com `BACKUP_BASE_CHANGED`. | Qualquer mudança de tarefas/lixeira/claim exige nova prévia, mesmo com contagens iguais. |
+| Scheduler reconcilia após restore | Somente liquidação pura de lembretes pendentes ≤ agora; timestamps/status/âncoras preservados. | Sem scheduler/notificações/bandeja nesta Change (TFA-008) e sem promessa de alarmes. |
+| Desfazer da importação inexistente na origem | Invalidação global de recibos/ofertas por época após sucesso `APPLIED`/`UNCHANGED`, inclusive no-op, com evento fechado próprio. | Importação não oferece undo; tarefas removidas não vão à lixeira; a lixeira existente é preservada e pode bloquear portadora duplicada. |
+| Dados transportados | O arquivo transporta somente tarefas e metadados do envelope; JSON não criptografado, possível conteúdo pessoal. | Lixeira, credenciais/configuração de IA e desfazer temporário não são migrados nem anunciados como tal. |
+
+**Pendências e limites registrados:** diálogo nativo real do Windows e roteiro humano de
+acessibilidade permanecem como evidência manual separada (o harness usa escolha stub, jamais
+apresentada como nativa); D10 herdado (688,3/760,5/141,7 ms; números 700/700/250 não aprovados),
+prova humana de acessibilidade e campanha de before-images extremas continuam pendentes e não são
+resolvidos por esta Change. Detalhes em [backup-migration-guide.md](backup-migration-guide.md) e
+[backup-format.md](backup-format.md).

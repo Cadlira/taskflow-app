@@ -45,8 +45,8 @@ function paginate(records: SnapshotRecordSource, budget: number): { snapshot: St
     position = built.position
     const page: SnapshotPage =
       built.complete === undefined
-        ? { revision: '5', fragments: built.fragments, cursor: 'A'.repeat(32) }
-        : { revision: '5', fragments: built.fragments, complete: built.complete }
+        ? { undoEpoch: 1, revision: '5', fragments: built.fragments, cursor: 'A'.repeat(32) }
+        : { undoEpoch: 1, revision: '5', fragments: built.fragments, complete: built.complete }
     pages.push(page)
     const snapshot = assembler.accept(page)
     if (snapshot !== undefined) return { snapshot, pages }
@@ -73,6 +73,7 @@ describe('paginação de snapshot', () => {
     expect(pages).toHaveLength(1)
     expect(pages[0]?.complete).toEqual({ tasks: 3, trash: 1 })
     expect(snapshot.revision).toBe('5')
+    expect(snapshot.undoEpoch).toBe(1)
     expect(snapshot.tasks).toEqual(
       tasks.map((item) => ({
         task: item.task,
@@ -160,20 +161,20 @@ describe('montagem validada no cliente', () => {
   }
 
   function single(collection: SnapshotCollection, data: string, counts: { tasks: number; trash: number }): SnapshotPage[] {
-    return [{ revision: '1', fragments: [{ collection, data, final: true }], complete: counts }]
+    return [{ undoEpoch: 1, revision: '1', fragments: [{ collection, data, final: true }], complete: counts }]
   }
 
   it('não publica nada antes da conclusão e devolve as duas revisões do registro', () => {
     const assembler = new SnapshotAssembler()
     expect(
-      assembler.accept({ revision: '1', fragments: [{ collection: 'tasks', data: record.slice(0, 10), final: false }], cursor }),
+      assembler.accept({ undoEpoch: 1, revision: '1', fragments: [{ collection: 'tasks', data: record.slice(0, 10), final: false }], cursor }),
     ).toBeUndefined()
     const snapshot = assembler.accept({
-      revision: '1',
+      undoEpoch: 1, revision: '1',
       fragments: [{ collection: 'tasks', data: record.slice(10), final: true }],
       complete: { tasks: 1, trash: 0 },
     })
-    expect(snapshot).toMatchObject({ revision: '1' })
+    expect(snapshot).toMatchObject({ undoEpoch: 1, revision: '1' })
     expect(snapshot?.tasks[0]).toMatchObject({ contentRevision: '1', editRevision: '1' })
   })
 
@@ -181,13 +182,13 @@ describe('montagem validada no cliente', () => {
     [
       'revisões diferentes entre páginas',
       [
-        { revision: '1', fragments: [], cursor },
-        { revision: '2', fragments: [], complete: { tasks: 0, trash: 0 } },
+        { undoEpoch: 1, revision: '1', fragments: [], cursor },
+        { undoEpoch: 1, revision: '2', fragments: [], complete: { tasks: 0, trash: 0 } },
       ],
     ],
     [
       'registro parcial na conclusão',
-      [{ revision: '1', fragments: [{ collection: 'tasks', data: record.slice(0, 10), final: false }], complete: { tasks: 0, trash: 0 } }],
+      [{ undoEpoch: 1, revision: '1', fragments: [{ collection: 'tasks', data: record.slice(0, 10), final: false }], complete: { tasks: 0, trash: 0 } }],
     ],
     ['contagem que não confere', single('tasks', record, { tasks: 2, trash: 0 })],
     ['JSON inválido', single('tasks', '{"task":', { tasks: 1, trash: 0 })],
@@ -236,7 +237,7 @@ describe('montagem validada no cliente', () => {
       'ID repetido na coleção',
       [
         {
-          revision: '1',
+          undoEpoch: 1, revision: '1',
           fragments: [
             { collection: 'tasks', data: record, final: true },
             { collection: 'tasks', data: record, final: true },
@@ -249,7 +250,7 @@ describe('montagem validada no cliente', () => {
       'tarefas depois da lixeira',
       [
         {
-          revision: '1',
+          undoEpoch: 1, revision: '1',
           fragments: [
             { collection: 'trash', data: trashRecord, final: true },
             { collection: 'tasks', data: record, final: true },
@@ -264,7 +265,7 @@ describe('montagem validada no cliente', () => {
       'troca de coleção no meio de um registro',
       [
         {
-          revision: '1',
+          undoEpoch: 1, revision: '1',
           fragments: [
             { collection: 'tasks', data: record.slice(0, 5), final: false },
             { collection: 'trash', data: trashRecord, final: true },
@@ -277,10 +278,19 @@ describe('montagem validada no cliente', () => {
     expect(() => accept(pages)).toThrowError(MalformedSnapshotError)
   })
 
+  it('recusa páginas do mesmo snapshot com épocas do undo diferentes', () => {
+    expect(() =>
+      accept([
+        { undoEpoch: 1, revision: '1', fragments: [], cursor },
+        { undoEpoch: 2, revision: '1', fragments: [], complete: { tasks: 0, trash: 0 } },
+      ]),
+    ).toThrowError(MalformedSnapshotError)
+  })
+
   it('o mesmo ID pode aparecer em tarefas e na lixeira, cada um com seu par de revisões', () => {
     const snapshot = accept([
       {
-        revision: '3',
+        undoEpoch: 1, revision: '3',
         fragments: [
           { collection: 'tasks', data: record, final: true },
           { collection: 'trash', data: trashRecord, final: true },

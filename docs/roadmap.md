@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-05**. Estado: **TFA-001 a TFA-006 integradas pelos PRs #1 a #6; integração da TFA-006 conferida em `9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`. TFA-007 APPROVED/READY_FOR_APPLY, com proposal/design/sete deltas e 0/45 tasks na branch `codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`; artefatos aprovados em 2026-10-05, com commit/push autorizados e apply não iniciado**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2, catálogo v3/17 wrappers, lixeira e desfazer. A pendência D10 de desempenho permanece documentada (p95 688,3 ms; heartbeat 760,5 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
+Preparado em **2026-10-03**; atualizado em **2026-10-05**. Estado: **TFA-001 a TFA-007 integradas/arquivadas; TFA-001 a TFA-006 integradas pelos PRs #1 a #6 (merge da TFA-006 `9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`), e TFA-007 DONE em 2026-10-05 (apply 45/45, verificação sem críticos, archive `2026-10-05-migrar-backups-e-importar-dados-da-extensao`, README factual e PR aberto para a main; DONE antes do merge por decisão explícita do usuário, com integração a conferir no merge)**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2, catálogo v3/21 wrappers, lixeira, desfazer e backup/importação. A pendência D10 de desempenho permanece documentada (p95 688,3 ms; heartbeat 760,5 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
 
 ## Objetivo e limites confirmados
 
@@ -81,7 +81,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada e archive; PR #4 integrado, merge local `64fe7ad` conferido. D10 de 10.000 permanece como pendência pós-archive documentada |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive; integração do PR #5 conferida na main e referência local origin/main em `ab3ed68` em 2026-10-04. D10 e prova humana de acessibilidade continuam pendentes |
 | TFA-006 | `migrar-lixeira-e-desfazer` | DONE | — | 2026-10-04 | 2026-10-05 | TFA-005 | Apply 45/45, verification aprovado, archive e PR #6 integrado; merge `9e8a05a` conferido em 2026-10-05. D10, acessibilidade humana e before-images extremas continuam pendentes |
-| TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | APPROVED | READY_FOR_APPLY | 2026-10-05 | — | TFA-006 | Proposal/design/sete deltas e 0/45 tasks entregues; OpenSpec estrito e gates da base aprovados. Artefatos aprovados em 2026-10-05, com commit/push autorizados; apply não iniciado e pendente de pedido explícito |
+| TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | DONE | — | 2026-10-05 | 2026-10-05 | TFA-006 | Apply 45/45, verificação sem críticos, archive e README factual em 2026-10-05; PR aberto para a main na sequência. DONE registrado antes do merge por decisão explícita do usuário (mesmo precedente da TFA-003); a integração será conferida no merge do PR |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | PLANNED | — | — | — | TFA-008 | Após dependências, usar o prompt abaixo |
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | PLANNED | — | — | — | TFA-009 | Após dependências, usar o prompt abaixo |
@@ -1444,7 +1444,7 @@ aberto e TFA-007 PLANNED são históricos. As pendências pós-archive acima per
 
 ## TFA-007 — Backups e migração das atividades
 
-**Slug:** `migrar-backups-e-importar-dados-da-extensao`. **Dependências:** TFA-006 integrada pelo PR #6. **Estado: APPROVED/READY_FOR_APPLY**; início **2026-10-05**, conclusão sem data. Propose solicitado explicitamente nesta data e entregue com proposal/design/sete deltas/0 de 45 tasks; artefatos aprovados pelo usuário em **2026-10-05**, com commit e push autorizados na mesma mensagem (registro abaixo); apply não iniciado. Branch `codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`, base `9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`.
+**Slug:** `migrar-backups-e-importar-dados-da-extensao`. **Dependências:** TFA-006 integrada pelo PR #6. **Estado: DONE**; início **2026-10-05**, conclusão **2026-10-05**. Propose solicitado explicitamente nesta data e entregue com proposal/design/sete deltas/0 de 45 tasks; artefatos aprovados pelo usuário em **2026-10-05**, com commit e push autorizados na mesma mensagem (registro abaixo). **Apply concluído em 2026-10-05 com 45/45 tasks**, gates npm/OpenSpec/pacote/smoke aprovados, `verification.md` sem críticos e **aprovado pelo pedido explícito de archive**, archive `2026-10-05-migrar-backups-e-importar-dados-da-extensao` (19 requisitos ADDED/26 MODIFIED), README factual atualizado e PR aberto para a main na sequência. O DONE foi registrado antes do merge por decisão explícita do usuário (precedente da TFA-003); a integração será conferida no merge. Branch `codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`, base `9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`.
 
 **Resultado:** Permitir que o usuário leve suas tarefas existentes ao desktop por backup, com compatibilidade e validação.
 
@@ -1683,21 +1683,21 @@ exploração, sem código de produto, nova instalação, alteração da origem o
 Estado **IN_REVIEW/REVIEW**, início **2026-10-05**, conclusão sem data; **0/45 tasks**.
 Nenhuma aprovação humana dos artefatos foi registrada.
 
-**Artefatos:** [proposal.md](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/proposal.md),
-[design.md](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/design.md),
-[tasks.md](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/tasks.md) e metadado
+**Artefatos:** [proposal.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/proposal.md),
+[design.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/design.md),
+[tasks.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/tasks.md) e metadado
 `.openspec.yaml` gerado pela CLI no schema `spec-driven`. Sete deltas, **45 requisitos /
 157 cenários** (contratos futuros, sem implementação):
 
 | Capability | Operação | Requisitos / cenários |
 | --- | --- | --- |
-| [desktop-task-backup](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-backup/spec.md) | ADDED | 18 / 39 |
-| [desktop-foundation](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/specs/desktop-foundation/spec.md) | MODIFIED | 2 / 8 |
-| [desktop-state-ipc](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/specs/desktop-state-ipc/spec.md) | MODIFIED + ADDED | 14 / 60 |
-| [desktop-task-management](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-management/spec.md) | MODIFIED | 3 / 13 |
-| [desktop-task-recurrence](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-recurrence/spec.md) | MODIFIED | 2 / 8 |
-| [desktop-task-undo](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-undo/spec.md) | MODIFIED | 2 / 7 |
-| [local-task-persistence](../openspec/changes/migrar-backups-e-importar-dados-da-extensao/specs/local-task-persistence/spec.md) | MODIFIED | 4 / 22 |
+| [desktop-task-backup](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-backup/spec.md) | ADDED | 18 / 39 |
+| [desktop-foundation](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-foundation/spec.md) | MODIFIED | 2 / 8 |
+| [desktop-state-ipc](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-state-ipc/spec.md) | MODIFIED + ADDED | 14 / 60 |
+| [desktop-task-management](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-management/spec.md) | MODIFIED | 3 / 13 |
+| [desktop-task-recurrence](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-recurrence/spec.md) | MODIFIED | 2 / 8 |
+| [desktop-task-undo](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-undo/spec.md) | MODIFIED | 2 / 7 |
+| [local-task-persistence](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/local-task-persistence/spec.md) | MODIFIED | 4 / 22 |
 
 **Escolhas concretas propostas para revisão:**
 1. Arquivo completo **20 MiB** simétricos, UTF-8 estrito/BOM inicial opcional na entrada, saída sem
@@ -1781,6 +1781,55 @@ Atualizar documentação operacional/arquitetura/catálogo/matriz quando impleme
 **Evidência humana nesta conversa:** após receber os artefatos para revisão, o usuário determinou: **“Aprove os artefatos, commit e faça o push da branch”**. A aprovação abrange a versão entregue de proposal, design, os sete deltas (desktop-task-backup, desktop-foundation, desktop-state-ipc, desktop-task-management, desktop-task-recurrence, desktop-task-undo e local-task-persistence) e tasks da TFA-007, incluindo as sete escolhas concretas propostas para revisão e os orçamentos de recursos. Estado atualizado para **APPROVED/READY_FOR_APPLY**. As 45 tasks continuam pendentes; apply não iniciado.
 
 Este pedido aprova os artefatos, seu registro no roadmap, o commit e o push dos mesmos; não solicita iniciar apply, implementar, arquivar, abrir PR ou avançar a outra Change. As observações de aprovação pendente feitas durante a elaboração descrevem aquele momento; este registro estabelece a aprovação posterior sem alterar o conteúdo técnico. Próxima ação: usar o prompt acima mediante pedido explícito de apply.
+
+### Apply, verificação, archive e DONE — 2026-10-05
+
+**Apply 45/45 concluído** na branch `codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`,
+preservando o trabalho preexistente e mantendo a extensão e seu Git somente leitura no HEAD
+`a763e7a0d646c664ecd4f979528bc2c3589fa8c4` (worktree limpo; nenhum build/teste/escrita na origem).
+
+**Entregue no apply:** núcleo portável de backup (formato v1–v4, migrações, validação com coletor
+de 5 issues, projeção explícita, comparador completo, scanner 64/262 144 nós, ledger de 128 MiB,
+serialização sem BOM validada pelo leitor); adapters de arquivo no main (leitura por handle
+20 MiB+1/UTF-8 estrito, diálogos nativos vinculados, job global, proteção de destino, gravação
+atômica com fingerprint/readback); serviços export/prepare/confirm/cancel com prévia imutável
+(token 24 bytes/base64url, TTL 5 min, consumo único) e conclusão serializada com barreira de época;
+estado v3 com `undoEpoch`, evento `undo-invalidated:v1`, update/status v4, move v2, catálogo 21 e
+quatro wrappers backup; área de Backup na interface com prévia, modal irreversível, Escape, busy
+aria-disabled e foco; harness de produto `backup` com duas superfícies; documentação
+([backup-format.md](../docs/backup-format.md), [backup-migration-guide.md](../docs/backup-migration-guide.md),
+[packaged-evidence-tfa007.md](../docs/packaged-evidence-tfa007.md)) e a
+[verification.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/verification.md)
+desta Change.
+
+**Gates executados:** `npm run validate` (lint, 5 typechecks, **834 testes + 11 skipped em 62
+arquivos**, build) aprovado; OpenSpec 1.14.0 estrito com Change **1/1**, `--all` **11/11** e
+`--archived` **6/6** (pré-archive); `package:win` NSIS x64 `--publish never`, `verify:package`
+(ASAR de 12 arquivos na allowlist; manifestos `asInvoker/uiAccess=false`; hashes SHA-256
+registrados) e `smoke:packaged -- --ci-runner` **OK com o gate D10 herdado reportado como
+pendente**; cenário `backup` do pacote com **18/18 verificações** (APPLIED/UNCHANGED/base stale/
+SERIES_CONFLICT/export-fail e epoch em duas superfícies, diálogos stub separados do roteiro
+nativo). Medições: teto de 20 MiB com 4 762 tarefas/214 303 nós (~99 ms encode, ~46 ms scan,
+~74 ms validação), `limite+1` recusado, adversariais recusados antes do parse, 8×16 MiB aceitos com
+liberação a zero e restauração de 1 000/10 000 + 100 de lixeira em ~9/~71 ms; a sobreposição
+parse+preparação no teto exato excede os 128 MiB para aquele formato (RESOURCE_LIMIT com dados
+intactos, dentro do design aprovado).
+
+**Verificação e archive:** o `verification.md` foi gerado com aderência, 45/45 tasks, B01–B14,
+gates e pendências, apontando **nenhum issue crítico** (3 WARNING herdados e 1 SUGGESTION). Após o
+pedido explícito de archive, a Change foi arquivada pela CLI 1.14.0 como
+**`2026-10-05-migrar-backups-e-importar-dados-da-extensao`**, com consolidação dos sete deltas em
+**19 requisitos ADDED/26 MODIFIED**; `openspec validate --all --strict` **11/11** e
+`--archived --strict` **7/7** depois do archive. O README factual foi atualizado (catálogo 21,
+estado v3/época, area de Backup e links de documentação) e o **DONE foi registrado em 2026-10-05
+por decisão explícita do usuário antes do merge** (precedente da TFA-003), com commit/push na
+mesma branch e PR aberto para a main na sequência; a integração será conferida no merge.
+
+**Pendências separadas (não resolvidas por esta Change):** D10 de UI (p95 688,3 ms; heartbeat
+760,5 ms; varredura 141,7 ms; números 700/700/250 não aprovados), acessibilidade humana,
+before-images extremas, prova de energia e diálogo nativo real do Windows (roteiro humano
+registrado e não executado; o stub do harness nunca é apresentado como nativo). TFA-008 e
+distribuição/releases continuam dependentes de pedido próprio.
 
 ## TFA-008 — Lembretes, notificações e ciclo de vida
 
@@ -1894,7 +1943,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001 a TFA-006** estão **DONE**, arquivadas e integradas pelos **PRs #1 a #6**; merge mais recente **`9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`** conferido em `origin/main`. A **TFA-007** está **APPROVED/READY_FOR_APPLY**, início 2026-10-05/conclusão sem data, na branch **`codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`** dessa base. Proposal/design/sete deltas e **0/45 tasks** foram entregues, com escolhas concretas/riscos/B01–B14 e prompt de apply acima; **artefatos aprovados em 2026-10-05, com commit/push autorizados e implementação não iniciada**. Usar o prompt acima mediante pedido explícito de apply. Somente roadmap e artefatos desta Change foram editados; README/specs principais/código/origem permanecem intactos. TFA-008 e seguintes seguem PLANNED. Pendências herdadas: D10 (p95 688,3 ms/heartbeat 760,5 ms/varredura 141,7 ms, gate retido e números 700/700/250 não aprovados), acessibilidade humana e campanha de before-images extremas. Prova instalada permanece limitada à fundação; Setup/instalação corporativa/distribuição/promoção exigem autorização pertinente.
+A **TFA-001 a TFA-006** estão **DONE**, arquivadas e integradas pelos **PRs #1 a #6**; merge mais recente **`9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`** conferido em `origin/main`. A **TFA-007** está **DONE**, início e conclusão em 2026-10-05, na branch **`codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`** dessa base: apply **45/45**, gates `npm run validate`/OpenSpec estrito/`package:win --publish never`/`verify:package`/`smoke:packaged -- --ci-runner` aprovados (cenário `backup` do pacote com 18/18 verificações), `verification.md` sem críticos, archive `2026-10-05-migrar-backups-e-importar-dados-da-extensao` com **19 requisitos ADDED/26 MODIFIED**, README factual atualizado e **PR aberto para a main na sequência do commit/push**. O **DONE foi registrado antes do merge por decisão explícita do usuário** (precedente da TFA-003) e a integração será conferida no merge do PR. TFA-008 e seguintes seguem PLANNED. Pendências herdadas: D10 (p95 688,3 ms/heartbeat 760,5 ms/varredura 141,7 ms, gate retido e números 700/700/250 não aprovados), acessibilidade humana, before-images extremas, prova de energia e diálogo nativo real do Windows. Prova instalada permanece limitada à fundação; Setup/instalação corporativa/distribuição/promoção exigem autorização pertinente.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 

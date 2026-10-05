@@ -35,11 +35,26 @@ export type StorageAvailability =
   | { state: 'blocked'; reason: StorageFailureReason }
   | { state: 'closed' }
 
+export interface UnitCompletion {
+  /** Resultado final da unidade (sucesso, no-op ou recusa/rollback). */
+  result: UnitResult<unknown>
+  /** `true` quando um commit de alteração foi confirmado. */
+  committed: boolean
+  /** Revisão confirmada; `undefined` quando não houve commit. */
+  revision: Revision | undefined
+}
+
 export interface UnitOptions {
   /** Sessão dona da entrada; limita a admissão por sessão e permite cancelamento. */
   owner?: string
   /** Reavaliada imediatamente antes da execução; `false` impede qualquer acesso aos dados. */
   admit?: () => boolean
+  /**
+   * Conclusão síncrona, somente leitura/in-memory, executada depois do término da unidade e ANTES
+   * da publicação/da próxima entrada. Não pode reenfileirar unidade, aguardar filesystem nem
+   * escrever SQL; lançar mantém o commit (se houve), bloqueia a admissão e não publica evento.
+   */
+  onCompleted?: (completion: UnitCompletion) => void
 }
 
 export interface CoordinatorOptions {
@@ -70,6 +85,7 @@ export interface ShutdownReport {
 interface QueueEntry {
   owner: string | undefined
   admit: (() => boolean) | undefined
+  onCompleted: ((completion: UnitCompletion) => void) | undefined
   enqueuedAt: number
   execute: () => UnitResult<unknown>
   resolve: (result: UnitResult<unknown>) => void
@@ -234,6 +250,7 @@ export class StorageCoordinator {
       this.#queue.push({
         owner: options.owner,
         admit: options.admit,
+        onCompleted: options.onCompleted,
         enqueuedAt: this.#now(),
         execute,
         resolve: resolve as (result: UnitResult<unknown>) => void,
@@ -278,6 +295,18 @@ export class StorageCoordinator {
 
     const committed = this.#committedToPublish
     this.#committedToPublish = undefined
+
+    // Conclusão serializada: roda antes de publicar e antes da próxima entrada. Falha na própria
+    // conclusão não reverte um commit confirmado, mas impede publicar e bloqueia a admissão.
+    if (entry.onCompleted !== undefined) {
+      try {
+        entry.onCompleted({ result, committed: committed !== undefined, revision: committed })
+      } catch {
+        this.#invalidate('conclusion', 'UNCERTAIN')
+        return result
+      }
+    }
+
     if (committed !== undefined) {
       try {
         this.#fault('unit:before-publish')

@@ -7,7 +7,7 @@ import { STATE_ERROR_CODES, isOpaqueToken, isRevisionText } from './state.js'
 
 export const TRASH_CLEAR_UNDO_OFFER_CHANNEL = 'trash:clear-undo:v1'
 export const TRASH_PREPARE_CONFIRMATION_CHANNEL = 'trash:prepare-confirm:v1'
-export const TRASH_MOVE_CHANNEL = 'trash:move:v1'
+export const TRASH_MOVE_CHANNEL = 'trash:move:v2'
 export const TRASH_RESTORE_CHANNEL = 'trash:restore:v1'
 export const TRASH_DELETE_CHANNEL = 'trash:delete:v1'
 export const TRASH_EMPTY_CHANNEL = 'trash:empty:v1'
@@ -54,8 +54,15 @@ export type TrashErrorCode = (typeof TRASH_ERROR_CODES)[number]
 
 export type TrashFailure = Readonly<{ version: 1; status: 'error'; code: TrashErrorCode }>
 
+/** Falha da move v2, que carrega época no sucesso mas mantém códigos fechados e sem detalhes. */
+export type TrashMoveFailure = Readonly<{ version: 2; status: 'error'; code: TrashErrorCode }>
+
 export function trashFailure(code: TrashErrorCode): TrashFailure {
   return { version: 1, status: 'error', code }
+}
+
+export function trashMoveFailure(code: TrashErrorCode): TrashMoveFailure {
+  return { version: 2, status: 'error', code }
 }
 
 export function isTrashErrorCode(value: unknown): value is TrashErrorCode {
@@ -73,7 +80,7 @@ export type PrepareTrashConfirmationRequest = Readonly<
   | { version: 1; contextSequence: number; kind: 'PERMANENT'; entry: TrashEntryReference }
   | { version: 1; contextSequence: number; kind: 'EMPTY' }
 >
-export type MoveTaskToTrashRequest = Readonly<{ version: 1; contextSequence: number; confirmationToken: string }>
+export type MoveTaskToTrashRequest = Readonly<{ version: 2; contextSequence: number; confirmationToken: string }>
 export type RestoreTrashItemRequest = Readonly<{ version: 1; contextSequence: number; entry: TrashEntryReference }>
 export type DeleteTrashItemRequest = Readonly<{ version: 1; contextSequence: number; confirmationToken: string }>
 export type EmptyTrashRequest = Readonly<{ version: 1; contextSequence: number; confirmationToken: string }>
@@ -91,10 +98,12 @@ export type PrepareTrashConfirmationAck = Readonly<{
   hasRecurrence?: boolean
 }>
 export type MoveTaskToTrashAck = Readonly<{
-  version: 1
+  version: 2
   status: 'ok'
   revision: string
   retained: boolean
+  /** Época publicada junto com a decisão, inclusive quando não retida. */
+  undoEpoch: number
   /** Somente quando retida e o contexto ainda era válido na publicação. */
   undoToken?: string
 }>
@@ -118,7 +127,7 @@ export type UndoLastTaskActionAck = Readonly<{
 
 export type ClearUndoOfferResult = ClearUndoOfferAck | TrashFailure
 export type PrepareTrashConfirmationResult = PrepareTrashConfirmationAck | TrashFailure
-export type MoveTaskToTrashResult = MoveTaskToTrashAck | TrashFailure
+export type MoveTaskToTrashResult = MoveTaskToTrashAck | TrashMoveFailure
 export type RestoreTrashItemResult = RestoreTrashItemAck | TrashFailure
 export type DeleteTrashItemResult = DeleteTrashItemAck | TrashFailure
 export type EmptyTrashResult = EmptyTrashAck | TrashFailure
@@ -212,9 +221,9 @@ export function parsePrepareTrashConfirmationRequest(value: unknown): PrepareTra
 export function parseMoveTaskToTrashRequest(value: unknown): MoveTaskToTrashRequest | null {
   if (!fitsRequestBudget(value)) return null
   const record = asExactRecord(value, ['version', 'contextSequence', 'confirmationToken'])
-  if (record === null || record['version'] !== 1 || !isContextSequence(record['contextSequence'])) return null
+  if (record === null || record['version'] !== 2 || !isContextSequence(record['contextSequence'])) return null
   return isOpaqueToken(record['confirmationToken'])
-    ? { version: 1, contextSequence: record['contextSequence'], confirmationToken: record['confirmationToken'] }
+    ? { version: 2, contextSequence: record['contextSequence'], confirmationToken: record['confirmationToken'] }
     : null
 }
 
@@ -301,18 +310,27 @@ export function parsePrepareTrashConfirmationResult(value: unknown): PrepareTras
   return withinBudget(ack)
 }
 
+function parseMoveFailure(value: unknown): TrashMoveFailure | null {
+  const record = asExactRecord(value, ['version', 'status', 'code'])
+  if (record === null || record['version'] !== 2 || record['status'] !== 'error') return null
+  return isTrashErrorCode(record['code']) ? trashMoveFailure(record['code']) : null
+}
+
 export function parseMoveTaskToTrashResult(value: unknown): MoveTaskToTrashResult | null {
-  const failure = parseFailure(value)
+  const failure = parseMoveFailure(value)
   if (failure !== null) return failure
-  const record = asExactRecord(value, ['version', 'status', 'revision', 'retained'], ['undoToken'])
-  if (record === null || record['version'] !== 1 || record['status'] !== 'ok') return null
+  const record = asExactRecord(value, ['version', 'status', 'revision', 'retained', 'undoEpoch'], ['undoToken'])
+  if (record === null || record['version'] !== 2 || record['status'] !== 'ok') return null
   if (!isRevisionText(record['revision']) || typeof record['retained'] !== 'boolean') return null
+  const undoEpoch = record['undoEpoch']
+  if (typeof undoEpoch !== 'number' || !Number.isSafeInteger(undoEpoch) || undoEpoch < 1) return null
   if ('undoToken' in record && !isOpaqueToken(record['undoToken'])) return null
   const ack: MoveTaskToTrashAck = {
-    version: 1,
+    version: 2,
     status: 'ok',
     revision: record['revision'],
     retained: record['retained'],
+    undoEpoch,
     ...('undoToken' in record && { undoToken: record['undoToken'] as string }),
   }
   return withinBudget(ack)

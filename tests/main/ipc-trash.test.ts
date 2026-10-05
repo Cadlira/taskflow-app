@@ -114,7 +114,7 @@ describe('IPC da lixeira: contexto e preparação', () => {
     fixture.resetCounts()
 
     const stale = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: 1,
       confirmationToken: 'A'.repeat(32),
     })
@@ -174,11 +174,11 @@ describe('IPC da lixeira: contexto e preparação', () => {
     })
     if (move.status !== 'ok') throw new Error('preparação esperada')
     const moved = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: move.confirmationToken,
     })
-    expect(moved).toMatchObject({ version: 1, status: 'ok', retained: true })
+    expect(moved).toMatchObject({ version: 2, status: 'ok', retained: true, undoEpoch: 1 })
     expect(moved).toHaveProperty('undoToken')
 
     const entry = await trashEntry(fixture.coordinator, 'a')
@@ -209,11 +209,11 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
     if (prepared.status !== 'ok') throw new Error('preparação esperada')
 
     const moved = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: prepared.confirmationToken,
     })
-    expect(moved).toMatchObject({ version: 1, status: 'ok', retained: true })
+    expect(moved).toMatchObject({ version: 2, status: 'ok', retained: true, undoEpoch: 1 })
     if (moved.status !== 'ok' || moved.undoToken === undefined) throw new Error('undoToken esperado')
     expect(expectOk(await fixture.coordinator.read((reader) => reader.getTask('a'))).value).toBeUndefined()
 
@@ -246,21 +246,21 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
     if (prepared.status !== 'ok') throw new Error('preparação esperada')
 
     const foreign = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: 'B'.repeat(32),
     })
     expect(foreign).toMatchObject({ code: 'CONFIRMATION_INVALID' })
     // O token legítimo continua válido.
     const moved = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: prepared.confirmationToken,
     })
     expect(moved).toMatchObject({ status: 'ok' })
     // Repetição agora é inválida e não remove outra entrada.
     const repeated = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: prepared.confirmationToken,
     })
@@ -283,7 +283,7 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
     // Outra sessão edita a tarefa (check/edição) depois da preparação.
     expectOk(await fixture.coordinator.run((unit) => unit.updateTaskConditionally('a', 1n, (current) => ({ ...current, title: 'Outra' }))))
     const refused = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: prepared.confirmationToken,
     })
@@ -310,7 +310,7 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
       })
       if (prepared.status !== 'ok') throw new Error('preparação esperada')
       const moved = await fixture.service.handleMove(EVENT, {
-        version: 1,
+        version: 2,
         contextSequence: sequence,
         confirmationToken: prepared.confirmationToken,
       })
@@ -347,7 +347,7 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
       expectedContentRevision: '1',
     })
     if (move.status !== 'ok') throw new Error('preparação esperada')
-    await fixture.service.handleMove(EVENT, { version: 1, contextSequence: sequence, confirmationToken: move.confirmationToken })
+    await fixture.service.handleMove(EVENT, { version: 2, contextSequence: sequence, confirmationToken: move.confirmationToken })
 
     const entry = await trashEntry(fixture.coordinator, 'a')
     const changed = await fixture.service.handlePrepareConfirmation(EVENT, {
@@ -386,7 +386,7 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
       expectedContentRevision: '1',
     })
     if (move.status !== 'ok') throw new Error('preparação esperada')
-    await fixture.service.handleMove(EVENT, { version: 1, contextSequence: sequence, confirmationToken: move.confirmationToken })
+    await fixture.service.handleMove(EVENT, { version: 2, contextSequence: sequence, confirmationToken: move.confirmationToken })
     const entry = await trashEntry(fixture.coordinator, 'a')
 
     const absent = await fixture.service.handleRestore(EVENT, {
@@ -421,7 +421,7 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
 
     fixture.sessions.invalidate()
     const result = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: prepared.confirmationToken,
     })
@@ -450,11 +450,11 @@ describe('IPC da lixeira: confirmações, tokens e recusas exatas', () => {
     }
 
     const moved = await fixture.service.handleMove(EVENT, {
-      version: 1,
+      version: 2,
       contextSequence: sequence,
       confirmationToken: prepared.confirmationToken,
     })
-    expect(moved).toMatchObject({ version: 1, status: 'ok', retained: true })
+    expect(moved).toMatchObject({ version: 2, status: 'ok', retained: true, undoEpoch: 1 })
     expect(moved).not.toHaveProperty('undoToken')
     expect(expectOk(await fixture.coordinator.read((reader) => reader.getTask('a'))).value).toBeUndefined()
     expect(fixture.undo.offerOf('doc:1')).toBeUndefined()

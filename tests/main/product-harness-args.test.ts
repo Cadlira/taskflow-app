@@ -13,6 +13,16 @@ describe('harness restrito de produto', () => {
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=seed-sql1'])).toEqual({ name: 'seed-sql1' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=inspect-sql1'])).toEqual({ name: 'inspect-sql1' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=recurrence'])).toEqual({ name: 'recurrence' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=trash'])).toEqual({ name: 'trash' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=backup'])).toEqual({ name: 'backup' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=backup|export-fail|temp:after-write'])).toEqual({
+      name: 'backup',
+      exportFail: 'temp:after-write',
+    })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=backup|export-fail|readback:before'])).toEqual({
+      name: 'backup',
+      exportFail: 'readback:before',
+    })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=a11y'])).toEqual({ name: 'a11y', opener: 'real' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=a11y|fake-opener'])).toEqual({
       name: 'a11y',
@@ -42,6 +52,7 @@ describe('harness restrito de produto', () => {
     expect(harnessSkipsCoordinatorStart({ name: 'crash', point: 'unit:before-commit', unit: 'save' })).toBe(false)
     expect(harnessSkipsCoordinatorStart({ name: 'bridge' })).toBe(false)
     expect(harnessSkipsCoordinatorStart({ name: 'reopen' })).toBe(false)
+    expect(harnessSkipsCoordinatorStart({ name: 'backup' })).toBe(false)
   })
 
   it.each([
@@ -51,6 +62,10 @@ describe('harness restrito de produto', () => {
     [['--product-harness=tasks|extra']],
     [['--product-harness=ui-bench|1']],
     [['--product-harness=a11y|outro']],
+    [['--product-harness=backup|extra']],
+    [['--product-harness=backup|export-fail']],
+    [['--product-harness=backup|export-fail|nope']],
+    [['--product-harness=backup|export-fail|temp:before-write|extra']],
     [['--product-harness=bridge', '--product-harness=bench']],
     [['--product-harness=crash']],
     [['--product-harness=crash|unit:commit']],

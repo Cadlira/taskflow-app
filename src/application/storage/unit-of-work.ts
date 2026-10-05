@@ -53,7 +53,7 @@ export interface StoredTrashItem {
 export type SaveOutcome = 'CREATED' | 'UPDATED' | 'UNCHANGED'
 
 export type ReplaceAllResult =
-  | { status: 'REPLACED'; created: number; updated: number; removed: number }
+  | { status: 'REPLACED'; created: number; updated: number; removed: number; revision: Revision }
   | { status: 'UNCHANGED' }
   | { status: 'CONFLICT'; currentRevision: Revision }
 

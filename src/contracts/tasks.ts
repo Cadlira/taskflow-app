@@ -13,13 +13,15 @@ import type { SubtaskDraft } from '../domain/task-subtasks.js'
 import { asExactRecord, asPlainRecord, serializedBytes, type PlainRecord } from './record.js'
 import { STATE_ERROR_CODES, isOpaqueToken, isRevisionText } from './state.js'
 
-// Catálogo fechado de comandos de tarefas v3. Cada operação tem canal próprio; nenhum send/canal
+// Catálogo fechado de comandos de tarefas. Cada operação tem canal próprio; nenhum send/canal
 // livre, URL arbitrária, Task completa, campo de auditoria, autoridade (id/série/âncora/done),
-// clock, ordenação de contexto ou avançado de lembrete é aceito. `openTaskSource` conserva v1.
+// clock, ordenação de contexto ou avançado de lembrete é aceito. `openTaskSource` conserva v1;
+// `createTask`/`setSubtaskDone` conservam v3; `updateTask`/`changeTaskStatus` são v4 porque o ack
+// elegível carrega a época transitória do undo.
 
 export const TASK_CREATE_CHANNEL = 'task:create:v3'
-export const TASK_UPDATE_CHANNEL = 'task:update:v3'
-export const TASK_STATUS_CHANNEL = 'task:status:v3'
+export const TASK_UPDATE_CHANNEL = 'task:update:v4'
+export const TASK_STATUS_CHANNEL = 'task:status:v4'
 export const TASK_SUBTASK_DONE_CHANNEL = 'task:subtask-done:v3'
 export const TASK_OPEN_SOURCE_CHANNEL = 'task:source:open:v1'
 
@@ -72,14 +74,26 @@ export type TaskMutationErrorCode = (typeof TASK_MUTATION_ERROR_CODES)[number]
 export type TaskSourceErrorCode = (typeof TASK_SOURCE_ERROR_CODES)[number]
 export type TaskCommandErrorCode = TaskMutationErrorCode | TaskSourceErrorCode
 
-/** Falha de uma mutação v3: códigos fechados, campos posicionais e revisões atuais no conflito. */
-export type TaskMutationFailure = Readonly<{
+/** Falha de criação/check v3: códigos fechados, campos posicionais e revisões atuais no conflito. */
+export type TaskCreateFailure = Readonly<{
   version: 3
   status: 'error'
   code: TaskMutationErrorCode
   /** Presente somente em `VALIDATION_FAILED`, em forma finita por campo/índice. */
   fields?: TaskFieldErrors
   /** Presentes somente em `CONFLICT`, quando o proprietário conhece as revisões atuais. */
+  currentContentRevision?: string
+  currentEditRevision?: string
+}>
+
+export type TaskCheckFailure = TaskCreateFailure
+
+/** Falha de update/status v4: mesma união fechada, versão própria do contrato alterado. */
+export type TaskMutationFailure = Readonly<{
+  version: 4
+  status: 'error'
+  code: TaskMutationErrorCode
+  fields?: TaskFieldErrors
   currentContentRevision?: string
   currentEditRevision?: string
 }>
@@ -92,10 +106,18 @@ export type TaskSourceFailure = Readonly<{
   currentContentRevision?: string
 }>
 
-export type TaskCommandFailure = TaskMutationFailure | TaskSourceFailure
+export type TaskCommandFailure = TaskCreateFailure | TaskMutationFailure | TaskSourceFailure
+
+export function taskCreateFailure(code: TaskMutationErrorCode): TaskCreateFailure {
+  return { version: 3, status: 'error', code }
+}
+
+export function taskCheckFailure(code: TaskMutationErrorCode): TaskCheckFailure {
+  return { version: 3, status: 'error', code }
+}
 
 export function taskMutationFailure(code: TaskMutationErrorCode): TaskMutationFailure {
-  return { version: 3, status: 'error', code }
+  return { version: 4, status: 'error', code }
 }
 
 export function taskSourceFailure(code: TaskSourceErrorCode): TaskSourceFailure {
@@ -123,7 +145,7 @@ export type TaskPatch = Readonly<EditTaskPatch>
 
 export type TaskCreateRequest = Readonly<{ version: 3; contextSequence: number; draft: TaskCreateDraft }>
 export type TaskUpdateRequest = Readonly<{
-  version: 3
+  version: 4
   contextSequence: number
   taskId: string
   expectedEditRevision: string
@@ -131,7 +153,7 @@ export type TaskUpdateRequest = Readonly<{
   cancellation?: TaskCancellation
 }>
 export type TaskStatusRequest = Readonly<{
-  version: 3
+  version: 4
   contextSequence: number
   taskId: string
   expectedEditRevision: string
@@ -161,20 +183,34 @@ export type TaskCreateAck = Readonly<{
   contentRevision: string
   editRevision: string
 }>
+/** Ack v4 de update/status: a época elegível acompanha o resultado, inclusive UNCHANGED. */
 export type TaskMutationAck = Readonly<{
+  version: 4
+  status: 'ok'
+  outcome: 'APPLIED' | 'UNCHANGED'
+  revision: string
+  contentRevision: string
+  editRevision: string
+  undoEpoch: number
+  /** Somente em update/status APPLIED e quando o recibo pôde ser publicado no contexto atual. */
+  undoToken?: string
+}>
+
+/** Ack v3 de check/criação: não oferece oferta e conserva o contrato anterior. */
+export type TaskCheckAck = Readonly<{
   version: 3
   status: 'ok'
   outcome: 'APPLIED' | 'UNCHANGED'
   revision: string
   contentRevision: string
   editRevision: string
-  /** Somente em update/status APPLIED e quando o recibo pôde ser publicado no contexto atual. */
-  undoToken?: string
 }>
+
 export type TaskOpenSourceAck = Readonly<{ version: 1; status: 'ok' }>
 
-export type TaskCreateResult = TaskCreateAck | TaskMutationFailure
+export type TaskCreateResult = TaskCreateAck | TaskCreateFailure
 export type TaskMutationResult = TaskMutationAck | TaskMutationFailure
+export type TaskCheckResult = TaskCheckAck | TaskCheckFailure
 export type TaskOpenSourceResult = TaskOpenSourceAck | TaskSourceFailure
 
 // ---- Validação em runtime ----
@@ -449,11 +485,11 @@ export function parseTaskCreateRequest(value: unknown): TaskRequestParse<TaskCre
   return { kind: 'ok', value: { version: 3, contextSequence: record['contextSequence'], draft: parsed } }
 }
 
-/** `patch` de edição v3: básicos + regra/null + lista id/título. */
+/** `patch` de edição v4: básicos + regra/null + lista id/título. */
 export function parseTaskUpdateRequest(value: unknown): TaskRequestParse<TaskUpdateRequest> {
   if (!fitsRequestBudget(value)) return { kind: 'invalid-request' }
   const record = asExactRecord(value, ['version', 'contextSequence', 'taskId', 'expectedEditRevision', 'patch'], ['cancellation'])
-  if (record === null || record['version'] !== 3 || !isContextSequence(record['contextSequence'])) {
+  if (record === null || record['version'] !== 4 || !isContextSequence(record['contextSequence'])) {
     return { kind: 'invalid-request' }
   }
   if (!isTaskId(record['taskId']) || !isRevisionText(record['expectedEditRevision'])) {
@@ -532,7 +568,7 @@ export function parseTaskUpdateRequest(value: unknown): TaskRequestParse<TaskUpd
   return {
     kind: 'ok',
     value: {
-      version: 3,
+      version: 4,
       contextSequence: record['contextSequence'],
       taskId: record['taskId'],
       expectedEditRevision: record['expectedEditRevision'],
@@ -545,7 +581,7 @@ export function parseTaskUpdateRequest(value: unknown): TaskRequestParse<TaskUpd
 export function parseTaskStatusRequest(value: unknown): TaskRequestParse<TaskStatusRequest> {
   if (!fitsRequestBudget(value)) return { kind: 'invalid-request' }
   const record = asExactRecord(value, ['version', 'contextSequence', 'taskId', 'expectedEditRevision', 'status'], ['cancellation'])
-  if (record === null || record['version'] !== 3 || !isContextSequence(record['contextSequence'])) {
+  if (record === null || record['version'] !== 4 || !isContextSequence(record['contextSequence'])) {
     return { kind: 'invalid-request' }
   }
   if (!isTaskId(record['taskId']) || !isRevisionText(record['expectedEditRevision'])) {
@@ -560,7 +596,7 @@ export function parseTaskStatusRequest(value: unknown): TaskRequestParse<TaskSta
   return {
     kind: 'ok',
     value: {
-      version: 3,
+      version: 4,
       contextSequence: record['contextSequence'],
       taskId: record['taskId'],
       expectedEditRevision: record['expectedEditRevision'],
@@ -721,29 +757,25 @@ function parseSubtaskFieldErrors(value: unknown): NonNullable<TaskFieldErrors['s
   return Object.keys(errors).length > 0 ? errors : null
 }
 
-function parseMutationFailure(value: unknown): TaskMutationFailure | null {
-  const record = asExactRecord(
-    value,
-    ['version', 'status', 'code'],
-    ['fields', 'currentContentRevision', 'currentEditRevision'],
-  )
-  if (record === null || record['version'] !== 3 || record['status'] !== 'error') return null
+interface ParsedFailureShape {
+  fields?: TaskFieldErrors
+  currentContentRevision?: string
+  currentEditRevision?: string
+}
+
+/** Corpo comum das falhas v3/v4: mesma união fechada, versão conferida pelo chamador. */
+function parseFailureShape(record: Record<string, unknown>): TaskMutationErrorCode | null {
   const code = record['code']
   if (typeof code !== 'string' || !(TASK_MUTATION_ERROR_CODES as readonly string[]).includes(code)) return null
+  return code as TaskMutationErrorCode
+}
 
-  const failure: {
-    version: 3
-    status: 'error'
-    code: TaskMutationErrorCode
-    fields?: TaskFieldErrors
-    currentContentRevision?: string
-    currentEditRevision?: string
-  } = { version: 3, status: 'error', code: code as TaskMutationErrorCode }
-
+function parseFailureDetails(record: Record<string, unknown>, code: TaskMutationErrorCode): ParsedFailureShape | null {
+  const details: ParsedFailureShape = {}
   if ('fields' in record) {
     const fields = parseBasicFieldErrors(record['fields'])
     if (code !== 'VALIDATION_FAILED' || fields === null) return null
-    failure.fields = fields
+    details.fields = fields
   } else if (code === 'VALIDATION_FAILED') {
     return null
   }
@@ -754,12 +786,39 @@ function parseMutationFailure(value: unknown): TaskMutationFailure | null {
   if (hasContent) {
     if (code !== 'CONFLICT') return null
     if (!isRevisionText(record['currentContentRevision']) || !isRevisionText(record['currentEditRevision'])) return null
-    failure.currentContentRevision = record['currentContentRevision']
-    failure.currentEditRevision = record['currentEditRevision']
+    details.currentContentRevision = record['currentContentRevision'] as string
+    details.currentEditRevision = record['currentEditRevision'] as string
   }
+  return details
+}
 
-  // Códigos de campo/estrutura só acompanham VALIDATION_FAILED; os demais não transportam dados.
-  return failure
+function parseFailureAtVersion<T extends TaskCreateFailure | TaskMutationFailure>(
+  value: unknown,
+  version: 3 | 4,
+): T | null {
+  const record = asExactRecord(
+    value,
+    ['version', 'status', 'code'],
+    ['fields', 'currentContentRevision', 'currentEditRevision'],
+  )
+  if (record === null || record['version'] !== version || record['status'] !== 'error') return null
+  const code = parseFailureShape(record)
+  if (code === null) return null
+  const details = parseFailureDetails(record, code)
+  if (details === null) return null
+  return { version, status: 'error', code, ...details } as T
+}
+
+function parseMutationFailure(value: unknown): TaskMutationFailure | null {
+  return parseFailureAtVersion<TaskMutationFailure>(value, 4)
+}
+
+function parseCreateFailure(value: unknown): TaskCreateFailure | null {
+  return parseFailureAtVersion<TaskCreateFailure>(value, 3)
+}
+
+function parseCheckFailure(value: unknown): TaskCheckFailure | null {
+  return parseFailureAtVersion<TaskCheckFailure>(value, 3)
 }
 
 function parseSourceFailure(value: unknown): TaskSourceFailure | null {
@@ -780,7 +839,7 @@ function parseSourceFailure(value: unknown): TaskSourceFailure | null {
 }
 
 export function parseTaskCreateResult(value: unknown): TaskCreateResult | null {
-  const failure = parseMutationFailure(value)
+  const failure = parseCreateFailure(value)
   if (failure !== null) return failure
   const record = asExactRecord(value, ['version', 'status', 'outcome', 'taskId', 'revision', 'contentRevision', 'editRevision'])
   if (record === null || record['version'] !== 3 || record['status'] !== 'ok' || record['outcome'] !== 'APPLIED') return null
@@ -804,8 +863,39 @@ export function parseTaskCreateResult(value: unknown): TaskCreateResult | null {
 function parseMutationAck(value: unknown): TaskMutationAck | null {
   const record = asExactRecord(
     value,
-    ['version', 'status', 'outcome', 'revision', 'contentRevision', 'editRevision'],
+    ['version', 'status', 'outcome', 'revision', 'contentRevision', 'editRevision', 'undoEpoch'],
     ['undoToken'],
+  )
+  if (record === null || record['version'] !== 4 || record['status'] !== 'ok') return null
+  const outcome = record['outcome']
+  if (outcome !== 'APPLIED' && outcome !== 'UNCHANGED') return null
+  const revision = record['revision']
+  const contentRevision = record['contentRevision']
+  const editRevision = record['editRevision']
+  if (!isRevisionText(revision) || !isRevisionText(contentRevision) || !isRevisionText(editRevision)) return null
+  const undoEpoch = record['undoEpoch']
+  if (typeof undoEpoch !== 'number' || !Number.isSafeInteger(undoEpoch) || undoEpoch < 1) return null
+  if ('undoToken' in record) {
+    // Token só acompanha uma alteração aplicada; no-op/check não oferecem desfazer.
+    if (outcome !== 'APPLIED' || !isOpaqueToken(record['undoToken'])) return null
+  }
+  const ack: TaskMutationAck = {
+    version: 4,
+    status: 'ok',
+    outcome,
+    revision,
+    contentRevision,
+    editRevision,
+    undoEpoch,
+    ...('undoToken' in record && { undoToken: record['undoToken'] as string }),
+  }
+  return fitsResponseBudget(ack) ? ack : null
+}
+
+function parseCheckAck(value: unknown): TaskCheckAck | null {
+  const record = asExactRecord(
+    value,
+    ['version', 'status', 'outcome', 'revision', 'contentRevision', 'editRevision'],
   )
   if (record === null || record['version'] !== 3 || record['status'] !== 'ok') return null
   const outcome = record['outcome']
@@ -814,19 +904,7 @@ function parseMutationAck(value: unknown): TaskMutationAck | null {
   const contentRevision = record['contentRevision']
   const editRevision = record['editRevision']
   if (!isRevisionText(revision) || !isRevisionText(contentRevision) || !isRevisionText(editRevision)) return null
-  if ('undoToken' in record) {
-    // Token só acompanha uma alteração aplicada; no-op/check não oferecem desfazer.
-    if (outcome !== 'APPLIED' || !isOpaqueToken(record['undoToken'])) return null
-  }
-  const ack: TaskMutationAck = {
-    version: 3,
-    status: 'ok',
-    outcome,
-    revision,
-    contentRevision,
-    editRevision,
-    ...('undoToken' in record && { undoToken: record['undoToken'] as string }),
-  }
+  const ack: TaskCheckAck = { version: 3, status: 'ok', outcome, revision, contentRevision, editRevision }
   return fitsResponseBudget(ack) ? ack : null
 }
 
@@ -834,8 +912,8 @@ export function parseTaskMutationResult(value: unknown): TaskMutationResult | nu
   return parseMutationFailure(value) ?? parseMutationAck(value)
 }
 
-export function parseSubtaskDoneResult(value: unknown): TaskMutationResult | null {
-  return parseMutationFailure(value) ?? parseMutationAck(value)
+export function parseSubtaskDoneResult(value: unknown): TaskCheckResult | null {
+  return parseCheckFailure(value) ?? parseCheckAck(value)
 }
 
 export function parseTaskOpenSourceResult(value: unknown): TaskOpenSourceResult | null {

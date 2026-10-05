@@ -4,9 +4,10 @@
 // teste ao preload, e não implementa gerenciamento de tarefas.
 import type { App, BrowserWindow } from 'electron'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { readBackupFile } from '../../application/backup/backup-file.js'
 import { formatRevision } from '../../application/storage/revisions.js'
 import type { TrashEntryRef, UnitResult } from '../../application/storage/unit-of-work.js'
 import type { UndoFacts } from '../../application/tasks/undo-types.js'
@@ -15,10 +16,17 @@ import {
   changeTaskStatusInUnit,
   updateTaskInUnit,
 } from '../../application/tasks/task-commands.js'
+import type { BackupResourceLedger } from '../../application/backup/backup-resources.js'
+import { BACKUP_PREVIEW_TTL_MS } from '../../contracts/backup.js'
+import type { BackupWriteFaultPoint, BackupWriteFaults } from '../backup/backup-file-write.js'
 import type { StateSnapshotResult } from '../../contracts/state.js'
 import { utf8ByteLength } from '../../contracts/text.js'
 import { resolveNextScheduledAt } from '../../domain/task-recurrence.js'
 import type { Task } from '../../domain/task.js'
+import { BackupCommandServices } from '../backup/backup-restore-service.js'
+import type { BackupDialogBroker, BackupJobGate } from '../backup/backup-job.js'
+import type { BackupRestoreRegistry } from '../backup/backup-restore-registry.js'
+import type { BackupCommandIpcService } from '../ipc/backup.js'
 import type { DocumentSessions } from '../ipc/document-sessions.js'
 import type { StateIpcService } from '../ipc/state.js'
 import { StorageCoordinator, type ShutdownReport } from '../storage/coordinator.js'
@@ -38,6 +46,14 @@ const CRASH_POINTS: readonly StorageFaultPoint[] = [
   'migrate:before-commit',
   'migrate:after-commit',
 ]
+const BACKUP_WRITE_FAULT_POINTS: readonly BackupWriteFaultPoint[] = [
+  'temp:before-write',
+  'temp:after-write',
+  'temp:after-sync',
+  'rename:before',
+  'rename:after',
+  'readback:before',
+]
 
 export type ProductHarnessScenario =
   | { name: 'bridge' }
@@ -50,6 +66,7 @@ export type ProductHarnessScenario =
   | { name: 'inspect-sql1' }
   | { name: 'recurrence' }
   | { name: 'trash' }
+  | { name: 'backup'; exportFail?: BackupWriteFaultPoint }
   | { name: 'a11y'; opener: 'real' | 'fake' }
   | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' | 'migrate' | 'move' | 'restore' | 'revert' }
 
@@ -60,6 +77,17 @@ export function harnessSkipsCoordinatorStart(scenario: ProductHarnessScenario): 
     scenario.name === 'inspect-sql1' ||
     (scenario.name === 'crash' && scenario.unit === 'migrate')
   )
+}
+
+export interface ProductHarnessBackupDependencies {
+  ipc: BackupCommandIpcService
+  services: BackupCommandServices
+  registry: BackupRestoreRegistry
+  ledger: BackupResourceLedger
+  gate: BackupJobGate
+  undo: UndoRegistry
+  /** Pontos de falha da gravação, armados apenas pelo cenário `backup` do harness. */
+  writeFaults: BackupWriteFaults
 }
 
 export interface ProductHarnessDependencies {
@@ -78,6 +106,8 @@ export interface ProductHarnessDependencies {
   shutdownStorage: () => ShutdownReport | undefined
   /** Porta de abertura externa do main; o harness de teste pode substituí-la por um fake. */
   opener: { openExternal(href: string): Promise<void> }
+  /** Serviços de backup reais do main, para os cenários fictícios (nenhum perfil real é usado). */
+  backup?: ProductHarnessBackupDependencies
 }
 
 /** Aceita exatamente um argumento de harness com cenário conhecido; qualquer outra forma é ignorada. */
@@ -93,6 +123,14 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   // Runner hospedado: sem navegador padrão garantido, a abertura usa um opener falso e o shell
   // real continua sendo prova da máquina de referência.
   if (value === 'a11y|fake-opener') return { name: 'a11y', opener: 'fake' }
+  if (value === 'backup') return { name: 'backup' }
+  // Falha injetada de gravação (somente harness/testes): nenhum diálogo nativo é aberto.
+  if (value.startsWith('backup|')) {
+    const [name, kind, point, ...rest] = value.split('|')
+    if (name !== 'backup' || kind !== 'export-fail' || rest.length > 0) return null
+    if (!BACKUP_WRITE_FAULT_POINTS.includes(point as BackupWriteFaultPoint)) return null
+    return { name: 'backup', exportFail: point as BackupWriteFaultPoint }
+  }
 
   const [name, point, unit, ...rest] = value.split('|')
   if (name !== 'crash' || rest.length > 0) return null
@@ -178,13 +216,13 @@ function runtimeInfo(deps: ProductHarnessDependencies): Record<string, unknown> 
 
 const SUBSCRIBE_SCRIPT = `(async () => {
   window.__tf = { updates: [] }
-  const result = await window.taskflowDesktop.subscribeState({ version: 2 }, (update) => {
+  const result = await window.taskflowDesktop.subscribeState({ version: 3 }, (update) => {
     window.__tf.updates.push(update.type === 'snapshot'
-      ? { type: 'snapshot', revision: update.snapshot.revision, tasks: update.snapshot.tasks.length, trash: update.snapshot.trash.length }
+      ? { type: 'snapshot', revision: update.snapshot.revision, undoEpoch: update.snapshot.undoEpoch, tasks: update.snapshot.tasks.length, trash: update.snapshot.trash.length }
       : update)
   })
   return result.status === 'ok'
-    ? { status: 'ok', subscriptionId: result.subscriptionId, revision: result.snapshot.revision, tasks: result.snapshot.tasks.length }
+    ? { status: 'ok', subscriptionId: result.subscriptionId, revision: result.snapshot.revision, undoEpoch: result.snapshot.undoEpoch, tasks: result.snapshot.tasks.length }
     : result
 })()`
 
@@ -194,19 +232,20 @@ const LAST_UPDATE_SCRIPT = `(() => {
   return { count: window.__tf.updates.length, last: snapshots.length ? snapshots[snapshots.length - 1] : null }
 })()`
 
-const SNAPSHOT_SCRIPT = 'window.taskflowDesktop.getStateSnapshot({ version: 2 })'
+const SNAPSHOT_SCRIPT = 'window.taskflowDesktop.getStateSnapshot({ version: 3 })'
 
 interface SubscribeProbe {
   status: string
   subscriptionId?: string
   revision?: string
+  undoEpoch?: number
   tasks?: number
   code?: string
 }
 
 interface UpdateProbe {
   count: number
-  last: { revision: string; tasks: number; trash: number } | null
+  last: { revision: string; undoEpoch: number; tasks: number; trash: number } | null
 }
 
 async function loadSurface(window: BrowserWindow, url: string): Promise<void> {
@@ -237,18 +276,23 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     })`,
   )
   info['catalog'] = catalog
-  // Dezessete wrappers: diagnóstico (1), estado (3), tarefas v3 (4), origem (1) e lixeira/undo (8).
+  // Vinte e um wrappers: diagnóstico (1), estado (3), tarefas create/check v3 (2), update/status v4
+  // (2), origem (1), lixeira/undo (8) e backup (4).
   checks['catalogClosed'] =
     JSON.stringify(catalog['keys']) ===
       JSON.stringify([
+        'cancelBackupRestore',
         'changeTaskStatus',
         'clearUndoOffer',
+        'confirmBackupRestore',
         'createTask',
         'deleteTrashItem',
         'emptyTrash',
+        'exportBackup',
         'getStateSnapshot',
         'moveTaskToTrash',
         'openTaskSource',
+        'prepareBackupRestore',
         'prepareTrashConfirmation',
         'prepareTrashView',
         'restoreTrashItem',
@@ -264,7 +308,8 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
 
   const startRevision = currentRevision()
   const initial = await evaluate<StateSnapshotResult>(surfaceA, SNAPSHOT_SCRIPT)
-  checks['initialSnapshot'] = initial.status === 'ok' && initial.snapshot.revision === startRevision
+  checks['initialSnapshot'] =
+    initial.status === 'ok' && initial.snapshot.revision === startRevision && initial.snapshot.undoEpoch >= 1
 
   // Duas superfícies de teste autorizadas, ambas com o preload normal.
   const surfaceB = deps.createSurface(true)
@@ -278,7 +323,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     subscriptionA.subscriptionId !== subscriptionB.subscriptionId
   const repeated = await evaluate<SubscribeProbe>(
     surfaceA,
-    `window.taskflowDesktop.subscribeState({ version: 2 }).then((result) => ({ status: result.status, subscriptionId: result.subscriptionId }))`,
+    `window.taskflowDesktop.subscribeState({ version: 3 }).then((result) => ({ status: result.status, subscriptionId: result.subscriptionId }))`,
   )
   checks['subscribeIdempotent'] =
     repeated.subscriptionId === subscriptionA.subscriptionId && stateIpc.activeSubscriptions === 2
@@ -339,7 +384,9 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
   }
   checks['readsDoNotMutate'] = recreated.ok && currentRevision() === formatRevision(recreated.revision)
 
-  // Negativas pela bridge real: schema exato, limite de 1 KiB e token de outra sessão.
+  // Negativas pela bridge real: schemas v1/v2 antigos, limite de 1 KiB e token de outra sessão.
+  // As sondas de versão continuam antigas (recusa de contrato); a de autorização usa v3 para
+  // chegar à decisão de sessão em vez de parar no schema.
   const negatives = await evaluate<Array<{ status: string; code?: string }>>(
     surfaceA,
     `Promise.all([
@@ -348,7 +395,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
       window.taskflowDesktop.getStateSnapshot({ version: 2, pad: 'x'.repeat(2000) }),
       window.taskflowDesktop.subscribeState({ version: 2, sql: 'SELECT 1' }),
       window.taskflowDesktop.unsubscribeState({ version: 2, subscriptionId: '../x' }),
-      window.taskflowDesktop.unsubscribeState({ version: 2, subscriptionId: ${JSON.stringify(subscriptionB.subscriptionId ?? '')} }),
+      window.taskflowDesktop.unsubscribeState({ version: 3, subscriptionId: ${JSON.stringify(subscriptionB.subscriptionId ?? '')} }),
     ])`,
   )
   info['negatives'] = negatives.map((result) => result.code ?? result.status)
@@ -358,7 +405,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
   const unsubscribed = await evaluate<Array<{ status: string }>>(
     surfaceA,
     `(async () => {
-      const request = { version: 2, subscriptionId: ${JSON.stringify(subscriptionA.subscriptionId ?? '')} }
+      const request = { version: 3, subscriptionId: ${JSON.stringify(subscriptionA.subscriptionId ?? '')} }
       return [await window.taskflowDesktop.unsubscribeState(request), await window.taskflowDesktop.unsubscribeState(request)]
     })()`,
   )
@@ -373,8 +420,8 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     const refused = await evaluate<Array<{ status: string; code?: string }>>(
       unknown,
       `Promise.all([
-        window.taskflowDesktop.getStateSnapshot({ version: 2 }),
-        window.taskflowDesktop.subscribeState({ version: 2 }),
+        window.taskflowDesktop.getStateSnapshot({ version: 3 }),
+        window.taskflowDesktop.subscribeState({ version: 3 }),
         window.taskflowDesktop.verifyFoundation({ version: 1 }),
       ])`,
     )
@@ -391,7 +438,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     await loadSurface(wrongUrl, `${deps.surfaceUrl}/index.html?probe=1`)
     const probe = await evaluate<{ status: string; code?: string } | null>(
       wrongUrl,
-      `typeof window.taskflowDesktop === 'object' ? window.taskflowDesktop.getStateSnapshot({ version: 2 }) : null`,
+      `typeof window.taskflowDesktop === 'object' ? window.taskflowDesktop.getStateSnapshot({ version: 3 }) : null`,
     ).catch(() => null)
     info['wrongUrl'] = { url: wrongUrl.webContents.getURL(), result: probe?.code ?? probe?.status ?? 'no-bridge' }
     checks['wrongUrlRefused'] = probe === null || probe.code === 'UNAUTHORIZED'
@@ -757,7 +804,7 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
     const snapshotStarted = performance.now()
     const snapshot = await evaluate<{ status: string; tasks?: number; trash?: number; code?: string }>(
       mainWindow,
-      `window.taskflowDesktop.getStateSnapshot({ version: 2 }).then((result) => result.status === 'ok'
+      `window.taskflowDesktop.getStateSnapshot({ version: 3 }).then((result) => result.status === 'ok'
         ? { status: 'ok', tasks: result.snapshot.tasks.length, trash: result.snapshot.trash.length }
         : result)`,
     )
@@ -1151,11 +1198,12 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
     return read.ok && read.value?.task.status === 'TODO' && read.value.task.completedAt === undefined
   })
 
-  // Catálogo fechado e negativas na ponte real do pacote (mutações v3; v1/v2 antigos recusados).
+  // Catálogo fechado e negativas na ponte real do pacote (create/check v3, update/status v4;
+  // versões antigas recusadas sem perder a validação de valor na versão corrente).
   const catalog = await evaluate<{ keys: string[]; frozen: boolean; globals: string[] }>(surfaceA, CATALOG_SCRIPT)
   info['catalog'] = catalog
-  checks['catalogSeventeenClosed'] =
-    catalog.keys.length === 17 &&
+  checks['catalogTwentyOneClosed'] =
+    catalog.keys.length === 21 &&
     catalog.frozen === true &&
     catalog.globals.every((kind) => kind === 'undefined') &&
     ['shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'reminder', 'harness'].every(
@@ -1170,6 +1218,7 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
       window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', status: 'NOPE' }),
       window.taskflowDesktop.setSubtaskDone({ version: 2, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', subtaskId: 's', done: 'sim' }),
       window.taskflowDesktop.openTaskSource({ version: 1, taskId: 'a', expectedContentRevision: '1', url: 'https://x.test' }),
+      window.taskflowDesktop.changeTaskStatus({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', status: 'NOPE' }),
     ])`,
   )
   info['negatives'] = negatives.map((result) => result.code ?? result.status)
@@ -1177,9 +1226,10 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
     negatives[0]?.code === 'INVALID_REQUEST' &&
     negatives[1]?.code === 'INVALID_REQUEST' &&
     negatives[2]?.code === 'INVALID_REQUEST' &&
-    negatives[3]?.code === 'VALIDATION_FAILED' &&
+    negatives[3]?.code === 'INVALID_REQUEST' &&
     negatives[4]?.code === 'INVALID_REQUEST' &&
-    negatives[5]?.code === 'INVALID_REQUEST'
+    negatives[5]?.code === 'INVALID_REQUEST' &&
+    negatives[6]?.code === 'VALIDATION_FAILED'
 
   // Reconciliação por foco: dispara leitura coordenada mesmo sem evento novo visível.
   const unitsBefore = coordinator.metrics.units
@@ -1272,6 +1322,8 @@ interface CommandProbe {
   removedCount?: number
   undoToken?: string
   confirmationToken?: string
+  /** Presente nos acks elegíveis v2/v4 (lixeira/undo e update/status). */
+  undoEpoch?: number
 }
 
 interface RecurrenceProbe {
@@ -1346,7 +1398,7 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const saved = await evaluate<CommandProbe>(
     surfaceA,
     withFreshContext(
-      `window.taskflowDesktop.updateTask({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
+      `window.taskflowDesktop.updateTask({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
     ),
   )
   checks['saveAfterCheck'] = saved.status === 'ok'
@@ -1361,7 +1413,7 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const closed = await evaluate<CommandProbe>(
     surfaceA,
     withFreshContext(
-      `window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(editForClose)}, status: 'DONE' })`,
+      `window.taskflowDesktop.changeTaskStatus({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(editForClose)}, status: 'DONE' })`,
     ),
   )
   checks['closeAccepted'] = closed.status === 'ok'
@@ -1385,7 +1437,7 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const conflict = await evaluate<CommandProbe>(
     surfaceB,
     withFreshContext(
-      `window.taskflowDesktop.updateTask({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: 'stale' } })`,
+      `window.taskflowDesktop.updateTask({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: 'stale' } })`,
     ),
   )
   info['conflict'] = conflict
@@ -1405,14 +1457,14 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const noChoice = await evaluate<CommandProbe>(
     surfaceA,
     withFreshContext(
-      `window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED' })`,
+      `window.taskflowDesktop.changeTaskStatus({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED' })`,
     ),
   )
   checks['choiceRequired'] = noChoice.status === 'error' && noChoice.code === 'RECURRENCE_CHOICE_REQUIRED'
   const ended = await evaluate<CommandProbe>(
     surfaceA,
     withFreshContext(
-      `window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED', cancellation: 'END' })`,
+      `window.taskflowDesktop.changeTaskStatus({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED', cancellation: 'END' })`,
     ),
   )
   checks['endAccepted'] = ended.status === 'ok'
@@ -1760,7 +1812,7 @@ function runInspectSql1(deps: ProductHarnessDependencies): void {
  * encerram o app ao final; `bridge` permanece vivo para o teste de segunda instância.
  */
 /**
- * TFA-006: lixeira e desfazer no pacote real — bridge catálogo17, confirmações/tokens/contexto,
+ * TFA-006: lixeira e desfazer no pacote real — confirmações/tokens/contexto,
  * duas superfícies convergindo pela mesma projeção tasks+trash, UI de excluir/restaurar/esvaziar
  * com foco, e negativas de contexto/token. Fecha a janela principal (o runner valida a saída).
  */
@@ -1817,13 +1869,18 @@ async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
   const moveFlow = bridgeScript(`(async () => {
     const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(first.id)}, expectedContentRevision: ${JSON.stringify(await revisionOf(first.id))} })
     if (prepared.status !== 'ok') return { prepared }
-    const moved = await window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+    const moved = await window.taskflowDesktop.moveTaskToTrash({ version: 2, contextSequence: seq, confirmationToken: prepared.confirmationToken })
     return { seq, prepared, moved }
   })()`)
   const moved = await evaluate<{ seq?: number; prepared?: CommandProbe; moved?: CommandProbe }>(surfaceB, moveFlow)
   info['move'] = { prepared: moved.prepared?.status, moved: moved.moved?.status }
   checks['prepareMove'] = moved.prepared?.status === 'ok' && moved.prepared?.itemCount === 1
-  checks['moveRetained'] = moved.moved?.status === 'ok' && moved.moved?.retained === true && typeof moved.moved?.undoToken === 'string'
+  checks['moveRetained'] =
+    moved.moved?.status === 'ok' &&
+    moved.moved?.retained === true &&
+    typeof moved.moved?.undoToken === 'string' &&
+    typeof moved.moved?.undoEpoch === 'number' &&
+    moved.moved.undoEpoch >= 1
   const firstGone = await coordinator.read((reader) => reader.getTask(first.id))
   const trashAfterMove = await coordinator.read((reader) => reader.listTrash())
   const entry = trashAfterMove.ok ? trashAfterMove.value.find((item) => item.task.id === first.id) : undefined
@@ -1895,7 +1952,7 @@ async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
   )
   const staleMove = await evaluate<CommandProbe>(
     surfaceB,
-    `window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: window.__staleConfirmation.seq, confirmationToken: window.__staleConfirmation.token })`,
+    `window.taskflowDesktop.moveTaskToTrash({ version: 2, contextSequence: window.__staleConfirmation.seq, confirmationToken: window.__staleConfirmation.token })`,
   )
   checks['staleConfirmationRefused'] = staleMove.status === 'error' && staleMove.code === 'CONFIRMATION_CHANGED'
   const thirdStill = await coordinator.read((reader) => reader.getTask(third.id))
@@ -1905,8 +1962,8 @@ async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
   const tokenNegatives = await evaluate<Array<{ status: string; code?: string }>>(
     surfaceB,
     `Promise.all([
-      window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: window.__staleConfirmation.seq, confirmationToken: 'B'.repeat(32) }),
-      window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: window.__staleConfirmation.seq, confirmationToken: window.__staleConfirmation.token }),
+      window.taskflowDesktop.moveTaskToTrash({ version: 2, contextSequence: window.__staleConfirmation.seq, confirmationToken: 'B'.repeat(32) }),
+      window.taskflowDesktop.moveTaskToTrash({ version: 2, contextSequence: window.__staleConfirmation.seq, confirmationToken: window.__staleConfirmation.token }),
       (async () => {
         const next = (window.__tfa006Sequence = (window.__tfa006Sequence ?? 10000) + 1)
         await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: next })
@@ -1924,7 +1981,7 @@ async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
   const moveThird = bridgeScript(`(async () => {
     const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(third.id)}, expectedContentRevision: ${JSON.stringify(await revisionOf(third.id))} })
     if (prepared.status !== 'ok') return { prepared }
-    return window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+    return window.taskflowDesktop.moveTaskToTrash({ version: 2, contextSequence: seq, confirmationToken: prepared.confirmationToken })
   })()`)
   const movedThird = await evaluate<CommandProbe>(surfaceB, moveThird)
   checks['moveThird'] = movedThird.status === 'ok'
@@ -1968,7 +2025,7 @@ async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
     const moveUi = bridgeScript(`(async () => {
       const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(lastTask.id)}, expectedContentRevision: ${JSON.stringify(lastStored.value.contentRevision.toString(10))} })
       if (prepared.status !== 'ok') return prepared
-      return window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+      return window.taskflowDesktop.moveTaskToTrash({ version: 2, contextSequence: seq, confirmationToken: prepared.confirmationToken })
     })()`)
     await evaluate<CommandProbe>(surfaceB, moveUi)
   }
@@ -2031,6 +2088,404 @@ async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
   })
 }
 
+interface BackupSubscriptionProbe {
+  status: string
+  subscriptionId?: string
+  revision?: string
+  undoEpoch?: number
+  tasks?: number
+  code?: string
+}
+
+interface BackupUpdateProbe {
+  type: string
+  revision?: string
+  undoEpoch?: number
+  reason?: string
+  code?: string
+}
+
+const BACKUP_SUBSCRIBE_SCRIPT = `(async () => {
+  window.__backupUpdates = []
+  const result = await window.taskflowDesktop.subscribeState({ version: 3 }, (update) => {
+    window.__backupUpdates.push(update.type === 'snapshot'
+      ? { type: 'snapshot', revision: update.snapshot.revision, undoEpoch: update.snapshot.undoEpoch }
+      : update)
+  })
+  return result.status === 'ok'
+    ? { status: 'ok', subscriptionId: result.subscriptionId, revision: result.snapshot.revision, undoEpoch: result.snapshot.undoEpoch, tasks: result.snapshot.tasks.length }
+    : result
+})()`
+
+const BACKUP_UPDATES_WAIT = (epoch: number): string => `(async () => {
+  const deadline = Date.now() + 15000
+  while (Date.now() < deadline) {
+    const updates = window.__backupUpdates || []
+    if (updates.some((update) => update && update.type === 'undo-invalidated' && update.undoEpoch >= ${epoch})) return true
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return false
+})()`
+
+const BACKUP_UPDATES_READ = `(() => {
+  const updates = window.__backupUpdates || []
+  return updates.map((update) => update.type === 'snapshot'
+    ? { type: 'snapshot', revision: update.snapshot.revision }
+    : { type: update.type, undoEpoch: update.undoEpoch, reason: update.reason, code: update.code })
+})()`
+
+/**
+ * TFA-007: exportação e restauração de backup no pacote real — serviços do main com diálogos
+ * nativos substituídos por stub (nenhum diálogo real é aberto), arquivo em diretório temporário
+ * exclusivo, lixeira/undo barrados por época e duas superfícies inscritas na bridge v3. Perfil
+ * exclusivamente fictício; fecha a janela principal ao final (o runner valida a saída).
+ */
+async function runBackup(deps: ProductHarnessDependencies, exportFail?: BackupWriteFaultPoint): Promise<void> {
+  const backup = deps.backup
+  if (backup === undefined) throw new Error('backup services unavailable')
+  const { coordinator, mainWindow: surfaceA, sessions, stateIpc } = deps
+  const checks: Record<string, boolean> = {}
+  const info: Record<string, unknown> = {
+    runtime: runtimeInfo(deps),
+    dialog: 'stub',
+    note: 'diálogos nativos substituídos por stub do harness; nenhum diálogo real é aberto',
+    ...(exportFail !== undefined && { exportFailPoint: exportFail }),
+  }
+  const workDir = mkdtempSync(path.join(os.tmpdir(), 'tfa007-harness-'))
+
+  try {
+    // Ticket sintetizado do main: a janela principal é registrada pelo index.ts; sem registro não
+    // há sessão autorizada para os serviços reais.
+    const ticket = sessions.authorize({
+      sender: surfaceA.webContents as never,
+      senderFrame: surfaceA.webContents.mainFrame as never,
+    })
+    if (ticket === null) throw new Error('main window is not registered')
+    info['ticket'] = { contentsId: ticket.contentsId, generation: ticket.generation }
+
+    // Diálogo stub: a fila devolve o caminho esperado por tipo de pedido; nunca abre janela nativa.
+    const dialogQueue: Array<{ kind: 'open' | 'save'; file: string }> = []
+    const dialogs: BackupDialogBroker = {
+      show: async (_ticket, request) => {
+        const next = dialogQueue.shift()
+        if (next === undefined || next.kind !== request.kind) return { canceled: true, filePaths: [] }
+        return { canceled: false, filePaths: [next.file] }
+      },
+    }
+    // Variante com os serviços reais (storage/registro/orçamento/trava/undo) e somente o diálogo
+    // trocado; o ponto de falha de gravação compartilha o objeto do harness para poder ser armado.
+    const services = new BackupCommandServices({
+      dialogs,
+      storage: coordinator,
+      ledger: backup.ledger,
+      gate: backup.gate,
+      registry: backup.registry,
+      undo: backup.undo,
+      clock: () => new Date(),
+      appVersion: () => deps.app.getVersion(),
+      protectedRoots: () => [],
+      isAuthorized: (candidate) => sessions.isCurrent(candidate),
+      contextSequence: (candidate) => backup.undo.contextSequence(candidate.key),
+      faults: backup.writeFaults,
+    })
+    const contextSequence = (): number => {
+      const cleared = backup.undo.clear(ticket.key, 1)
+      if (cleared.status !== 'ok') throw new Error('backup context could not be established')
+      return backup.undo.contextSequence(ticket.key)
+    }
+
+    // Estado de partida determinístico: nenhuma tarefa/lixeira anterior participa das contagens.
+    expectOkUnit(
+      await coordinator.run((unit) => {
+        unit.emptyTrash()
+        return unit.replaceAllTasks([], unit.baseRevision)
+      }),
+    )
+
+    // (1) Semeia duas tarefas fictícias, move uma para a lixeira e exporta as ativas pelo serviço.
+    const kept = buildFictitiousTask(40_001, { idPrefix: 'backup-keep' })
+    const trashed = buildFictitiousTask(40_002, { idPrefix: 'backup-lixeira' })
+    expectOkUnit(
+      await coordinator.run((unit) => {
+        unit.saveTasks([kept, trashed])
+        unit.moveToTrash(trashed.id, '2026-10-04T12:00:00.000Z')
+      }),
+    )
+    const exportFile = path.join(workDir, 'export-v4.json')
+    dialogQueue.push({ kind: 'save', file: exportFile })
+    const exported = await services.exportBackup(ticket, contextSequence())
+    const exportText = existsSync(exportFile) ? readFileSync(exportFile, 'utf8') : ''
+    const parsedExport = exportText === '' ? null : readBackupFile(exportText)
+    const exportedBackup = parsedExport !== null && parsedExport.ok ? parsedExport.backup : null
+    const exportedFileCount = exportedBackup?.tasks.length ?? -1
+    checks['exportSaved'] = exported.status === 'ok' && exported.outcome === 'SAVED'
+    checks['exportFileValid'] = exportedBackup !== null && exportedBackup.sourceFormatVersion === 4
+    checks['exportCountMatches'] = exported.status === 'ok' && exported.taskCount === exportedFileCount
+    checks['exportNoTempLeftovers'] = readdirSync(workDir).every((name) => !name.endsWith('.tmp'))
+    info['export'] = {
+      outcome: exported.status === 'ok' ? exported.outcome : exported.status,
+      taskCount: exported.status === 'ok' ? exported.taskCount : null,
+      fileTaskCount: exportedFileCount,
+      sourceFormatVersion: exportedBackup?.sourceFormatVersion ?? null,
+    }
+
+    // (2) Prévia completa e confirmação APPLIED com verificação e época nova.
+    dialogQueue.push({ kind: 'open', file: exportFile })
+    const appliedPreview = await services.prepareBackupRestore(ticket, contextSequence())
+    const appliedEpochBefore = backup.undo.epoch
+    const appliedConfirm =
+      appliedPreview.status === 'ok'
+        ? await services.confirmBackupRestore(ticket, contextSequence(), appliedPreview.restoreToken)
+        : null
+    const appliedReconfirm =
+      appliedPreview.status === 'ok'
+        ? await services.confirmBackupRestore(ticket, contextSequence(), appliedPreview.restoreToken)
+        : null
+    checks['prepareAppliedPreview'] =
+      appliedPreview.status === 'ok' &&
+      appliedPreview.sourceFormatVersion === 4 &&
+      appliedPreview.formatVersion === 4 &&
+      appliedPreview.fileTaskCount === exportedFileCount &&
+      appliedPreview.localTaskCount === 1 &&
+      appliedPreview.expiresInMs === BACKUP_PREVIEW_TTL_MS
+    checks['confirmApplied'] =
+      appliedConfirm !== null &&
+      appliedConfirm.status === 'ok' &&
+      appliedConfirm.outcome === 'APPLIED' &&
+      appliedConfirm.verification === 'VERIFIED' &&
+      appliedConfirm.undoEpoch === appliedEpochBefore + 1
+    checks['reconfirmInvalid'] =
+      appliedReconfirm !== null &&
+      appliedReconfirm.status === 'error' &&
+      appliedReconfirm.code === 'BACKUP_PREVIEW_INVALID'
+    info['applied'] = {
+      preview:
+        appliedPreview.status === 'ok'
+          ? {
+              sourceFormatVersion: appliedPreview.sourceFormatVersion,
+              formatVersion: appliedPreview.formatVersion,
+              fileTaskCount: appliedPreview.fileTaskCount,
+              localTaskCount: appliedPreview.localTaskCount,
+              expiresInMs: appliedPreview.expiresInMs,
+            }
+          : appliedPreview.status,
+      confirm:
+        appliedConfirm === null
+          ? null
+          : appliedConfirm.status === 'ok'
+            ? {
+                outcome: appliedConfirm.outcome,
+                revision: appliedConfirm.revision,
+                restoredCount: appliedConfirm.restoredCount,
+                verification: appliedConfirm.verification,
+                undoEpoch: appliedConfirm.undoEpoch,
+              }
+            : { code: appliedConfirm.code, commitState: appliedConfirm.commitState ?? null },
+      reconfirm:
+        appliedReconfirm === null ? null : appliedReconfirm.status === 'error' ? appliedReconfirm.code : appliedReconfirm.status,
+    }
+
+    // (3)+(7) UNCHANGED com duas superfícies inscritas na v3: a barreira de época chega sem
+    // revisão SQL nova e nenhum outro tipo de evento aparece.
+    const surfaceB = deps.createSurface(true)
+    if (surfaceB === null) throw new Error('second surface unavailable')
+    await loadSurface(surfaceB, deps.surfaceUrl)
+    const subscriptionA = await evaluate<BackupSubscriptionProbe>(surfaceA, BACKUP_SUBSCRIBE_SCRIPT)
+    const subscriptionB = await evaluate<BackupSubscriptionProbe>(surfaceB, BACKUP_SUBSCRIBE_SCRIPT)
+    checks['subscribeBothSurfaces'] =
+      subscriptionA.status === 'ok' &&
+      subscriptionB.status === 'ok' &&
+      subscriptionA.subscriptionId !== subscriptionB.subscriptionId
+
+    const unchangedRevisionBefore = coordinator.confirmedRevision ?? 0n
+    dialogQueue.push({ kind: 'open', file: exportFile })
+    const unchangedPreview = await services.prepareBackupRestore(ticket, contextSequence())
+    const unchangedEpochBefore = backup.undo.epoch
+    const unchangedConfirm =
+      unchangedPreview.status === 'ok'
+        ? await services.confirmBackupRestore(ticket, contextSequence(), unchangedPreview.restoreToken)
+        : null
+    checks['confirmUnchanged'] =
+      unchangedConfirm !== null &&
+      unchangedConfirm.status === 'ok' &&
+      unchangedConfirm.outcome === 'UNCHANGED' &&
+      unchangedConfirm.verification === 'VERIFIED' &&
+      unchangedConfirm.revision === formatRevision(unchangedRevisionBefore) &&
+      unchangedConfirm.undoEpoch === unchangedEpochBefore + 1
+    checks['unchangedKeepsRevision'] = (coordinator.confirmedRevision ?? 0n) === unchangedRevisionBefore
+
+    const expectedEpoch = unchangedConfirm !== null && unchangedConfirm.status === 'ok' ? unchangedConfirm.undoEpoch : -1
+    const epochOnSecondSurface =
+      expectedEpoch >= 1 ? await evaluate<boolean>(surfaceB, BACKUP_UPDATES_WAIT(expectedEpoch)) : false
+    const updatesA = await evaluate<BackupUpdateProbe[]>(surfaceA, BACKUP_UPDATES_READ)
+    const updatesB = await evaluate<BackupUpdateProbe[]>(surfaceB, BACKUP_UPDATES_READ)
+    checks['epochEventSecondSurface'] =
+      epochOnSecondSurface &&
+      updatesB.some(
+        (update) =>
+          update.type === 'undo-invalidated' &&
+          update.undoEpoch === expectedEpoch &&
+          update.reason === 'BACKUP_RESTORED',
+      )
+    checks['revisionStableSecondSurface'] =
+      subscriptionB.revision !== undefined &&
+      updatesB.filter((update) => update.type === 'snapshot').every((update) => update.revision === subscriptionB.revision) &&
+      (coordinator.confirmedRevision ?? 0n) === unchangedRevisionBefore
+    const knownTypes = new Set(['snapshot', 'stale', 'undo-invalidated'])
+    checks['noExtraEventTypes'] =
+      updatesA.every((update) => knownTypes.has(update.type)) &&
+      updatesB.every((update) => knownTypes.has(update.type)) &&
+      updatesB.every((update) => update.type === 'snapshot' || update.type === 'undo-invalidated')
+    info['unchanged'] = {
+      outcome: unchangedConfirm !== null && unchangedConfirm.status === 'ok' ? unchangedConfirm.outcome : unchangedConfirm?.status ?? null,
+      revision: unchangedConfirm !== null && unchangedConfirm.status === 'ok' ? unchangedConfirm.revision : null,
+      undoEpoch: unchangedConfirm !== null && unchangedConfirm.status === 'ok' ? unchangedConfirm.undoEpoch : null,
+      expectedEpoch,
+      updateTypesSecond: updatesB.map((update) => update.type),
+    }
+
+    surfaceB.destroy()
+    await waitFor(() => sessions.size === 1 && stateIpc.trackedDocuments <= 1, 10_000)
+    checks['testSurfaceReleased'] = sessions.size === 1 && stateIpc.trackedDocuments <= 1
+
+    // (4) Base mudou depois da prévia: BACKUP_BASE_CHANGED sem aplicar nada nem perder dados.
+    dialogQueue.push({ kind: 'open', file: exportFile })
+    const stalePreview = await services.prepareBackupRestore(ticket, contextSequence())
+    const lateTask = buildFictitiousTask(40_003, { idPrefix: 'backup-tardia' })
+    expectOkUnit(await coordinator.run((unit) => unit.saveTask(lateTask)))
+    const staleConfirm =
+      stalePreview.status === 'ok'
+        ? await services.confirmBackupRestore(ticket, contextSequence(), stalePreview.restoreToken)
+        : null
+    checks['baseStaleRefused'] =
+      staleConfirm !== null &&
+      staleConfirm.status === 'error' &&
+      staleConfirm.code === 'BACKUP_BASE_CHANGED' &&
+      staleConfirm.commitState === 'NOT_APPLIED'
+    const afterStale = await coordinator.read((reader) => ({
+      tasks: reader.listTasks().length,
+      trash: reader.listTrash().length,
+      kept: reader.getTask(kept.id) !== undefined,
+      late: reader.getTask(lateTask.id) !== undefined,
+    }))
+    checks['baseStaleNoLoss'] =
+      afterStale.ok &&
+      afterStale.value.kept &&
+      afterStale.value.late &&
+      afterStale.value.tasks === 2 &&
+      afterStale.value.trash === 1
+    info['baseStale'] = {
+      prepare: stalePreview.status,
+      confirm:
+        staleConfirm === null ? null : staleConfirm.status === 'error' ? staleConfirm.code : staleConfirm.status,
+      tasks: afterStale.ok ? afterStale.value.tasks : null,
+      trash: afterStale.ok ? afterStale.value.trash : null,
+    }
+
+    // (5) Portadora do arquivo com a mesma série de uma portadora na lixeira: SERIES_CONFLICT sem
+    // substituição; a lixeira permanece intacta.
+    const carrier = buildFictitiousTask(42, { idPrefix: 'backup-carrier' })
+    if (carrier.recurrence === undefined || carrier.seriesId === undefined) throw new Error('carrier fixture unavailable')
+    expectOkUnit(
+      await coordinator.run((unit) => {
+        unit.saveTask(carrier)
+        unit.moveToTrash(carrier.id, '2026-10-05T12:00:00.000Z')
+      }),
+    )
+    const seriesFile = path.join(workDir, 'series-conflict-v4.json')
+    writeFileSync(
+      seriesFile,
+      JSON.stringify({
+        format: 'taskflow-backup',
+        formatVersion: 4,
+        exportedAt: new Date().toISOString(),
+        app: { version: '0.1.0' },
+        tasks: [carrier],
+      }),
+      'utf8',
+    )
+    dialogQueue.push({ kind: 'open', file: seriesFile })
+    const seriesPreview = await services.prepareBackupRestore(ticket, contextSequence())
+    const seriesConfirm =
+      seriesPreview.status === 'ok'
+        ? await services.confirmBackupRestore(ticket, contextSequence(), seriesPreview.restoreToken)
+        : null
+    checks['seriesConflictRefused'] =
+      seriesConfirm !== null &&
+      seriesConfirm.status === 'error' &&
+      seriesConfirm.code === 'SERIES_CONFLICT' &&
+      seriesConfirm.commitState === 'NOT_APPLIED'
+    const carrierInTrash = await coordinator.read((reader) => reader.getTrashItem(carrier.id))
+    checks['seriesConflictKeepsTrash'] =
+      carrierInTrash.ok && carrierInTrash.value !== undefined && carrierInTrash.value.task.seriesId === carrier.seriesId
+    info['seriesConflict'] = {
+      prepare: seriesPreview.status,
+      confirm:
+        seriesConfirm === null ? null : seriesConfirm.status === 'error' ? seriesConfirm.code : seriesConfirm.status,
+      trashKept: carrierInTrash.ok && carrierInTrash.value !== undefined,
+    }
+
+    // (6) Somente com ponto pedido: falha injetada na gravação nunca abre diálogo e preserva o
+    // destino anterior (pontos pós-substituição viram aviso por contrato, sem rollback).
+    if (exportFail !== undefined) {
+      const failDestination = path.join(workDir, 'export-fail.json')
+      const originalContent = 'conteúdo anterior preservado'
+      writeFileSync(failDestination, originalContent, 'utf8')
+      const beforeRename =
+        exportFail === 'temp:before-write' ||
+        exportFail === 'temp:after-write' ||
+        exportFail === 'temp:after-sync' ||
+        exportFail === 'rename:before'
+      backup.writeFaults.at = (point) => {
+        if (point === exportFail) throw new Error('harness write fault')
+      }
+      dialogQueue.push({ kind: 'save', file: failDestination })
+      const failedExport = await services.exportBackup(ticket, contextSequence())
+      delete backup.writeFaults.at
+      const destinationContent = existsSync(failDestination) ? readFileSync(failDestination, 'utf8') : ''
+      const noTempLeftovers = readdirSync(workDir).every((name) => !name.endsWith('.tmp'))
+      if (beforeRename) {
+        checks['exportFailRefused'] =
+          failedExport.status === 'error' &&
+          failedExport.code === 'FILE_WRITE_FAILED' &&
+          destinationContent === originalContent &&
+          noTempLeftovers
+      } else {
+        checks['exportFailWarning'] =
+          failedExport.status === 'ok' &&
+          failedExport.outcome === 'SAVED_WITH_WARNING' &&
+          destinationContent !== originalContent
+      }
+      checks['exportFailDisarmed'] = backup.writeFaults.at === undefined
+      info['exportFail'] = {
+        point: exportFail,
+        beforeRename,
+        result:
+          failedExport.status === 'ok'
+            ? failedExport.outcome
+            : failedExport.status === 'error'
+              ? failedExport.code
+              : 'cancelled',
+        destinationPreserved: destinationContent === originalContent,
+        noTempLeftovers,
+      }
+    }
+
+    emit({ scenario: 'backup', ok: Object.values(checks).every(Boolean), checks, info })
+  } finally {
+    try {
+      rmSync(workDir, { recursive: true, force: true, maxRetries: 5 })
+    } catch {
+      // Diretório fictício temporário: resíduo não altera o resultado do cenário.
+    }
+  }
+
+  await new Promise<void>((resolve) => {
+    deps.mainWindow.once('closed', () => resolve())
+    deps.mainWindow.close()
+  })
+}
+
 export async function runProductHarness(
   scenario: ProductHarnessScenario,
   deps: ProductHarnessDependencies,
@@ -2054,6 +2509,10 @@ export async function runProductHarness(
     }
     if (scenario.name === 'trash') {
       await runTrash(deps)
+      return
+    }
+    if (scenario.name === 'backup') {
+      await runBackup(deps, scenario.exportFail)
       return
     }
     if (scenario.name === 'seed-sql1') {

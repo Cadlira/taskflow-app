@@ -87,7 +87,7 @@ Migrações explicitamente suportadas SHALL validar origem e destino e confirmar
 
 ### Requirement: Unidades de trabalho atômicas
 
-Mutações relacionadas SHALL confirmar tarefas, lixeira e revisões numa unidade atual de read/decide/validate/commit. Move com retenção/limite, restore e reversão anterior/gerada SHALL conferir condições e plano final antes de escrever. Nenhum produtor SHALL usar conexão/fila paralela; recusa SHALL não ocorrer após escrita parcial sem rollback.
+Mutações relacionadas SHALL confirmar tarefas/lixeira/revisões em read/decide/validate/commit atual. Move/restore/reversão e backup SHALL conferir base/plano final antes de escrever; backup SHALL substituir somente tasks por CAS global e verificar conteúdo. Nenhum produtor SHALL usar conexão/fila paralela ou confirmar recusa após escrita parcial sem rollback.
 
 #### Scenario: SaveMany interrompido entre registros
 - **WHEN** falha ocorre entre gravações de saveMany, fechada/gerada ou substituição interna validada
@@ -108,6 +108,11 @@ Mutações relacionadas SHALL confirmar tarefas, lixeira e revisões numa unidad
 - **THEN** rollback/reopen encontra somente anterior ou novo estado inteiro e uma revisão global coerente
 - **AND** falha depois de começar a aplicar plano reverte a unidade, sem confirmar recusa com alterações parciais
 
+#### Scenario: Backup substitui tasks e verifica antes de commit
+- **WHEN** arquivo válido e base global atual são confirmados, inclusive tasks:[]
+- **THEN** tasks finais e revisão são confirmadas numa unidade e trash permanece integral, sem mandar removidas à lixeira
+- **AND** mismatch pré-commit ou falha entre registros reverte tudo; operação não é dividida em commits
+
 ### Requirement: Colisão no restore preserva as coleções
 
 IDs SHALL permanecer únicos por coleção, permitindo homônimos entre tasks/trash. Restore SHALL conferir entrada/idade e preparação interna validada antes de escrever e retornar ID_EXISTS se ID está ativo. Recusa SHALL preservar coleções/revisões; sucesso SHALL dar novas revisões sem geração.
@@ -126,7 +131,7 @@ IDs SHALL permanecer únicos por coleção, permitindo homônimos entre tasks/tr
 
 ### Requirement: Revisões persistidas distinguem conteúdo e processamento
 
-Cada commit observável SHALL avançar global uma vez. Campos/status/regra/estrutura SHALL alterar content/edit, done só content e claim nenhuma delas. Novo move SHALL criar identidade de entrada com content/edit novas, preservando payload/timestamps; restore/revert SHALL receber revisões novas. Recusa/no-op/rollback SHALL conservar revisões exatas, sem wrap/ABA ou metadata no payload/backup.
+Cada commit observável SHALL avançar global uma vez. Campos/status/regra/estrutura SHALL alterar content/edit, done só content e claim nenhuma delas. Move/restore/revert e linhas novas/alteradas por backup SHALL receber revisões locais coerentes. Idênticas/no-op/recusa/rollback SHALL conservar revisões; epoch transitória SHALL não ser revisão SQL ou metadata no backup.
 
 #### Scenario: Revisão sobrevive a reopen
 - **WHEN** alterações são confirmadas e banco reabre
@@ -150,9 +155,14 @@ Cada commit observável SHALL avançar global uma vez. Campos/status/regra/estru
 - **THEN** nova entrada recebe contentRevision=editRevision da revisão global do commit e payload/timestamps conhecidos são preservados
 - **AND** SQL2/codec4 permanecem, linhas sobreviventes não são regravadas e referência antiga não autoriza substituição com deletedAt igual
 
+#### Scenario: Backup efetivo ou idêntico
+- **WHEN** substituição insere/altera/remove ou mantém tasks idênticas
+- **THEN** novas/alteradas recebem content/edit=g, sobreviventes idênticas mantêm metadata e global só avança na alteração
+- **AND** UNCHANGED invalida somente estado temporário sem inventar revisão/evento de alteração; timestamps do arquivo permanecem
+
 ### Requirement: Conflitos condicionais não perdem edição
 
-Edição/status/marcação SHALL verificar editRevision atual e conservar done relido. Exclusão confirmada e reversão SHALL verificar conteúdo completo; entrada de trash SHALL conferir identidade. Recusas SHALL preservar dados; reversão SHALL validar portadora final e markers atuais. Timestamp/global/edit SHALL não substituir conteúdo completo para undo.
+Edição/status/check SHALL verificar editRevision e marks atuais; exclusão/undo SHALL verificar conteúdo/entrada/plano final. Backup SHALL verificar base global exata e portadoras em tasks importadas+trash. Recusas SHALL conservar dados; global SHALL não substituir conteúdo completo para undo, e timestamp SHALL não substituir revisão.
 
 #### Scenario: Duas edições da mesma base
 - **WHEN** dois produtores tentam alterar estrutura/campos/status da mesma tarefa com editRevision esperada igual
@@ -175,6 +185,11 @@ Edição/status/marcação SHALL verificar editRevision atual e conservar done r
 - **WHEN** alvo/gerada muda conteúdo ou check A→B→A com timestamp igual, ou apenas claim ocorre
 - **THEN** conteúdo/check bloqueia reversão inteira, claim isolado conserva aplicabilidade/marker e reversão recebe updatedAt e revisões novas
 
+#### Scenario: Base de backup mudou em qualquer coleção
+- **WHEN** tasks/trash/claim altera revisão global depois da prévia, mesmo com counts iguais
+- **THEN** BACKUP_BASE_CHANGED recusa integralmente e exige nova prévia, sem elevar base/consentimento
+- **AND** essa condição global própria do backup não altera CAS por tarefa de edições independentes
+
 ### Requirement: Claim de ocorrência é condicional e interno
 
 Claim SHALL revalidar status, tarefa, reminder e ocorrência esperada no estado atual e persistir `processedFor` antes de qualquer efeito externo. Claim inaplicável SHALL ser no-op. Claim válido SHALL alterar revisão global sem mudar revisão de conteúdo ou `updatedAt`.
@@ -195,7 +210,7 @@ Claim SHALL revalidar status, tarefa, reminder e ocorrência esperada no estado 
 
 ### Requirement: Falhas e efeitos externos respeitam commit
 
-Sucesso e eventos de alteração SHALL ocorrer somente depois de commit confirmado. Falha com resultado incerto SHALL invalidar a conexão e exigir reopen/validação antes de continuar. Falha de resposta ou efeito externo pós-commit SHALL exigir ressincronização, sem repetir escrita cegamente ou desfazer o commit.
+Sucesso/evento durável SHALL exigir commit confirmado. Conclusão de backup SHALL verificar estado confirmado e aplicar barreira transitória antes da próxima unidade/publicação. Falha incerta SHALL bloquear conexão até reopen; falha pós-commit SHALL exigir reconciliação sem replay/rollback falso.
 
 #### Scenario: I/O ou commit falha
 - **WHEN** abertura, escrita, flush, commit, permissão ou disco cheio causa falha
@@ -209,6 +224,16 @@ Sucesso e eventos de alteração SHALL ocorrer somente depois de commit confirma
 #### Scenario: Resposta perdida
 - **WHEN** commit confirma e o processo/transporte interrompe antes de responder
 - **THEN** o novo snapshot mostra o commit integral e o cliente ressincroniza sem replay automático de escrita
+
+#### Scenario: Conferência pós-commit e próxima ação
+- **WHEN** commit de backup confirma e releitura/publicação/resposta posterior falha ou outro produtor está enfileirado
+- **THEN** commit permanece; barreira e contenção ocorrem antes do próximo produtor, e resultado distingue verificação PENDING de rollback
+- **AND** releitura não sofre interleaving que compare expectativa com edição posterior legítima
+
+#### Scenario: Resultado incerto recupera sem replay
+- **WHEN** COMMIT/rollback é incerto e banco reabre validado
+- **THEN** reopen encontra antigo/novo integral e barreira conservadora limpa estado temporário sem declarar sucesso da importação
+- **AND** token não é reconstruído/repetido e schema/corrupção bloqueado não é contornado substituindo SQLite
 
 ### Requirement: Leituras são livres de mutações de manutenção
 

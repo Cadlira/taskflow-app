@@ -13,8 +13,11 @@ import {
   parseTaskOpenSourceResult,
   parseTaskStatusRequest,
   parseTaskUpdateRequest,
+  taskCheckFailure,
+  taskCreateFailure,
   taskMutationFailure,
   taskSourceFailure,
+  type TaskCheckResult,
   type TaskCreateResult,
   type TaskMutationResult,
   type TaskOpenSourceResult,
@@ -41,7 +44,7 @@ export interface TaskCommandClient {
   createTask(request: unknown): Promise<TaskCreateResult>
   updateTask(request: unknown): Promise<TaskMutationResult>
   changeTaskStatus(request: unknown): Promise<TaskMutationResult>
-  setSubtaskDone(request: unknown): Promise<TaskMutationResult>
+  setSubtaskDone(request: unknown): Promise<TaskCheckResult>
   openTaskSource(request: unknown): Promise<TaskOpenSourceResult>
 }
 
@@ -55,15 +58,15 @@ async function invokeStrict(transport: TaskCommandTransport, channel: string, re
 }
 
 /**
- * Lado do documento dos comandos v2: valida o request antes de enviar e a resposta antes de
- * devolver. Request inválido nem chega ao main; saída malformada vira falha local de transporte.
+ * Lado do documento dos comandos: valida o request antes de enviar e a resposta antes de devolver.
+ * Request inválido nem chega ao main; saída malformada vira falha local de transporte.
  */
 export function createTaskCommandClient(transport: TaskCommandTransport): TaskCommandClient {
   return {
     async createTask(request: unknown): Promise<TaskCreateResult> {
       const parsed = parseTaskCreateRequest(request)
-      if (parsed.kind === 'invalid-request') return taskMutationFailure('INVALID_REQUEST')
-      if (parsed.kind === 'validation') return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
+      if (parsed.kind === 'invalid-request') return taskCreateFailure('INVALID_REQUEST')
+      if (parsed.kind === 'validation') return { ...taskCreateFailure('VALIDATION_FAILED'), fields: parsed.fields }
       const response = parseTaskCreateResult(await invokeStrict(transport, TASK_CREATE_CHANNEL, parsed.value))
       if (response === null) throw new TaskCommandTransportError()
       return response
@@ -87,10 +90,10 @@ export function createTaskCommandClient(transport: TaskCommandTransport): TaskCo
       return response
     },
 
-    async setSubtaskDone(request: unknown): Promise<TaskMutationResult> {
+    async setSubtaskDone(request: unknown): Promise<TaskCheckResult> {
       const parsed = parseSubtaskDoneRequest(request)
-      if (parsed.kind === 'invalid-request') return taskMutationFailure('INVALID_REQUEST')
-      if (parsed.kind === 'validation') return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
+      if (parsed.kind === 'invalid-request') return taskCheckFailure('INVALID_REQUEST')
+      if (parsed.kind === 'validation') return { ...taskCheckFailure('VALIDATION_FAILED'), fields: parsed.fields }
       const response = parseSubtaskDoneResult(await invokeStrict(transport, TASK_SUBTASK_DONE_CHANNEL, parsed.value))
       if (response === null) throw new TaskCommandTransportError()
       return response

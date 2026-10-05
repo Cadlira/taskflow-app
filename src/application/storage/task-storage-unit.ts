@@ -256,7 +256,7 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       for (const item of changed) writeTask(item, revision, revision)
 
       const created = changed.filter((item) => !current.has(item.task.id)).length
-      return { status: 'REPLACED', created, updated: changed.length - created, removed: removed.length }
+      return { status: 'REPLACED', created, updated: changed.length - created, removed: removed.length, revision }
     },
 
     deleteTask(id: string): boolean {

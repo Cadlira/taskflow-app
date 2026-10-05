@@ -2,7 +2,9 @@ import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell } from 'ele
 import { randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { BackupResourceLedger } from '../application/backup/backup-resources.js'
 import { UndoRegistry } from '../application/undo/undo-registry.js'
+import { BACKUP_CANCEL_CHANNEL, BACKUP_CONFIRM_CHANNEL, BACKUP_EXPORT_CHANNEL, BACKUP_PREPARE_CHANNEL } from '../contracts/backup.js'
 import type { FoundationResult } from '../contracts/foundation.js'
 import { STATE_SNAPSHOT_CHANNEL, STATE_SUBSCRIBE_CHANNEL, STATE_UNSUBSCRIBE_CHANNEL } from '../contracts/state.js'
 import {
@@ -24,7 +26,13 @@ import {
 } from '../contracts/trash.js'
 import { runFoundationProof } from './foundation-proof.js'
 import { harnessSkipsCoordinatorStart, parseProductHarnessScenario, runProductHarness } from './harness/product-harness.js'
+import { createElectronBackupDialogBroker } from './backup/backup-dialogs-electron.js'
+import type { BackupWriteFaults } from './backup/backup-file-write.js'
+import { BackupJobGate } from './backup/backup-job.js'
+import { BackupRestoreRegistry } from './backup/backup-restore-registry.js'
+import { BackupCommandServices } from './backup/backup-restore-service.js'
 import { DocumentSessions } from './ipc/document-sessions.js'
+import { BackupCommandIpcService } from './ipc/backup.js'
 import { FOUNDATION_CHANNEL, FoundationBusyGate, handleFoundationInvocation } from './ipc/foundation.js'
 import { StateIpcService } from './ipc/state.js'
 import { TaskCommandIpcService } from './ipc/tasks.js'
@@ -65,10 +73,22 @@ if (!ownsProfile) {
   const sessions = new DocumentSessions(expectedOrigin)
   // Recibos/confirmações/contexto são temporários e por documento: sessão invalidada limpa tudo.
   const undo = new UndoRegistry({ randomToken: () => randomBytes(24).toString('base64url') })
-  sessions.onInvalidated((key) => undo.forgetDocument(key))
+  const backupLedger = new BackupResourceLedger()
+  const backupGate = new BackupJobGate()
+  const backupRegistry = new BackupRestoreRegistry({
+    ledger: backupLedger,
+    randomToken: () => randomBytes(24).toString('base64url'),
+  })
+  sessions.onInvalidated((key) => {
+    undo.forgetDocument(key)
+    backupRegistry.forgetDocument(key)
+  })
+  // Contexto novo (troca de área/ação) libera preparação de backup obsoleta do documento.
+  undo.onContextEstablished((key, sequence) => backupRegistry.releaseOutdated(key, sequence))
   // Harness restrito ao perfil test: nunca é alcançável pelo preload/IPC nem pelo perfil prod.
   const harnessScenario = profile === 'test' ? parseProductHarnessScenario(process.argv) : null
   const harnessFaults: StorageFaults = {}
+  const harnessBackupWriteFaults: BackupWriteFaults = {}
   const coordinator = new StorageCoordinator({
     open: () =>
       ProductDatabase.open(resolveProductDatabaseFile(app.getPath('userData')), PRODUCT_STORAGE_DEFINITION, harnessFaults),
@@ -77,6 +97,7 @@ if (!ownsProfile) {
   const stateIpc = new StateIpcService({
     sessions,
     storage: coordinator,
+    undo,
     randomToken: () => randomBytes(24).toString('base64url'),
   })
   // Porta de abertura externa do main: recebe somente href já validado pelo serviço de comando.
@@ -95,6 +116,27 @@ if (!ownsProfile) {
     clock: () => new Date(),
     undo,
   })
+  const backupDialogs = createElectronBackupDialogBroker({
+    windowFor: (ticket) =>
+      BrowserWindow.getAllWindows().find((window) => !window.isDestroyed() && window.webContents.id === ticket.contentsId) ??
+      null,
+    defaultDirectory: () => app.getPath('documents'),
+  })
+  const backupServices = new BackupCommandServices({
+    dialogs: backupDialogs,
+    storage: coordinator,
+    ledger: backupLedger,
+    gate: backupGate,
+    registry: backupRegistry,
+    undo,
+    clock: () => new Date(),
+    appVersion: () => app.getVersion(),
+    protectedRoots: () => [app.getPath('userData'), app.getPath('sessionData'), app.getAppPath()],
+    isAuthorized: (ticket) => sessions.isCurrent(ticket),
+    contextSequence: (ticket) => undo.contextSequence(ticket.key),
+    faults: harnessBackupWriteFaults,
+  })
+  const backupIpc = new BackupCommandIpcService({ sessions, services: backupServices })
   let mainWindow: BrowserWindow | null = null
   let shutdownStarted = false
 
@@ -211,6 +253,10 @@ if (!ownsProfile) {
     ipcMain.handle(TRASH_EMPTY_CHANNEL, (event, request: unknown) => trashIpc.handleEmpty(event, request))
     ipcMain.handle(TRASH_PREPARE_VIEW_CHANNEL, (event, request: unknown) => trashIpc.handlePrepareView(event, request))
     ipcMain.handle(TRASH_UNDO_CHANNEL, (event, request: unknown) => trashIpc.handleUndo(event, request))
+    ipcMain.handle(BACKUP_EXPORT_CHANNEL, (event, request: unknown) => backupIpc.handleExport(event, request))
+    ipcMain.handle(BACKUP_PREPARE_CHANNEL, (event, request: unknown) => backupIpc.handlePrepare(event, request))
+    ipcMain.handle(BACKUP_CONFIRM_CHANNEL, (event, request: unknown) => backupIpc.handleConfirm(event, request))
+    ipcMain.handle(BACKUP_CANCEL_CHANNEL, (event, request: unknown) => backupIpc.handleCancel(event, request))
   }
 
   /**
@@ -239,6 +285,10 @@ if (!ownsProfile) {
       TRASH_EMPTY_CHANNEL,
       TRASH_PREPARE_VIEW_CHANNEL,
       TRASH_UNDO_CHANNEL,
+      BACKUP_EXPORT_CHANNEL,
+      BACKUP_PREPARE_CHANNEL,
+      BACKUP_CONFIRM_CHANNEL,
+      BACKUP_CANCEL_CHANNEL,
     ]) {
       ipcMain.removeHandler(channel)
     }
@@ -278,6 +328,15 @@ if (!ownsProfile) {
         foundationProofFile: resolveFoundationProofFile(app.getPath('userData')),
         shutdownStorage,
         opener,
+        backup: {
+          ipc: backupIpc,
+          services: backupServices,
+          registry: backupRegistry,
+          ledger: backupLedger,
+          gate: backupGate,
+          undo,
+          writeFaults: harnessBackupWriteFaults,
+        },
       })
     } else if (profile === 'test') {
       await runFoundationSmoke(mainWindow)

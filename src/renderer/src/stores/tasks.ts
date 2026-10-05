@@ -3,7 +3,12 @@ import { computed, ref, shallowRef } from 'vue'
 import { TaskCommandTransportError } from '../../../application/tasks/task-client.js'
 import { TrashCommandTransportError } from '../../../application/tasks/trash-client.js'
 import type { StateErrorCode, StateSnapshot, StateUpdate, TaskRecord, TrashRecord } from '../../../contracts/state.js'
-import type { TaskCancellation, TaskCommandErrorCode, TaskMutationFailure, TaskMutationResult } from '../../../contracts/tasks.js'
+import type {
+  TaskCancellation,
+  TaskCommandErrorCode,
+  TaskMutationResult,
+  TaskCheckResult,
+} from '../../../contracts/tasks.js'
 import type { TrashErrorCode } from '../../../contracts/trash.js'
 import type { CreateTaskDraft, EditTaskPatch, TaskFieldErrors } from '../../../domain/task-draft.js'
 import { compareTrashEntries, isTrashExpired } from '../../../domain/task-trash.js'
@@ -17,6 +22,14 @@ import {
   type TaskSortKey,
 } from '../../../domain/task-queries.js'
 import type { Task, TaskStatus } from '../../../domain/task.js'
+
+/** Falha de contrato com os campos comuns das três versões (criação/check v3, mutação v4). */
+type AnyTaskFailure = Readonly<{
+  code: TaskCommandErrorCode
+  fields?: TaskFieldErrors
+  currentContentRevision?: string
+  currentEditRevision?: string
+}>
 
 /** Estados de apresentação explícitos; erro nunca vira coleção vazia. */
 export type TasksPresentation = 'loading' | 'ready' | 'empty' | 'stale' | 'blocked'
@@ -89,6 +102,8 @@ interface PendingAck {
   editRevision: string
   /** Contexto em que a ação foi executada: oferta só publica se ainda for o corrente. */
   context: number
+  /** Época do ack elegível; oferta só publica se ainda for a época conhecida. */
+  epoch: number
   /** Token opaco da oferta de undo, publicado somente com snapshot >= ack. */
   undoToken?: string
 }
@@ -132,6 +147,8 @@ export const useTasksStore = defineStore('tasks', () => {
   const records = shallowRef<TaskRecord[]>([])
   const trashRecords = shallowRef<TrashRecord[]>([])
   const revision = ref<string | undefined>(undefined)
+  /** Época transitória do undo conhecida; ack/oferta só valem para a época corrente. */
+  const undoEpoch = ref<number | undefined>(undefined)
   const stale = ref(false)
   const initialError = ref<StateErrorCode | null>(null)
   const filters = ref<TaskFilters>({ ...EMPTY_TASK_FILTERS })
@@ -149,6 +166,8 @@ export const useTasksStore = defineStore('tasks', () => {
   const lastConfirmed = shallowRef<TaskConfirmation | null>(null)
   // ---- Lixeira e desfazer (TFA-006) ----
   const trashMode = ref(false)
+  /** Área de backup (TFA-007): uma inscrição existente, sem serviços futuros. */
+  const backupMode = ref(false)
   const trashMaintenance = ref<'idle' | 'running' | 'failed'>('idle')
   const trashError = ref<TrashErrorCode | null>(null)
   const offer = ref<UndoOfferView | null>(null)
@@ -232,8 +251,16 @@ export const useTasksStore = defineStore('tasks', () => {
 
   function adopt(snapshot: StateSnapshot): void {
     // O cliente nunca regride; o store reforça para snapshots injetados fora do fluxo.
-    if (revision.value !== undefined && BigInt(snapshot.revision) < BigInt(revision.value)) return
+    const epochAdvanced = undoEpoch.value === undefined || snapshot.undoEpoch > undoEpoch.value
+    if (revision.value !== undefined && BigInt(snapshot.revision) < BigInt(revision.value) && !epochAdvanced) return
     revision.value = snapshot.revision
+    if (undoEpoch.value === undefined || snapshot.undoEpoch > undoEpoch.value) {
+      undoEpoch.value = snapshot.undoEpoch
+      // Época maior limpa ofertas/confirmações mesmo com revisão SQL igual.
+      offer.value = null
+      confirmation.value = null
+      if (pendingAck !== undefined) delete pendingAck.undoToken
+    }
     records.value = snapshot.tasks
     trashRecords.value = snapshot.trash
     stale.value = false
@@ -256,8 +283,8 @@ export const useTasksStore = defineStore('tasks', () => {
     pendingAck = undefined
     awaitingConfirmation.value = false
     updatePending.value = false
-    // Oferta somente depois do snapshot >= ack e com o contexto ainda corrente.
-    if (ack.undoToken !== undefined && ack.context === contextSequence) {
+    // Oferta somente depois do snapshot >= ack, com contexto E época ainda correntes.
+    if (ack.undoToken !== undefined && ack.context === contextSequence && ack.epoch === undoEpoch.value) {
       offer.value = {
         token: ack.undoToken,
         kind: ack.kind === 'move' ? 'delete' : ack.kind === 'status' ? 'status' : 'update',
@@ -270,6 +297,15 @@ export const useTasksStore = defineStore('tasks', () => {
   function handleUpdate(update: StateUpdate): void {
     if (update.type === 'snapshot') {
       adopt(update.snapshot)
+      return
+    }
+    if (update.type === 'undo-invalidated') {
+      if (undoEpoch.value !== undefined && update.undoEpoch <= undoEpoch.value) return
+      undoEpoch.value = update.undoEpoch
+      // Barreira transitória: oferta/confirmação antigas não valem mais; nada é revertido.
+      offer.value = null
+      confirmation.value = null
+      if (pendingAck !== undefined) delete pendingAck.undoToken
       return
     }
     stale.value = true
@@ -301,7 +337,7 @@ export const useTasksStore = defineStore('tasks', () => {
     if (subscriptionId !== undefined) return
     startClock()
 
-    const result = await window.taskflowDesktop.subscribeState({ version: 2 }, handleUpdate)
+    const result = await window.taskflowDesktop.subscribeState({ version: 3 }, handleUpdate)
     if (result.status !== 'ok') {
       initialError.value = result.code
       return
@@ -314,12 +350,12 @@ export const useTasksStore = defineStore('tasks', () => {
     stopClock()
     const id = subscriptionId
     subscriptionId = undefined
-    if (id !== undefined) await window.taskflowDesktop.unsubscribeState({ version: 2, subscriptionId: id })
+    if (id !== undefined) await window.taskflowDesktop.unsubscribeState({ version: 3, subscriptionId: id })
   }
 
   /** Ressincronização por snapshot; nunca regride nem converte erro em lista vazia. */
   async function refresh(): Promise<boolean> {
-    const result = await window.taskflowDesktop.getStateSnapshot({ version: 2 })
+    const result = await window.taskflowDesktop.getStateSnapshot({ version: 3 })
     if (result.status !== 'ok') {
       resyncError.value = result.code
       return false
@@ -341,7 +377,7 @@ export const useTasksStore = defineStore('tasks', () => {
     return false
   }
 
-  function mapFailure(failure: TaskMutationFailure, taskId: string | undefined): TaskCommandStoreResult {
+  function mapFailure(failure: AnyTaskFailure, taskId: string | undefined): TaskCommandStoreResult {
     switch (failure.code) {
       case 'VALIDATION_FAILED':
         return { status: 'validation', fields: failure.fields ?? {} }
@@ -413,6 +449,7 @@ export const useTasksStore = defineStore('tasks', () => {
     kind: CommandKind,
     taskId: string | undefined,
     ack: { revision: string; contentRevision: string; editRevision: string; undoToken?: string },
+    epoch?: number,
   ): void {
     pendingAck = {
       kind,
@@ -421,6 +458,7 @@ export const useTasksStore = defineStore('tasks', () => {
       contentRevision: ack.contentRevision,
       editRevision: ack.editRevision,
       context: contextSequence,
+      epoch: epoch ?? undoEpoch.value ?? 0,
       ...(ack.undoToken !== undefined && { undoToken: ack.undoToken }),
     }
     awaitingConfirmation.value = true
@@ -434,6 +472,7 @@ export const useTasksStore = defineStore('tasks', () => {
     kind: TrashCommandKind,
     taskId: string | undefined,
     ack: { revision: string; contentRevision?: string; editRevision?: string; undoToken?: string },
+    epoch?: number,
   ): void {
     pendingAck = {
       kind,
@@ -442,6 +481,7 @@ export const useTasksStore = defineStore('tasks', () => {
       contentRevision: ack.contentRevision ?? '0',
       editRevision: ack.editRevision ?? '0',
       context: contextSequence,
+      epoch: epoch ?? undoEpoch.value ?? 0,
       ...(ack.undoToken !== undefined && { undoToken: ack.undoToken }),
     }
     awaitingConfirmation.value = true
@@ -521,7 +561,7 @@ export const useTasksStore = defineStore('tasks', () => {
   async function runMutation(
     kind: Exclude<TaskCommandKind, 'create'>,
     taskId: string,
-    operation: () => Promise<TaskMutationResult>,
+    operation: () => Promise<TaskMutationResult | TaskCheckResult>,
   ): Promise<TaskCommandStoreResult> {
     const blocked = gateBeforeWrite(taskId)
     if (blocked !== null) return blocked
@@ -531,7 +571,7 @@ export const useTasksStore = defineStore('tasks', () => {
       if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
       const response = await operation()
       if (response.status === 'error') return mapFailure(response, taskId)
-      acceptAck(kind, taskId, response)
+      acceptAck(kind, taskId, response, 'undoEpoch' in response ? response.undoEpoch : undefined)
       return { status: 'accepted', kind }
     } catch (error) {
       if (error instanceof TaskCommandTransportError) {
@@ -556,7 +596,7 @@ export const useTasksStore = defineStore('tasks', () => {
   ): Promise<TaskCommandStoreResult> {
     return runMutation('update', taskId, () =>
       window.taskflowDesktop.updateTask({
-        version: 3,
+        version: 4,
         contextSequence,
         taskId,
         expectedEditRevision,
@@ -574,7 +614,7 @@ export const useTasksStore = defineStore('tasks', () => {
   ): Promise<TaskCommandStoreResult> {
     return runMutation('status', taskId, () =>
       window.taskflowDesktop.changeTaskStatus({
-        version: 3,
+        version: 4,
         contextSequence,
         taskId,
         expectedEditRevision,
@@ -646,6 +686,19 @@ export const useTasksStore = defineStore('tasks', () => {
   async function leaveTrash(): Promise<void> {
     trashMode.value = false
     confirmation.value = null
+    await startAction()
+  }
+
+  /** Entra na área de Backup: limpa oferta própria pelo contexto, mantendo uma inscrição. */
+  async function enterBackup(): Promise<boolean> {
+    trashMode.value = false
+    confirmation.value = null
+    backupMode.value = true
+    return startAction()
+  }
+
+  async function leaveBackup(): Promise<void> {
+    backupMode.value = false
     await startAction()
   }
 
@@ -741,13 +794,13 @@ export const useTasksStore = defineStore('tasks', () => {
     submitting.value = true
     try {
       const response = await window.taskflowDesktop.moveTaskToTrash({
-        version: 1,
+        version: 2,
         contextSequence,
         confirmationToken: current.token,
       })
       confirmation.value = null
       if (response.status === 'error') return mapTrashFailure(response.code)
-      acceptTrashAck('move', current.taskId, response)
+      acceptTrashAck('move', current.taskId, response, response.undoEpoch)
       deleteNotice.value = { retained: response.retained, discarded: 0 }
       return { status: 'accepted', kind: 'move', retained: response.retained, revision: response.revision }
     } catch (error) {
@@ -953,6 +1006,7 @@ export const useTasksStore = defineStore('tasks', () => {
     records,
     trashRecords,
     revision,
+    undoEpoch,
     stale,
     initialError,
     filters,
@@ -979,6 +1033,7 @@ export const useTasksStore = defineStore('tasks', () => {
     trashVisible,
     trashTotal,
     trashMode,
+    backupMode,
     trashPresentation,
     trashMaintenance,
     trashError,
@@ -990,6 +1045,7 @@ export const useTasksStore = defineStore('tasks', () => {
     refresh,
     waitForSnapshot,
     startAction,
+    currentContext: () => contextSequence,
     create,
     update,
     changeStatus,
@@ -997,6 +1053,8 @@ export const useTasksStore = defineStore('tasks', () => {
     openSource,
     enterTrash,
     leaveTrash,
+    enterBackup,
+    leaveBackup,
     runTrashMaintenance,
     requestDelete,
     confirmMove,

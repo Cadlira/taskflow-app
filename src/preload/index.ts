@@ -1,14 +1,23 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { createBackupCommandClient, type BackupCommandTransport } from '../application/backup/backup-client.js'
 import { createStateClient, type StateTransport } from '../application/state/state-client.js'
 import { createTaskCommandClient, type TaskCommandTransport } from '../application/tasks/task-client.js'
 import { createTrashCommandClient, type TrashCommandTransport } from '../application/tasks/trash-client.js'
 import type { TaskFlowDesktopApi } from '../contracts/desktop-api.js'
 import type { FoundationRequest, FoundationResult } from '../contracts/foundation.js'
 import {
+  BACKUP_COMMAND_CHANNELS,
+  type CancelBackupRestoreRequest,
+  type ConfirmBackupRestoreRequest,
+  type ExportBackupRequest,
+  type PrepareBackupRestoreRequest,
+} from '../contracts/backup.js'
+import {
   STATE_CHANGED_EVENT,
   STATE_SNAPSHOT_CHANNEL,
   STATE_SUBSCRIBE_CHANNEL,
   STATE_UNAVAILABLE_EVENT,
+  STATE_UNDO_INVALIDATED_EVENT,
   STATE_UNSUBSCRIBE_CHANNEL,
   type StateListener,
   type StateRequest,
@@ -42,7 +51,11 @@ const STATE_INVOKE_CHANNELS: readonly string[] = [
   STATE_SUBSCRIBE_CHANNEL,
   STATE_UNSUBSCRIBE_CHANNEL,
 ]
-const STATE_EVENT_CHANNELS: readonly string[] = [STATE_CHANGED_EVENT, STATE_UNAVAILABLE_EVENT]
+const STATE_EVENT_CHANNELS: readonly string[] = [
+  STATE_CHANGED_EVENT,
+  STATE_UNAVAILABLE_EVENT,
+  STATE_UNDO_INVALIDATED_EVENT,
+]
 
 const stateTransport: StateTransport = {
   invoke(channel: string, request: unknown): Promise<unknown> {
@@ -72,6 +85,13 @@ const trashTransport: TrashCommandTransport = {
   },
 }
 
+const backupTransport: BackupCommandTransport = {
+  invoke(channel: string, request: unknown): Promise<unknown> {
+    if (!BACKUP_COMMAND_CHANNELS.includes(channel)) return Promise.reject(new Error('channel not allowed'))
+    return ipcRenderer.invoke(channel, request)
+  },
+}
+
 // Um único cliente por documento: listeners fixos instalados antes de qualquer subscribe.
 const stateClient = createStateClient(stateTransport, {
   setInterval: (callback, milliseconds) => setInterval(callback, milliseconds),
@@ -83,6 +103,7 @@ const stateClient = createStateClient(stateTransport, {
 })
 const taskClient = createTaskCommandClient(taskTransport)
 const trashClient = createTrashCommandClient(trashTransport)
+const backupClient = createBackupCommandClient(backupTransport)
 
 const desktopApi: TaskFlowDesktopApi = Object.freeze({
   verifyFoundation: (request: FoundationRequest): Promise<FoundationResult> =>
@@ -105,6 +126,10 @@ const desktopApi: TaskFlowDesktopApi = Object.freeze({
   emptyTrash: (request: EmptyTrashRequest) => trashClient.emptyTrash(request),
   prepareTrashView: (request: PrepareTrashViewRequest) => trashClient.prepareTrashView(request),
   undoLastTaskAction: (request: UndoLastTaskActionRequest) => trashClient.undoLastTaskAction(request),
+  exportBackup: (request: ExportBackupRequest) => backupClient.exportBackup(request),
+  prepareBackupRestore: (request: PrepareBackupRestoreRequest) => backupClient.prepareBackupRestore(request),
+  confirmBackupRestore: (request: ConfirmBackupRestoreRequest) => backupClient.confirmBackupRestore(request),
+  cancelBackupRestore: (request: CancelBackupRestoreRequest) => backupClient.cancelBackupRestore(request),
 })
 
 contextBridge.exposeInMainWorld('taskflowDesktop', desktopApi)

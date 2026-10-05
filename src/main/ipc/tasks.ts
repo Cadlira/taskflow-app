@@ -19,9 +19,16 @@ import {
   parseTaskOpenSourceRequest,
   parseTaskStatusRequest,
   parseTaskUpdateRequest,
+  taskCheckFailure,
+  taskCreateFailure,
   taskMutationFailure,
   taskSourceFailure,
+  type TaskCheckAck,
+  type TaskCheckFailure,
+  type TaskCheckResult,
+  type TaskCreateAck,
   type TaskCreateResult,
+  type TaskMutationAck,
   type TaskMutationErrorCode,
   type TaskMutationFailure,
   type TaskMutationResult,
@@ -114,15 +121,15 @@ export class TaskCommandIpcService {
   async handleCreate(event: InvocationLike, request: unknown): Promise<TaskCreateResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return taskMutationFailure('UNAUTHORIZED')
+      if (ticket === null) return taskCreateFailure('UNAUTHORIZED')
 
       const parsed = parseTaskCreateRequest(request)
-      if (parsed.kind === 'invalid-request') return taskMutationFailure('INVALID_REQUEST')
+      if (parsed.kind === 'invalid-request') return taskCreateFailure('INVALID_REQUEST')
       if (parsed.kind === 'validation') {
-        return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
+        return { ...taskCreateFailure('VALIDATION_FAILED'), fields: parsed.fields }
       }
       const { contextSequence, draft } = parsed.value
-      if (!this.#hasContext(ticket, contextSequence)) return taskMutationFailure('STALE_CONTEXT')
+      if (!this.#hasContext(ticket, contextSequence)) return taskCreateFailure('STALE_CONTEXT')
 
       const result = await this.#storage.run(
         (unit) => {
@@ -131,17 +138,17 @@ export class TaskCommandIpcService {
         },
         this.#options(ticket),
       )
-      if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
-      if (!result.ok) return taskMutationFailure(taskErrorCodeFor(result.reason))
+      if (!this.#sessions.isCurrent(ticket)) return taskCreateFailure('SESSION_CLOSED')
+      if (!result.ok) return taskCreateFailure(taskErrorCodeFor(result.reason))
 
       const outcome = result.value
-      if (outcome.status === 'STALE_CONTEXT') return taskMutationFailure('STALE_CONTEXT')
+      if (outcome.status === 'STALE_CONTEXT') return taskCreateFailure('STALE_CONTEXT')
       if (outcome.status === 'VALIDATION_FAILED') {
-        return { ...taskMutationFailure('VALIDATION_FAILED'), fields: outcome.fields }
+        return { ...taskCreateFailure('VALIDATION_FAILED'), fields: outcome.fields }
       }
-      if (outcome.status === 'IDENTITY_CONFLICT') return taskMutationFailure('IDENTITY_CONFLICT')
+      if (outcome.status === 'IDENTITY_CONFLICT') return taskCreateFailure('IDENTITY_CONFLICT')
 
-      return this.#budget({
+      const ack: TaskCreateAck = {
         version: 3,
         status: 'ok',
         outcome: 'APPLIED',
@@ -149,9 +156,10 @@ export class TaskCommandIpcService {
         revision: formatRevision(result.revision),
         contentRevision: formatRevision(outcome.contentRevision),
         editRevision: formatRevision(outcome.editRevision),
-      })
+      }
+      return fitsResponseBudget(ack) ? ack : taskCreateFailure('RESOURCE_LIMIT')
     } catch {
-      return taskMutationFailure('STORAGE_UNAVAILABLE')
+      return taskCreateFailure('STORAGE_UNAVAILABLE')
     }
   }
 
@@ -255,18 +263,18 @@ export class TaskCommandIpcService {
     }
   }
 
-  async handleSubtaskDone(event: InvocationLike, request: unknown): Promise<TaskMutationResult> {
+  async handleSubtaskDone(event: InvocationLike, request: unknown): Promise<TaskCheckResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return taskMutationFailure('UNAUTHORIZED')
+      if (ticket === null) return taskCheckFailure('UNAUTHORIZED')
 
       const parsed = parseSubtaskDoneRequest(request)
-      if (parsed.kind === 'invalid-request') return taskMutationFailure('INVALID_REQUEST')
+      if (parsed.kind === 'invalid-request') return taskCheckFailure('INVALID_REQUEST')
       if (parsed.kind === 'validation') {
-        return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
+        return { ...taskCheckFailure('VALIDATION_FAILED'), fields: parsed.fields }
       }
       const { contextSequence, taskId, expectedEditRevision, subtaskId, done } = parsed.value
-      if (!this.#hasContext(ticket, contextSequence)) return taskMutationFailure('STALE_CONTEXT')
+      if (!this.#hasContext(ticket, contextSequence)) return taskCheckFailure('STALE_CONTEXT')
 
       const result = await this.#storage.run(
         (unit) => {
@@ -281,11 +289,11 @@ export class TaskCommandIpcService {
         },
         this.#options(ticket),
       )
-      if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
-      if (!result.ok) return taskMutationFailure(taskErrorCodeFor(result.reason))
+      if (!this.#sessions.isCurrent(ticket)) return taskCheckFailure('SESSION_CLOSED')
+      if (!result.ok) return taskCheckFailure(taskErrorCodeFor(result.reason))
       return this.#subtaskResponse(result.revision, result.value)
     } catch {
-      return taskMutationFailure('STORAGE_UNAVAILABLE')
+      return taskCheckFailure('STORAGE_UNAVAILABLE')
     }
   }
 
@@ -404,73 +412,108 @@ export class TaskCommandIpcService {
   ): TaskMutationResult {
     const outcome = result.value
     if (outcome.status === 'UPDATED' || outcome.status === 'UNCHANGED') {
+      // Época lida ANTES de publicar: o ack só carrega a época sob a qual a oferta pôde existir.
+      const undoEpoch = this.#undo.epoch
       const undoToken = result.committed ? this.#publishUndo(ticket, sequence, outcome) : undefined
       releasePending()
-      return this.#budget({
-        version: 3,
+      const ack: TaskMutationAck = {
+        version: 4,
         status: 'ok',
         outcome: outcome.status === 'UPDATED' ? 'APPLIED' : 'UNCHANGED',
         revision: formatRevision(result.revision),
         contentRevision: formatRevision(outcome.contentRevision),
         editRevision: formatRevision(outcome.editRevision),
+        undoEpoch,
         ...(undoToken !== undefined && { undoToken }),
-      })
+      }
+      return fitsResponseBudget(ack) ? ack : taskMutationFailure('RESOURCE_LIMIT')
     }
     releasePending()
     return this.#mutationFailure(outcome)
   }
 
-  #subtaskResponse(revision: Revision, outcome: SubtaskDoneOutcome): TaskMutationResult {
+  #subtaskResponse(revision: Revision, outcome: SubtaskDoneOutcome): TaskCheckResult {
     if (outcome.status === 'UPDATED' || outcome.status === 'UNCHANGED') {
-      return this.#budget({
+      const ack: TaskCheckAck = {
         version: 3,
         status: 'ok',
         outcome: outcome.status === 'UPDATED' ? 'APPLIED' : 'UNCHANGED',
         revision: formatRevision(revision),
         contentRevision: formatRevision(outcome.contentRevision),
         editRevision: formatRevision(outcome.editRevision),
-      })
+      }
+      return fitsResponseBudget(ack) ? ack : taskCheckFailure('RESOURCE_LIMIT')
     }
-    return this.#mutationFailure(outcome)
+    return this.#checkFailure(outcome)
   }
 
-  #mutationFailure(
-    outcome: Exclude<MutationTaskOutcome, { status: 'UPDATED' | 'UNCHANGED' }> | Exclude<SubtaskDoneOutcome, { status: 'UPDATED' | 'UNCHANGED' }>,
-  ): TaskMutationResult {
+  /** Campos comuns das recusas de update/status e de check; a versão é do chamador. */
+  #failureDetails(
+    outcome:
+      | Exclude<MutationTaskOutcome, { status: 'UPDATED' | 'UNCHANGED' }>
+      | Exclude<SubtaskDoneOutcome, { status: 'UPDATED' | 'UNCHANGED' }>,
+  ): { code: TaskMutationErrorCode; fields?: TaskMutationFailure['fields']; content?: Revision; edit?: Revision } {
     switch (outcome.status) {
       case 'VALIDATION_FAILED':
-        return { ...taskMutationFailure('VALIDATION_FAILED'), fields: outcome.fields }
+        return { code: 'VALIDATION_FAILED', fields: outcome.fields }
       case 'NOT_FOUND':
-        return taskMutationFailure('NOT_FOUND')
+        return { code: 'NOT_FOUND' }
       case 'SUBTASK_NOT_FOUND':
-        return taskMutationFailure('SUBTASK_NOT_FOUND')
+        return { code: 'SUBTASK_NOT_FOUND' }
       case 'ADVANCED_TASK_RESTRICTED':
-        return taskMutationFailure('ADVANCED_TASK_RESTRICTED')
+        return { code: 'ADVANCED_TASK_RESTRICTED' }
       case 'RECURRENCE_CHOICE_REQUIRED':
-        return taskMutationFailure('RECURRENCE_CHOICE_REQUIRED')
+        return { code: 'RECURRENCE_CHOICE_REQUIRED' }
       case 'RECURRENCE_OUT_OF_RANGE':
-        return taskMutationFailure('RECURRENCE_OUT_OF_RANGE')
+        return { code: 'RECURRENCE_OUT_OF_RANGE' }
       case 'RESOURCE_LIMIT':
-        return taskMutationFailure('RESOURCE_LIMIT')
+        return { code: 'RESOURCE_LIMIT' }
       case 'SERIES_CONFLICT':
-        return taskMutationFailure('SERIES_CONFLICT')
+        return { code: 'SERIES_CONFLICT' }
       case 'IDENTITY_CONFLICT':
-        return taskMutationFailure('IDENTITY_CONFLICT')
+        return { code: 'IDENTITY_CONFLICT' }
       case 'INVALID_REQUEST':
-        return taskMutationFailure('INVALID_REQUEST')
+        return { code: 'INVALID_REQUEST' }
       case 'STALE_CONTEXT':
-        return taskMutationFailure('STALE_CONTEXT')
+        return { code: 'STALE_CONTEXT' }
       case 'CONFLICT':
         return {
-          ...taskMutationFailure('CONFLICT'),
-          currentContentRevision: formatRevision(outcome.currentContentRevision),
-          currentEditRevision: formatRevision(outcome.currentEditRevision),
+          code: 'CONFLICT',
+          content: outcome.currentContentRevision,
+          edit: outcome.currentEditRevision,
         }
     }
   }
 
-  /** Nunca trunca para caber: resposta acima do orçamento vira RESOURCE_LIMIT. */
-  #budget<T extends TaskCreateResult | TaskMutationResult>(response: T): T | TaskMutationFailure {
-    return fitsResponseBudget(response) ? response : taskMutationFailure('RESOURCE_LIMIT')
+  #mutationFailure(
+    outcome: Exclude<MutationTaskOutcome, { status: 'UPDATED' | 'UNCHANGED' }>,
+  ): TaskMutationFailure {
+    const details = this.#failureDetails(outcome)
+    if (details.code === 'CONFLICT') {
+      return {
+        ...taskMutationFailure('CONFLICT'),
+        currentContentRevision: formatRevision(details.content as Revision),
+        currentEditRevision: formatRevision(details.edit as Revision),
+      }
+    }
+    return {
+      ...taskMutationFailure(details.code),
+      ...(details.fields !== undefined && { fields: details.fields }),
+    }
+  }
+
+  #checkFailure(outcome: Exclude<SubtaskDoneOutcome, { status: 'UPDATED' | 'UNCHANGED' }>): TaskCheckFailure {
+    const details = this.#failureDetails(outcome)
+    if (details.code === 'CONFLICT') {
+      return {
+        ...taskCheckFailure('CONFLICT'),
+        currentContentRevision: formatRevision(details.content as Revision),
+        currentEditRevision: formatRevision(details.edit as Revision),
+      }
+    }
+    return {
+      ...taskCheckFailure(details.code),
+      ...(details.fields !== undefined && { fields: details.fields }),
+    }
   }
 }

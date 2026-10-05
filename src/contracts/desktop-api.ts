@@ -8,7 +8,18 @@ import type {
   UnsubscribeStateResult,
 } from './state.js'
 import type {
+  CancelBackupRestoreRequest,
+  CancelBackupRestoreResult,
+  ConfirmBackupRestoreRequest,
+  ConfirmBackupRestoreResult,
+  ExportBackupRequest,
+  ExportBackupResult,
+  PrepareBackupRestoreRequest,
+  PrepareBackupRestoreResult,
+} from './backup.js'
+import type {
   SubtaskDoneRequest,
+  TaskCheckResult,
   TaskCreateRequest,
   TaskCreateResult,
   TaskMutationResult,
@@ -37,11 +48,12 @@ import type {
 } from './trash.js'
 
 /**
- * Catálogo fechado exposto ao renderer, total17: diagnóstico (v1), três operações de
- * leitura/subscription de estado (v2), quatro mutações de tarefas (v3), abertura da origem salva
- * (v1) e oito operações v1 de contexto/confirmação/lixeira/undo. Não há send/canal livre, SQL,
- * caminho, repository, Task completa, before-image, UndoPlan, clock, URL arbitrária ou hooks de
- * teste; lixeira/undo usam somente referências e tokens próprios.
+ * Catálogo fechado exposto ao renderer, total21: diagnóstico (v1), três operações de
+ * leitura/subscription de estado (v3), create/check v3, update/status v4, abertura da origem salva
+ * (v1), oito operações v1 de contexto/confirmação/lixeira/undo (move v2) e quatro operações v1 de
+ * backup. Não há send/canal livre, SQL, caminho, repository, Task completa, before-image,
+ * UndoPlan, clock, URL arbitrária ou hooks de teste; lixeira/undo/backup usam somente referências,
+ * tokens e resumos próprios.
  */
 export interface TaskFlowDesktopApi {
   verifyFoundation(request: FoundationRequest): Promise<FoundationResult>
@@ -60,7 +72,7 @@ export interface TaskFlowDesktopApi {
   /** Muda o status simples condicional à revisão de edição; status igual é no-op. */
   changeTaskStatus(request: TaskStatusRequest): Promise<TaskMutationResult>
   /** Marca/desmarca um item por intenção, conservando a revisão de edição da tarefa. */
-  setSubtaskDone(request: SubtaskDoneRequest): Promise<TaskMutationResult>
+  setSubtaskDone(request: SubtaskDoneRequest): Promise<TaskCheckResult>
   /** Abre a origem **salva** validada pelo main; nunca recebe URL livre do renderer. */
   openTaskSource(request: TaskOpenSourceRequest): Promise<TaskOpenSourceResult>
   /** Estabelece contexto novo e limpa oferta/confirmação próprias antes da ação dependente. */
@@ -79,4 +91,12 @@ export interface TaskFlowDesktopApi {
   prepareTrashView(request: PrepareTrashViewRequest): Promise<PrepareTrashViewResult>
   /** Desfaz a última ação efetiva própria consumindo o token uma única vez. */
   undoLastTaskAction(request: UndoLastTaskActionRequest): Promise<UndoLastTaskActionResult>
+  /** Exporta um snapshot consistente de todas as tarefas por diálogo nativo; nenhum path sai. */
+  exportBackup(request: ExportBackupRequest): Promise<ExportBackupResult>
+  /** Abre/valida um backup e publica a prévia imutável (token/TTL/base) no proprietário. */
+  prepareBackupRestore(request: PrepareBackupRestoreRequest): Promise<PrepareBackupRestoreResult>
+  /** Confirma a substituição total sobre a base exata da prévia, consumindo o token uma vez. */
+  confirmBackupRestore(request: ConfirmBackupRestoreRequest): Promise<ConfirmBackupRestoreResult>
+  /** Cancela a prévia própria; repetição é idempotente. */
+  cancelBackupRestore(request: CancelBackupRestoreRequest): Promise<CancelBackupRestoreResult>
 }

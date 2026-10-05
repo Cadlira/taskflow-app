@@ -26,6 +26,7 @@ import {
   parseRestoreTrashItemRequest,
   parseUndoLastTaskActionRequest,
   trashFailure,
+  trashMoveFailure,
   type ClearUndoOfferResult,
   type DeleteTrashItemResult,
   type EmptyTrashResult,
@@ -228,13 +229,13 @@ export class TrashCommandIpcService {
   async handleMove(event: InvocationLike, request: unknown): Promise<MoveTaskToTrashResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashFailure('UNAUTHORIZED')
+      if (ticket === null) return trashMoveFailure('UNAUTHORIZED')
       const parsed = parseMoveTaskToTrashRequest(request)
-      if (parsed === null) return trashFailure('INVALID_REQUEST')
-      if (!this.#hasContext(ticket, parsed.contextSequence)) return trashFailure('STALE_CONTEXT')
+      if (parsed === null) return trashMoveFailure('INVALID_REQUEST')
+      if (!this.#hasContext(ticket, parsed.contextSequence)) return trashMoveFailure('STALE_CONTEXT')
 
       const base = this.#consumeConfirmation(ticket, parsed.confirmationToken)
-      if (base === undefined || base.kind !== 'MOVE') return trashFailure('CONFIRMATION_INVALID')
+      if (base === undefined || base.kind !== 'MOVE') return trashMoveFailure('CONFIRMATION_INVALID')
 
       const reservation = this.#reservationPort(ticket, parsed.contextSequence)
       let result: UnitResult<WithStale<TrashMoveOutcome>>
@@ -253,37 +254,41 @@ export class TrashCommandIpcService {
         )
       } catch {
         reservation.releasePending()
-        return trashFailure('STORAGE_UNAVAILABLE')
+        return trashMoveFailure('STORAGE_UNAVAILABLE')
       }
       if (!result.ok) {
         reservation.releasePending()
-        if (!this.#sessions.isCurrent(ticket)) return trashFailure('SESSION_CLOSED')
-        return trashFailure(trashErrorCodeFor(result.reason))
+        if (!this.#sessions.isCurrent(ticket)) return trashMoveFailure('SESSION_CLOSED')
+        return trashMoveFailure(trashErrorCodeFor(result.reason))
       }
       if (!this.#sessions.isCurrent(ticket)) {
         reservation.releasePending()
-        return trashFailure('SESSION_CLOSED')
+        return trashMoveFailure('SESSION_CLOSED')
       }
 
       const outcome = result.value
       if (outcome.status === 'MOVED') {
+        // Época lida antes de publicar: o ack descreve a época sob a qual a oferta pôde existir.
+        const undoEpoch = this.#undo.epoch
         let undoToken: string | undefined
         if (outcome.retained && outcome.undo !== undefined && outcome.reserved !== undefined && result.committed) {
           undoToken = this.#publishUndo(ticket, parsed.contextSequence, outcome.reserved, outcome.undo)
         }
         reservation.releasePending()
-        return this.#budget({
-          version: 1,
-          status: 'ok',
+        const ack = {
+          version: 2 as const,
+          status: 'ok' as const,
           revision: formatRevision(result.revision),
           retained: outcome.retained,
+          undoEpoch,
           ...(undoToken !== undefined && { undoToken }),
-        })
+        }
+        return fitsTrashResponseBudget(ack) ? ack : trashMoveFailure('RESOURCE_LIMIT')
       }
       reservation.releasePending()
       return this.#moveFailure(outcome)
     } catch {
-      return trashFailure('STORAGE_UNAVAILABLE')
+      return trashMoveFailure('STORAGE_UNAVAILABLE')
     }
   }
 
@@ -519,13 +524,13 @@ export class TrashCommandIpcService {
   #moveFailure(outcome: Exclude<WithStale<TrashMoveOutcome>, { status: 'MOVED' }>): MoveTaskToTrashResult {
     switch (outcome.status) {
       case 'NOT_FOUND':
-        return trashFailure('NOT_FOUND')
+        return trashMoveFailure('NOT_FOUND')
       case 'CHANGED':
-        return trashFailure('CONFIRMATION_CHANGED')
+        return trashMoveFailure('CONFIRMATION_CHANGED')
       case 'RESOURCE_LIMIT':
-        return trashFailure('RESOURCE_LIMIT')
+        return trashMoveFailure('RESOURCE_LIMIT')
       case 'STALE_CONTEXT':
-        return trashFailure('STALE_CONTEXT')
+        return trashMoveFailure('STALE_CONTEXT')
     }
   }
 
