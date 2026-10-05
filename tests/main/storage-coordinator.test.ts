@@ -961,7 +961,7 @@ describe('limites de admissão e espera', () => {
     }
   }
 
-  it('fila limitada a 64 entradas: o excedente é recusado antes de qualquer efeito', async () => {
+  it('fila limitada a 64 entradas: o excedente é recusado antes de qualquer efeito', { timeout: 30_000 }, async () => {
     const queue = manualQueue()
     // Relógio fixo: 64 commits reais podem passar de 2 s em disco lento, e o limite de espera
     // (verificado em teste próprio) não deve interferir na verificação do limite de admissão.

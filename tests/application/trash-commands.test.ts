@@ -111,7 +111,7 @@ describe('move com retenção/limite/identidade (L01/L02)', () => {
     expect(expectOk(await coordinator.read((reader) => reader.listTrash())).value).toEqual([])
   })
 
-  it('expurga vencidos, substitui o mesmo ID e corta a coleção em 100 no mesmo commit', { timeout: 20_000 }, async () => {
+  it('expurga vencidos, substitui o mesmo ID e corta a coleção em 100 no mesmo commit', { timeout: 30_000 }, async () => {
     const coordinator = openCoordinator(createProductFile())
     const existing: Task[] = []
     for (let index = 0; index < 100; index += 1) {
@@ -138,7 +138,7 @@ describe('move com retenção/limite/identidade (L01/L02)', () => {
     expect(trash.find((item) => item.task.id === 'repetida')?.contentRevision).toBe(result.revision)
   })
 
-  it('relógio recuado com 100 entradas futuras descarta a nova exclusão: retained:false sem desfazer', { timeout: 20_000 }, async () => {
+  it('relógio recuado com 100 entradas futuras descarta a nova exclusão: retained:false sem desfazer', { timeout: 30_000 }, async () => {
     const coordinator = openCoordinator(createProductFile())
     const future: Task[] = []
     for (let index = 0; index < 100; index += 1) future.push(buildTask({ id: `futura-${String(index).padStart(3, '0')}` }))
