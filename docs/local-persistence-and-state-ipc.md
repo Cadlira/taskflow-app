@@ -45,7 +45,7 @@ O resolvedor de perfil da TFA-002 é reutilizado sem novo override; identidade, 
 
 | Versão | Valor atual | Onde vive |
 | --- | --- | --- |
-| Schema SQL do produto | **1** | `PRAGMA user_version` e `taskflow_metadata.schema_version`, que precisam concordar |
+| Schema SQL do produto | **2** (a TFA-005 acrescentou a migração 1→2) | `PRAGMA user_version` e `taskflow_metadata.schema_version`, que precisam concordar |
 | Codec de payload | **v4** (lê v1–v4) | Coluna `payload_version` de cada linha |
 | Formato de backup | v1–v4 (TFA-007) | Arquivo de backup; **não** é lido nesta Change |
 
@@ -351,6 +351,57 @@ O smoke grava `release/product-harness-evidence.json` (não versionado) com o re
 | `tests/main/document-sessions.test.ts`, `ipc-state.test.ts`, `ipc-foundation.test.ts` | Autorização por documento, zero leitura antes do guard, paginação, subscriptions e diagnóstico |
 | `tests/application/snapshot-paging.test.ts`, `state-client.test.ts`, `tests/contracts/state-contract.test.ts` | Fragmentação/Unicode, montagem validada, ressincronização e schemas |
 | `tests/preload/bridge-catalog.test.ts`, `tests/architecture/layer-boundaries.test.ts` | Catálogo fechado e fronteiras de camadas |
+
+## Atualização da TFA-005 — schema SQL 2 e revisões de edição
+
+O banco de produto passou para **schema SQL 2** com uma migração transacional concreta
+**1→2**. Codec de payload (**v4**, lê v1–v4) e formato de backup permanecem intactos: os três
+números são independentes. Nenhuma ferramenta externa, exportação ou reset participa da migração.
+
+### Schema SQL 2
+
+- `tasks`: acrescenta `edit_revision INTEGER NOT NULL CHECK (edit_revision > 0 AND edit_revision <= content_revision)`.
+- `trash`: o mesmo campo, antes de `deleted_at`.
+- PKs independentes, `STRICT` e `WITHOUT ROWID` preservados; nenhum índice ou tabela nova.
+- `content_revision` completa cobre todo conteúdo de usuário (inclui `done`); `edit_revision`
+  monotônica cobre campos/status/regra/IDs-títulos-ordem e é conservada pela marcação tipada de
+  subtarefa (`markSubtaskDone`). Claim interno conserva conteúdo, edição e `updatedAt`. Criar,
+  gerar, restaurar e recriar identidade recebem `edit = content` na revisão nova.
+- Invariante por linha: `1 <= edit <= content <= global`. A leitura de SQL 2 **nunca** fabrica
+  `edit_revision`; metadado ausente/inválido bloqueia a abertura.
+- As revisões são metadados de armazenamento: não estão no payload (`Task`) nem no backup.
+
+### Migração 1→2
+
+1. Abre a origem com o **leitor 1** (sem a coluna nova), confere integridade, estrutura,
+   assinatura, metadata e todos os payloads.
+2. Numa única transação, reconstrói `tasks`/`trash` com a coluna nova e copia **byte a byte**
+   `id`, `payload_version`, `payload_json`, `content_revision` e `deleted_at`; preenche
+   `edit_revision = content_revision`. Nenhum JSON é reescrito.
+3. Atualiza `schema_version`/`user_version` e avança `global_revision` **uma vez** pela migração.
+4. Valida o destino com o **leitor 2** antes do commit; qualquer falha reverte tudo e conserva a
+   origem SQL 1. Perfil novo nasce diretamente em SQL 2, global 0 e sem registros artificiais;
+   reopen/boot repetido não repete a migração nem altera revisões.
+
+**Downgrade:** um binário anterior (leitor 1) encontra `user_version = 2` e recusa a abertura com
+`INCOMPATIBLE_DATA`, sem excluir, reescrever ou converter dados. Rollback de binário após o commit
+não é suportado automaticamente; restaurar um banco de versão anterior exigiria procedimento
+próprio com revisão.
+
+**O que não migra:** a prova diagnóstica (`foundation-proof/proof.sqlite`), a sessão/cache, a
+extensão de origem e arquivos de backup **não** são lidos, migrados ou tocados pela migração do
+produto.
+
+### Evidências
+
+- `tests/application/task-storage-revisions.test.ts` — tabela D4: criação/edição/marcação/claim,
+  lixeira/mover/restaurar, reversão por conteúdo, precisão bigint e conservação de revisões.
+- `tests/main/product-database.test.ts` — schema 2, migração real 1→2 byte a byte, `edit=content`,
+  global+1, bootstrap/reopen idempotentes, leitor antigo recusando e metadado inválido bloqueando.
+- `tests/main/storage-crash.test.ts` — kill do processo de teste em `migrate:in-transaction`,
+  `migrate:before-commit` e `migrate:after-commit`, com origem SQL 1 ou destino SQL 2 inteiros.
+- `tests/main/storage-coordinator.test.ts` — CAS por revisão de edição, conflito com as duas
+  revisões, claim conservando conteúdo/edição e falhas de armazenamento.
 
 ## Limites do que foi provado e pendências
 

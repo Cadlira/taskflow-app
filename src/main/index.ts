@@ -8,10 +8,11 @@ import {
   TASK_CREATE_CHANNEL,
   TASK_OPEN_SOURCE_CHANNEL,
   TASK_STATUS_CHANNEL,
+  TASK_SUBTASK_DONE_CHANNEL,
   TASK_UPDATE_CHANNEL,
 } from '../contracts/tasks.js'
 import { runFoundationProof } from './foundation-proof.js'
-import { parseProductHarnessScenario, runProductHarness } from './harness/product-harness.js'
+import { harnessSkipsCoordinatorStart, parseProductHarnessScenario, runProductHarness } from './harness/product-harness.js'
 import { DocumentSessions } from './ipc/document-sessions.js'
 import { FOUNDATION_CHANNEL, FoundationBusyGate, handleFoundationInvocation } from './ipc/foundation.js'
 import { StateIpcService } from './ipc/state.js'
@@ -176,6 +177,7 @@ if (!ownsProfile) {
     ipcMain.handle(TASK_CREATE_CHANNEL, (event, request: unknown) => taskIpc.handleCreate(event, request))
     ipcMain.handle(TASK_UPDATE_CHANNEL, (event, request: unknown) => taskIpc.handleUpdate(event, request))
     ipcMain.handle(TASK_STATUS_CHANNEL, (event, request: unknown) => taskIpc.handleStatus(event, request))
+    ipcMain.handle(TASK_SUBTASK_DONE_CHANNEL, (event, request: unknown) => taskIpc.handleSubtaskDone(event, request))
     ipcMain.handle(TASK_OPEN_SOURCE_CHANNEL, (event, request: unknown) => taskIpc.handleOpenSource(event, request))
   }
 
@@ -195,6 +197,7 @@ if (!ownsProfile) {
       TASK_CREATE_CHANNEL,
       TASK_UPDATE_CHANNEL,
       TASK_STATUS_CHANNEL,
+      TASK_SUBTASK_DONE_CHANNEL,
       TASK_OPEN_SOURCE_CHANNEL,
     ]) {
       ipcMain.removeHandler(channel)
@@ -211,8 +214,13 @@ if (!ownsProfile) {
     configureSession()
     Menu.setApplicationMenu(null)
     // Indisponibilidade do banco de produto não vira estado vazio: o IPC devolve o código.
-    coordinator.start()
-    registerIpc()
+    // Cenários de migração (seed SQL1, inspeção e kill antes/durante/depois do commit) precisam
+    // do arquivo intocado: nem o coordenador abre nem o IPC de estado/comandos é registrado,
+    // pois a primeira leitura do renderer abriria/migraria o banco antes do harness.
+    if (harnessScenario === null || !harnessSkipsCoordinatorStart(harnessScenario)) {
+      coordinator.start()
+      registerIpc()
+    }
     mainWindow = createMainWindow()
     await mainWindow.loadURL(resolveDevelopmentUrl())
     if (harnessScenario !== null) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseProductHarnessScenario } from '../../src/main/harness/product-harness.js'
+import { harnessSkipsCoordinatorStart, parseProductHarnessScenario } from '../../src/main/harness/product-harness.js'
 import { selectFoundationProfile } from '../../src/main/profile.js'
 
 describe('harness restrito de produto', () => {
@@ -10,6 +10,9 @@ describe('harness restrito de produto', () => {
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=drain'])).toEqual({ name: 'drain' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=tasks'])).toEqual({ name: 'tasks' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=ui-bench'])).toEqual({ name: 'ui-bench' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=seed-sql1'])).toEqual({ name: 'seed-sql1' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=inspect-sql1'])).toEqual({ name: 'inspect-sql1' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=recurrence'])).toEqual({ name: 'recurrence' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=a11y'])).toEqual({ name: 'a11y', opener: 'real' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=a11y|fake-opener'])).toEqual({
       name: 'a11y',
@@ -25,6 +28,20 @@ describe('harness restrito de produto', () => {
       point: 'unit:after-commit',
       unit: 'claim',
     })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=crash|migrate:before-commit|migrate'])).toEqual({
+      name: 'crash',
+      point: 'migrate:before-commit',
+      unit: 'migrate',
+    })
+  })
+
+  it('só os cenários de migração impedem a abertura prévia do coordenador', () => {
+    expect(harnessSkipsCoordinatorStart({ name: 'seed-sql1' })).toBe(true)
+    expect(harnessSkipsCoordinatorStart({ name: 'inspect-sql1' })).toBe(true)
+    expect(harnessSkipsCoordinatorStart({ name: 'crash', point: 'migrate:before-commit', unit: 'migrate' })).toBe(true)
+    expect(harnessSkipsCoordinatorStart({ name: 'crash', point: 'unit:before-commit', unit: 'save' })).toBe(false)
+    expect(harnessSkipsCoordinatorStart({ name: 'bridge' })).toBe(false)
+    expect(harnessSkipsCoordinatorStart({ name: 'reopen' })).toBe(false)
   })
 
   it.each([
@@ -37,7 +54,8 @@ describe('harness restrito de produto', () => {
     [['--product-harness=bridge', '--product-harness=bench']],
     [['--product-harness=crash']],
     [['--product-harness=crash|unit:commit']],
-    [['--product-harness=crash|migrate:before-commit']],
+    [['--product-harness=crash|migrate:antes']],
+    [['--product-harness=crash|migrate:before-commit|delete']],
     [['--product-harness=crash|unit:before-commit|delete']],
     [['--product-harness=crash|unit:before-commit|save|extra']],
     [['--product-harness=C:\\dados\\outro.sqlite']],

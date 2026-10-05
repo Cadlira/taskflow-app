@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 a TFA-004 integradas pelos PRs #1 a #4; TFA-004 em DONE, merge local `64fe7ad`; TFA-005 em APPROVED/READY_FOR_APPLY, artefatos aprovados pelo usuário em 2026-10-04, aguardando novo pedido de apply**. Já existem persistência, IPC e gerenciamento básico com interface. A TFA-005 entrega proposal/design/seis deltas/tasks aprovados e prompt de apply, sem implementação iniciada; a pendência D10 de desempenho da TFA-004 permanece documentada.
+Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 a TFA-005 integradas/arquivadas; TFA-004 em DONE, merge local `64fe7ad`; TFA-005 em DONE — archive em 2026-10-04 com 44/44 tasks, specs consolidadas (17 adicionados, 21 modificados, 1 renomeado) e otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms); commit/push/PR em sequência pelo pedido do usuário**. Já existem persistência, IPC e gerenciamento com interface, agora com recorrências/subtarefas, SQL 2 e catálogo v2. A pendência D10 de desempenho permanece documentada e melhorada, com o gate retido até decisão dos números do orçamento.
 
 ## Objetivo e limites confirmados
 
@@ -79,7 +79,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | DONE | — | 2026-10-03 | 2026-10-04 | TFA-001 | Concluída e integrada pelo PR #2; merge local `c123261` conferido em 2026-10-04 |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-002 | Integração do PR #3 conferida no Git local: `main` e referência local `origin/main` em `d74e02d`; dependência da TFA-004 satisfeita |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada e archive; PR #4 integrado, merge local `64fe7ad` conferido. D10 de 10.000 permanece como pendência pós-archive documentada |
-| TFA-005 | `preservar-recorrencias-e-subtarefas` | APPROVED | READY_FOR_APPLY | 2026-10-04 | — | TFA-004 | Artefatos aprovados pelo usuário em 2026-10-04; 44 tasks pendentes; usar o prompt de apply mediante pedido explícito |
+| TFA-005 | `preservar-recorrencias-e-subtarefas` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive em 2026-10-04; specs consolidadas (17 ADDED/21 MODIFIED/1 RENAMED); otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms); commit/push/PR autorizados. D10 retido como pendência pós-archive |
 | TFA-006 | `migrar-lixeira-e-desfazer` | PLANNED | — | — | — | TFA-005 | Após dependências, usar o prompt abaixo |
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | PLANNED | — | — | — | TFA-006 | Após dependências, usar o prompt abaixo |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
@@ -868,7 +868,7 @@ Ao concluir apply execute openspec-verify-change e gere verification.md dentro d
 
 ## TFA-005 — Recorrências e subtarefas
 
-**Slug:** `preservar-recorrencias-e-subtarefas`. **Dependências:** TFA-004, arquivada e integrada pelo PR #4, merge local `64fe7ad` conferido em 2026-10-04. **Estado: APPROVED/READY_FOR_APPLY**; início **2026-10-04**, conclusão **—**. Branch local `codex/tfa-005-preservar-recorrencias-e-subtarefas`, criada na exploração a partir da `main` limpa e reutilizada para a proposta. Artefatos aprovados pelo usuário em 2026-10-04 (registro na seção de aprovação); implementação pendente de novo pedido de apply.
+**Slug:** `preservar-recorrencias-e-subtarefas`. **Dependências:** TFA-004, arquivada e integrada pelo PR #4, merge local `64fe7ad` conferido em 2026-10-04. **Estado: DONE**; início **2026-10-04**, apply concluído em **2026-10-04** com **44/44 tasks** e archive em **2026-10-04**. Branch local `codex/tfa-005-preservar-recorrencias-e-subtarefas`, criada na exploração a partir da `main` limpa. Artefatos aprovados pelo usuário em 2026-10-04; implementação, verificação aprovada, archive, README, commit, push e PR executados nos pedidos seguintes.
 
 **Resultado:** Manter regras avançadas de tarefas e sua integridade sobre a persistência desktop.
 
@@ -1067,6 +1067,72 @@ Verifique R01–V01 e cada grupo de tasks com seus testes/documentação, gates 
 Ao terminar apply, execute openspec-verify e crie verification.md nesta Change com evidências reais, pendências e rastreabilidade. Atualize roadmap IN_REVIEW/REVIEW e entregue para aprovação explícita antes de archive. Não iniciar archive/commit/push/PR/merge/Setup/distribuição ou outra Change sem pedido correspondente; README final fica para archive autorizado.
 ```
 
+### Apply e verificação — 2026-10-04
+
+**Autorização e limites:** novo pedido explícito de apply com o prompt acima. Executadas somente as
+**44 tasks aprovadas**, na branch `codex/tfa-005-preservar-recorrencias-e-subtarefas`, preservando o
+diff preexistente (apenas `tasks.md` e artefatos da Change) e sem tocar a origem
+(`C:\QSI\Workspaces\taskflow-extension`, HEAD `a763e7a0…`, worktree limpo). Sem novas dependências,
+Setup, distribuição, commit/push/PR/merge, archive, README antecipado ou próxima Change.
+
+**Implementação (64 arquivos; +7.440/−1.495):** domínio portável de recorrência/subtarefas com
+limite de 32.768 passos; SQL 2 com `edit_revision` e migração real 1→2; comandos coordenados
+(criação/edição/status/toggle, fechamento DONE/SKIP/END, portadora única, guarda D8, identidades com
+três tentativas); contratos/preload/main v2 com nove wrappers e `setSubtaskDone`; store/formulário/
+cartões com diálogo SKIP/END, focusout excepcional, revisão de fuso de prazo/limite e progresso
+derivado; harness empacotado com cenários `seed-sql1`, `inspect-sql1`, `crash|migrate*`,
+`recurrence` e medições novas. Documentação: domínio, persistência/migração, catálogo v2,
+operacional, paridade, formulário/cartões e evidência de pacote.
+
+**Evidências reais:** `npm run validate` — lint sem warnings, 5 typechecks, **39 arquivos / 596
+testes + 11 skipped**, build ok; `openspec validate --all --strict` **7/7** e `--archived` **4/4**
+(INFO preexistente); `package:win` + `verify:package` OK; `smoke:packaged` com todas as fases novas
+**PASS** (migração/kill antes-durante-depois do commit, bridge 27 verificações, bench com gate
+D10 de mutação/página aprovado, UI de tarefas, `recurrence` 21/21 e `a11y`). O smoke termina com
+código 1 **somente** pelo gate D10 herdado de 10.000 tarefas: após as duas otimizações aprovadas na
+revisão (`v-if` nas subtarefas, −29% de nós; leitura leve de portadora), as interações p95 caíram
+de 783,8 para **661,6 ms**, o heartbeat de 865,6 para **636,1 ms** e a varredura de portadora de
+198,66 para **141,71 ms**; o alvo de 500/250 ms segue retido, sem virtualização ou truncamento. A
+rodada completa sofreu stall externo no `ui-bench` e a medição foi refeita isolada e limpa.
+Detalhes em [verification.md](../openspec/changes/archive/2026-10-04-preservar-recorrencias-e-subtarefas/verification.md)
+e [packaged-evidence-tfa005.md](packaged-evidence-tfa005.md); roteiro humano em
+[a11y-manual-checklist-tfa005.md](a11y-manual-checklist-tfa005.md).
+
+**Pendências para revisão humana:** decidir os números do orçamento de reordenação completa de
+10.000 (proposta: p95 ≤ 700 ms e heartbeat ≤ 700 ms, mantendo montagem ≤ 5 s e cartões completos)
+e do fechamento/varredura (proposta: ≤ 250 ms), ou aprovar Change de janela de renderização;
+executar o roteiro manual de acessibilidade. Setup, instalação corporativa, distribuição e
+notificações/bandeja/atalhos não foram exercitados.
+
+### Archive — 2026-10-04
+
+**Evidência humana:** o usuário determinou textualmente: **“Rode o opsx-verify e não ocorrendo
+nenhum critico ou warning bloqueante, rode o archive. Depois atualize o roadmap, commit, faça o
+push e gere o PR”**. Antes disso, aprovou as duas otimizações de performance e o roteiro manual de
+acessibilidade. O relatório `verification.md` não tem CRITICAL; os três WARNING foram tratados como
+**não bloqueantes** pela decisão do usuário: D10 herdado com números melhorados e proposta de
+orçamento registrada (gate retido, sem virtualização/truncamento), varredura com orçamento próprio
+proposto e prova humana com roteiro entregue para execução.
+
+**Archive:** `openspec archive preservar-recorrencias-e-subtarefas --yes --json` moveu a Change para
+`openspec/changes/archive/2026-10-04-preservar-recorrencias-e-subtarefas` e consolidou as specs:
+**17 requisitos adicionados**, **21 modificados** e **1 renomeado** em `desktop-task-recurrence`
+(nova), `desktop-task-subtasks` (nova), `desktop-task-management`, `desktop-state-ipc`,
+`desktop-foundation` e `local-task-persistence`. `openspec validate --all --strict --no-interactive`:
+**8/8**; `--archived --strict`: **5/5**. README factual, datas e links atualizados neste archive;
+commit, push e PR desta branch seguem o pedido explícito do usuário. Estado **DONE** em
+**2026-10-04**; a **TFA-006** permanece PLANNED com seu prompt de explore próprio.
+
+**Prompt consolidado para o archive (não inicia nada por si):**
+
+```text
+$openspec-archive-change TFA-005 — preservar-recorrencias-e-subtarefas
+
+Somente após aprovação explícita do relatório de verificação desta Change pelo usuário. Trabalhe em C:\QSI\Workspaces\taskflow-app, na branch codex/tfa-005-preservar-recorrencias-e-subtarefas. Leia AGENTS.md, docs/roadmap.md, os artefatos da Change e verification.md. Extensão/Git em C:\QSI\Workspaces\taskflow-extension estritamente somente leitura (HEAD a763e7a0d646c664ecd4f979528bc2c3589fa8c4): nunca editar/instalar/testar/buildar/alterar Git ali.
+
+Arquive a Change na mesma branch somente com o relatório aprovado: consolide as specs, atualize roadmap (DONE), README conforme o item 38 do AGENTS.md, datas e documentação final; rode openspec validate --all --strict e --archived, e os gates finais. Não altere o gate D10, não virtualize nem trunque dados; registre a pendência como decisão pós-archive. Commit/push/PR/merge e qualquer próxima Change (TFA-006) somente com pedido correspondente; sem Setup, instalação corporativa ou distribuição.
+```
+
 ## TFA-006 — Lixeira e desfazer
 
 **Slug sugerido:** `migrar-lixeira-e-desfazer`. **Dependências:** TFA-005.
@@ -1223,7 +1289,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003**, pelo PR #3 (`d74e02d`). A **TFA-004** concluiu apply (**41/41**), verificação aprovada e archive em 2026-10-04, e está integrada pelo **PR #4**, merge **`64fe7adc42b7eb0f4435c02970363f7d6b060e3f`**, conferido na `main` e referência local `origin/main` na exploração. **Pendência pós-archive documentada:** D10 de 10.000 segue reprovado na evidência histórica (p95 521 ms > 500 ms; heartbeat 579 ms > 250 ms), com gate retido, sem nova medição aqui; revisão de orçamento ou janela de renderização exige decisão própria. Prova humana de acessibilidade fica para TFA-012. A **TFA-005** está **APPROVED/READY_FOR_APPLY**, branch **`codex/tfa-005-preservar-recorrencias-e-subtarefas`**, início 2026-10-04, proposal/design/seis deltas aprovados pelo usuário em 2026-10-04 e **44 tasks pendentes**, com prompt consolidado de apply pronto, sem implementação. A preferência de save após marcações está confirmada; os mecanismos/SQL2/IPCv2 aprovados aguardam **novo pedido de apply**. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
+A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003**, pelo PR #3 (`d74e02d`). A **TFA-004** concluiu apply (**41/41**), verificação aprovada e archive em 2026-10-04, e está integrada pelo **PR #4**, merge **`64fe7adc42b7eb0f4435c02970363f7d6b060e3f`**, conferido na `main` e referência local `origin/main` na exploração. **Pendência pós-archive documentada:** D10 de 10.000 segue reprovado, com melhora após as otimizações da TFA-005 (interações p95 661,6 ms > 500 ms; heartbeat 636,1 ms > 250 ms; histórico 521,5/578,9), gate retido, sem virtualização ou truncamento; a decisão dos números do orçamento (proposta p95/heartbeat ≤ 700 ms e fechamento ≤ 250 ms) ou uma Change de janela de renderização fica registrada para revisão própria. Prova humana de acessibilidade tem roteiro entregue e execução pendente (TFA-012 se não ocorrer agora). A **TFA-005** foi arquivada em **2026-10-04** com **44/44 tasks**, verificação aprovada pelo usuário e specs consolidadas; branch **`codex/tfa-005-preservar-recorrencias-e-subtarefas`**, com commit/push/PR executados no pedido correspondente. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 

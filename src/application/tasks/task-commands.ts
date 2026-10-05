@@ -1,147 +1,403 @@
 import {
-  createBasicTask,
-  planBasicPatch,
-  validateBasicDraft,
-  type BasicFieldErrors,
-  type BasicTaskDraft,
-  type BasicTaskPatch,
+  buildCreateTask,
+  planTaskUpdate,
+  type CreateTaskDraft,
+  type EditTaskPatch,
+  type TaskFieldErrors,
 } from '../../domain/task-draft.js'
-import type { Task } from '../../domain/task.js'
+import { createIdentityAllocator } from '../../domain/identity.js'
+import {
+  buildNextOccurrence,
+  isSameRecurrence,
+  resolveNextScheduledAt,
+} from '../../domain/task-recurrence.js'
+import type { IdGenerator, Task, TaskStatus } from '../../domain/task.js'
 import { applyStatus } from '../../domain/task-status.js'
 import type { Revision } from '../storage/revisions.js'
 import type { TaskStorageUnit } from '../storage/unit-of-work.js'
 
-// Casos de uso básicos executados DENTRO da unidade coordenada: leem, decidem, validam e
-// confirmam sobre o estado atual. Nada aqui é assíncrono nem toca shell/rede/IPC. Os campos
-// avançados (recurrence, seriesId, subtasks, reminders, processedFor) nunca são entradas e são
-// conservados porque o patch é aplicado sobre a tarefa atual relida na unidade.
+// Casos de uso executados DENTRO da unidade coordenada: leem, decidem, validam e confirmam sobre
+// o estado atual. Nada aqui é assíncrono nem toca shell/rede/IPC. Relógio, identidades, âncora,
+// série e conflitos são do proprietário (main); o renderer nunca fornece esses campos.
+//
+// Classificação de revisões (D4): campos/status/regra/estrutura de subtarefas e fechamento/geração
+// atualizam conteúdo **e** edição; `setSubtaskDone` conserva a edição (primitiva tipada). Recusa,
+// no-op e rollback não alocam revisão.
 
 export const CREATE_ID_ATTEMPTS = 3
 
+/** Escolha explícita ao cancelar uma ocorrência que carrega a regra da série. */
+export type RecurrenceCancellation = 'SKIP' | 'END'
+
 export type CreateTaskOutcome =
-  | { status: 'CREATED'; taskId: string; contentRevision: Revision }
-  | { status: 'VALIDATION_FAILED'; fields: BasicFieldErrors }
-  | { status: 'RESOURCE_LIMIT' }
+  | { status: 'CREATED'; taskId: string; contentRevision: Revision; editRevision: Revision }
+  | { status: 'VALIDATION_FAILED'; fields: TaskFieldErrors }
+  | { status: 'IDENTITY_CONFLICT' }
 
 export type MutationTaskOutcome =
-  | { status: 'UPDATED'; contentRevision: Revision }
-  | { status: 'UNCHANGED'; contentRevision: Revision }
-  | { status: 'VALIDATION_FAILED'; fields: BasicFieldErrors }
+  | { status: 'UPDATED'; contentRevision: Revision; editRevision: Revision }
+  | { status: 'UNCHANGED'; contentRevision: Revision; editRevision: Revision }
+  | { status: 'VALIDATION_FAILED'; fields: TaskFieldErrors }
   | { status: 'NOT_FOUND' }
-  | { status: 'CONFLICT'; currentRevision: Revision }
+  | { status: 'CONFLICT'; currentContentRevision: Revision; currentEditRevision: Revision }
   | { status: 'ADVANCED_TASK_RESTRICTED' }
+  | { status: 'RECURRENCE_CHOICE_REQUIRED' }
+  | { status: 'RECURRENCE_OUT_OF_RANGE' }
+  | { status: 'RESOURCE_LIMIT' }
+  | { status: 'SERIES_CONFLICT' }
+  | { status: 'IDENTITY_CONFLICT' }
+  | { status: 'INVALID_REQUEST' }
+
+export type SubtaskDoneOutcome =
+  | { status: 'UPDATED'; contentRevision: Revision; editRevision: Revision }
+  | { status: 'UNCHANGED'; contentRevision: Revision; editRevision: Revision }
+  | { status: 'NOT_FOUND' }
+  | { status: 'CONFLICT'; currentContentRevision: Revision; currentEditRevision: Revision }
+  | { status: 'SUBTASK_NOT_FOUND' }
 
 export interface CreateTaskInput {
-  draft: BasicTaskDraft
+  draft: CreateTaskDraft
   now: Date
-  generateId: () => string
+  generateId: IdGenerator
   attempts?: number
 }
 
 export interface UpdateTaskInput {
   taskId: string
-  expectedContentRevision: Revision
-  patch: BasicTaskPatch
+  expectedEditRevision: Revision
+  patch: EditTaskPatch
+  cancellation?: RecurrenceCancellation
   now: Date
+  generateId: IdGenerator
 }
 
 export interface ChangeStatusInput {
   taskId: string
-  expectedContentRevision: Revision
-  status: Task['status']
+  expectedEditRevision: Revision
+  status: TaskStatus
+  cancellation?: RecurrenceCancellation
+  now: Date
+  generateId: IdGenerator
+}
+
+export interface SetSubtaskDoneInput {
+  taskId: string
+  expectedEditRevision: Revision
+  subtaskId: string
+  done: boolean
   now: Date
 }
 
+/** Percorre tarefas e lixeira com leitura leve: outra portadora da mesma série conflita. */
+function hasOtherCarrier(unit: TaskStorageUnit, seriesId: string, ignoreTaskId: string): boolean {
+  for (const summary of unit.iterateCarrierSummaries('tasks', undefined)) {
+    if (summary.id === ignoreTaskId) continue
+    if (summary.hasRecurrence && summary.seriesId === seriesId) return true
+  }
+  for (const summary of unit.iterateCarrierSummaries('trash', undefined)) {
+    if (summary.hasRecurrence && summary.seriesId === seriesId) return true
+  }
+  return false
+}
+
+/** Qualquer `seriesId` conhecido (com ou sem regra) bloqueia a reutilização por uma série nova. */
+function isSeriesTaken(unit: TaskStorageUnit, id: string): boolean {
+  for (const collection of ['tasks', 'trash'] as const) {
+    for (const summary of unit.iterateCarrierSummaries(collection, undefined)) {
+      if (summary.seriesId === id) return true
+    }
+  }
+  return false
+}
+
+function isIdOccupied(unit: TaskStorageUnit, id: string): boolean {
+  return unit.getTask(id) !== undefined || unit.getTrashItem(id) !== undefined
+}
+
 /**
- * Cria a tarefa com identidade e relógio do proprietário. Uma colisão de identidade em tarefas
- * ou na lixeira nunca sobrescreve o item existente: outra identidade é tentada até o limite e a
- * falha final é segura e sem commit.
+ * Cria a tarefa com identidade, série e relógio do proprietário. Uma colisão de identidade em
+ * tarefas ou na lixeira nunca sobrescreve o item existente: outra identidade é tentada até o
+ * limite e a falha final é segura e sem commit. Criação terminal com regra persiste sem gerar.
  */
 export function createTaskInUnit(unit: TaskStorageUnit, input: CreateTaskInput): CreateTaskOutcome {
-  const validation = validateBasicDraft(input.draft)
-  if (!validation.ok) return { status: 'VALIDATION_FAILED', fields: validation.fields }
-
   const attempts = input.attempts ?? CREATE_ID_ATTEMPTS
+
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const id = input.generateId()
-    if (id.length === 0) continue
-    if (unit.getTask(id) !== undefined || unit.getTrashItem(id) !== undefined) continue
+    if (id.length === 0 || isIdOccupied(unit, id)) continue
 
-    const task = createBasicTask(validation.value, { now: input.now, id })
-    const saved = unit.saveTask(task)
+    // Série nova alocada antes do plano, contra todas as séries conhecidas (tarefas/lixeira).
+    let seriesId: string | undefined
+    if (input.draft.recurrence !== undefined) {
+      const seriesIdentity = createIdentityAllocator((candidate) => isSeriesTaken(unit, candidate))
+      seriesId = seriesIdentity.allocate(input.generateId)
+      if (seriesId === undefined) return { status: 'IDENTITY_CONFLICT' }
+    }
+
+    const plan = buildCreateTask(input.draft, {
+      now: input.now,
+      id,
+      ...(seriesId !== undefined && { seriesId }),
+      generateId: input.generateId,
+    })
+    if (!plan.ok) {
+      return plan.kind === 'validation' ? { status: 'VALIDATION_FAILED', fields: plan.fields } : { status: 'IDENTITY_CONFLICT' }
+    }
+
+    const saved = unit.saveTask(plan.task)
     if (saved !== 'CREATED') continue
 
     const stored = unit.getTask(id)
     if (stored === undefined) continue
-    return { status: 'CREATED', taskId: id, contentRevision: stored.contentRevision }
+    return {
+      status: 'CREATED',
+      taskId: id,
+      contentRevision: stored.contentRevision,
+      editRevision: stored.editRevision,
+    }
   }
 
-  return { status: 'RESOURCE_LIMIT' }
+  return { status: 'IDENTITY_CONFLICT' }
 }
 
-/** Mudança efetiva de prazo/status que a origem liquidaria/reconciliaria com lembretes. */
-function changesDueAtOrStatus(task: Task, patch: BasicTaskPatch): boolean {
-  if (task.reminders.length === 0) return false
+type ClosurePlan =
+  | { status: 'CLOSE'; closed: Task; generated?: Task }
+  | { status: 'RECURRENCE_CHOICE_REQUIRED' }
+  | { status: 'RECURRENCE_OUT_OF_RANGE' }
+  | { status: 'RESOURCE_LIMIT' }
+  | { status: 'SERIES_CONFLICT' }
+  | { status: 'IDENTITY_CONFLICT' }
+  | { status: 'INVALID_REQUEST' }
 
-  if ('dueAt' in patch && patch.dueAt !== task.dueAt) return true
-  return 'status' in patch && patch.status !== undefined && patch.status !== task.status
+/**
+ * Planeja o fechamento de uma ocorrência que carrega a regra: exige escolha em CANCELLED,
+ * confere portadora única na série, calcula a próxima (fim natural não gera) e valida todas as
+ * identidades antes de qualquer escrita. A antiga perde a regra; a nova nasce TODO com cópia.
+ */
+function planClosure(
+  unit: TaskStorageUnit,
+  terminal: Task,
+  cancellation: RecurrenceCancellation | undefined,
+  input: { now: Date; generateId: IdGenerator },
+): ClosurePlan {
+  const recurrence = terminal.recurrence
+  if (recurrence === undefined) return { status: 'INVALID_REQUEST' }
+
+  if (terminal.status === 'CANCELLED' && cancellation === undefined) {
+    return { status: 'RECURRENCE_CHOICE_REQUIRED' }
+  }
+
+  if (cancellation !== undefined && terminal.status !== 'CANCELLED') {
+    return { status: 'INVALID_REQUEST' }
+  }
+
+  const seriesId = terminal.seriesId
+  if (seriesId === undefined || seriesId === '') return { status: 'IDENTITY_CONFLICT' }
+
+  if (hasOtherCarrier(unit, seriesId, terminal.id)) return { status: 'SERIES_CONFLICT' }
+
+  let generated: Task | undefined
+
+  if (cancellation !== 'END') {
+    if (terminal.dueAt === undefined) return { status: 'INVALID_REQUEST' }
+    const scheduled = resolveNextScheduledAt(recurrence, terminal.dueAt, input.now)
+
+    if (scheduled.status === 'OUT_OF_RANGE') return { status: 'RECURRENCE_OUT_OF_RANGE' }
+    if (scheduled.status === 'RESOURCE_LIMIT') return { status: 'RESOURCE_LIMIT' }
+
+    if (scheduled.status === 'NEXT') {
+      const built = buildNextOccurrence(terminal, recurrence, scheduled.scheduledAt, {
+        now: input.now,
+        generateId: input.generateId,
+        isIdTaken: (candidate) => isIdOccupied(unit, candidate),
+      })
+      if (!built.ok) return { status: 'IDENTITY_CONFLICT' }
+      generated = built.task
+    }
+  }
+
+  const closed: Task = { ...terminal }
+  delete closed.recurrence
+
+  return generated === undefined ? { status: 'CLOSE', closed } : { status: 'CLOSE', closed, generated }
+}
+
+function closureFailure(plan: Exclude<ClosurePlan, { status: 'CLOSE' }>): MutationTaskOutcome {
+  return plan
+}
+
+function writeClosure(
+  unit: TaskStorageUnit,
+  plan: Extract<ClosurePlan, { status: 'CLOSE' }>,
+): MutationTaskOutcome {
+  if (plan.generated === undefined) {
+    unit.saveTask(plan.closed)
+  } else {
+    unit.saveTasks([plan.closed, plan.generated])
+  }
+
+  const stored = unit.getTask(plan.closed.id)
+  if (stored === undefined) return { status: 'IDENTITY_CONFLICT' }
+  return { status: 'UPDATED', contentRevision: stored.contentRevision, editRevision: stored.editRevision }
 }
 
 /**
- * Edita por patch condicional à revisão de conteúdo. Existência, revisão, restrições e campos
- * alterados são verificados na mesma unidade; no-op não grava nem incrementa revisão. A regra de
- * recorrência presente bloqueia qualquer mutação até a integração da TFA-005.
+ * Edita por patch condicional à revisão de **edição**. Existência, revisão, restrições e campos
+ * alterados são verificados na mesma unidade; no-op não grava nem incrementa revisão. Uma edição
+ * efetiva que resulte em terminal com regra segue o fechamento (DONE/SKIP geram no máximo uma
+ * próxima TODO; END não gera). Com lembretes, a guarda D8 recusa mudança efetiva de prazo/status
+ * ou fechamento/geração preservando dados; edições independentes e a retirada isolada da regra
+ * continuam permitidas.
  */
 export function updateTaskInUnit(unit: TaskStorageUnit, input: UpdateTaskInput): MutationTaskOutcome {
   const stored = unit.getTask(input.taskId)
   if (stored === undefined) return { status: 'NOT_FOUND' }
-  if (stored.contentRevision !== input.expectedContentRevision) {
-    return { status: 'CONFLICT', currentRevision: stored.contentRevision }
+  if (stored.editRevision !== input.expectedEditRevision) {
+    return {
+      status: 'CONFLICT',
+      currentContentRevision: stored.contentRevision,
+      currentEditRevision: stored.editRevision,
+    }
   }
-  if (stored.task.recurrence !== undefined) return { status: 'ADVANCED_TASK_RESTRICTED' }
-  if (changesDueAtOrStatus(stored.task, input.patch)) return { status: 'ADVANCED_TASK_RESTRICTED' }
 
-  const plan = planBasicPatch(stored.task, input.patch, input.now)
-  if (!plan.ok) return { status: 'VALIDATION_FAILED', fields: plan.fields }
-  if (plan.next === undefined) return { status: 'UNCHANGED', contentRevision: stored.contentRevision }
+  const patchAddsRule =
+    'recurrence' in input.patch && input.patch.recurrence !== null && input.patch.recurrence !== undefined
+  let newSeriesId: string | undefined
 
-  const outcome = unit.updateTaskConditionally(input.taskId, input.expectedContentRevision, () => plan.next)
+  if (patchAddsRule && stored.task.recurrence === undefined && stored.task.seriesId === undefined) {
+    const seriesIdentity = createIdentityAllocator((candidate) => isSeriesTaken(unit, candidate))
+    newSeriesId = seriesIdentity.allocate(input.generateId)
+    if (newSeriesId === undefined) return { status: 'IDENTITY_CONFLICT' }
+  }
+
+  const plan = planTaskUpdate(stored.task, input.patch, {
+    now: input.now,
+    generateId: input.generateId,
+    ...(newSeriesId !== undefined && { newSeriesId }),
+  })
+
+  if (!plan.ok) {
+    return plan.kind === 'validation' ? { status: 'VALIDATION_FAILED', fields: plan.fields } : { status: 'IDENTITY_CONFLICT' }
+  }
+
+  const next = plan.next
+  if (next === undefined) {
+    return { status: 'UNCHANGED', contentRevision: stored.contentRevision, editRevision: stored.editRevision }
+  }
+
+  const terminal = next.status === 'DONE' || next.status === 'CANCELLED'
+  const closes = terminal && next.recurrence !== undefined
+  const dueChanged = next.dueAt !== stored.task.dueAt
+  const statusChanged = next.status !== stored.task.status
+  const hasReminders = stored.task.reminders.length > 0
+
+  if (hasReminders && (dueChanged || statusChanged)) return { status: 'ADVANCED_TASK_RESTRICTED' }
+  if (hasReminders && closes) return { status: 'ADVANCED_TASK_RESTRICTED' }
+
+  if (closes) {
+    const closure = planClosure(unit, next, input.cancellation, { now: input.now, generateId: input.generateId })
+    if (closure.status !== 'CLOSE') return closureFailure(closure)
+    return writeClosure(unit, closure)
+  }
+
+  if (input.cancellation !== undefined) return { status: 'INVALID_REQUEST' }
+
+  // Mudança de regra/prazo numa portadora exige série única, mesmo sem fechamento.
+  const ruleDiffers = !isSameRecurrence(next.recurrence, stored.task.recurrence)
+  if (next.recurrence !== undefined && (ruleDiffers || dueChanged)) {
+    const seriesId = next.seriesId
+    if (seriesId !== undefined && hasOtherCarrier(unit, seriesId, stored.task.id)) return { status: 'SERIES_CONFLICT' }
+  }
+
+  const outcome = unit.updateTaskConditionally(input.taskId, input.expectedEditRevision, () => next)
   switch (outcome.status) {
     case 'UPDATED':
-      return { status: 'UPDATED', contentRevision: outcome.contentRevision }
     case 'UNCHANGED':
-      return { status: 'UNCHANGED', contentRevision: outcome.contentRevision }
+      return { status: outcome.status, contentRevision: outcome.contentRevision, editRevision: outcome.editRevision }
     case 'NOT_FOUND':
       return { status: 'NOT_FOUND' }
     case 'CONFLICT':
-      return { status: 'CONFLICT', currentRevision: outcome.currentRevision }
+      return {
+        status: 'CONFLICT',
+        currentContentRevision: outcome.currentContentRevision,
+        currentEditRevision: outcome.currentEditRevision,
+      }
   }
 }
 
 /**
- * Muda o status simples com as mesmas barreiras. Status já atual é no-op quando a revisão
- * esperada é válida; reabrir rápido vai a TODO; subtarefas existentes não interferem.
+ * Muda o status com as mesmas barreiras. Status já atual é no-op quando a revisão de edição é
+ * válida; CANCELLED de portadora exige SKIP/END; DONE/SKIP fecham/geram; com lembretes a mudança
+ * efetiva é recusada (D8) preservando regra/dados/marcadores.
  */
 export function changeTaskStatusInUnit(unit: TaskStorageUnit, input: ChangeStatusInput): MutationTaskOutcome {
   const stored = unit.getTask(input.taskId)
   if (stored === undefined) return { status: 'NOT_FOUND' }
-  if (stored.contentRevision !== input.expectedContentRevision) {
-    return { status: 'CONFLICT', currentRevision: stored.contentRevision }
+  if (stored.editRevision !== input.expectedEditRevision) {
+    return {
+      status: 'CONFLICT',
+      currentContentRevision: stored.contentRevision,
+      currentEditRevision: stored.editRevision,
+    }
   }
-  if (stored.task.recurrence !== undefined) return { status: 'ADVANCED_TASK_RESTRICTED' }
-  if (stored.task.status === input.status) return { status: 'UNCHANGED', contentRevision: stored.contentRevision }
+  if (stored.task.status === input.status) {
+    return { status: 'UNCHANGED', contentRevision: stored.contentRevision, editRevision: stored.editRevision }
+  }
   if (stored.task.reminders.length > 0) return { status: 'ADVANCED_TASK_RESTRICTED' }
 
-  const next = applyStatus(stored.task, input.status, input.now)
-  const outcome = unit.updateTaskConditionally(input.taskId, input.expectedContentRevision, () => next)
+  const changed = applyStatus(stored.task, input.status, input.now)
+  const terminal = input.status === 'DONE' || input.status === 'CANCELLED'
+
+  if (stored.task.recurrence !== undefined && terminal) {
+    const closure = planClosure(unit, changed, input.cancellation, { now: input.now, generateId: input.generateId })
+    if (closure.status !== 'CLOSE') return closureFailure(closure)
+    return writeClosure(unit, closure)
+  }
+
+  if (input.cancellation !== undefined) return { status: 'INVALID_REQUEST' }
+
+  const outcome = unit.updateTaskConditionally(input.taskId, input.expectedEditRevision, () => changed)
   switch (outcome.status) {
     case 'UPDATED':
-      return { status: 'UPDATED', contentRevision: outcome.contentRevision }
     case 'UNCHANGED':
-      return { status: 'UNCHANGED', contentRevision: outcome.contentRevision }
+      return { status: outcome.status, contentRevision: outcome.contentRevision, editRevision: outcome.editRevision }
     case 'NOT_FOUND':
       return { status: 'NOT_FOUND' }
     case 'CONFLICT':
-      return { status: 'CONFLICT', currentRevision: outcome.currentRevision }
+      return {
+        status: 'CONFLICT',
+        currentContentRevision: outcome.currentContentRevision,
+        currentEditRevision: outcome.currentEditRevision,
+      }
+  }
+}
+
+/**
+ * Marca/desmarca por intenção um item da lista atual: verifica a revisão de edição, recusa base
+ * estrutural antiga e nunca fecha/gera, reconcilia lembretes ou altera status.
+ */
+export function setSubtaskDoneInUnit(unit: TaskStorageUnit, input: SetSubtaskDoneInput): SubtaskDoneOutcome {
+  const outcome = unit.markSubtaskDone(
+    input.taskId,
+    input.expectedEditRevision,
+    input.subtaskId,
+    input.done,
+    input.now,
+  )
+
+  switch (outcome.status) {
+    case 'UPDATED':
+    case 'UNCHANGED':
+      return { status: outcome.status, contentRevision: outcome.contentRevision, editRevision: outcome.editRevision }
+    case 'NOT_FOUND':
+      return { status: 'NOT_FOUND' }
+    case 'SUBTASK_NOT_FOUND':
+      return { status: 'SUBTASK_NOT_FOUND' }
+    case 'CONFLICT':
+      return {
+        status: 'CONFLICT',
+        currentContentRevision: outcome.currentContentRevision,
+        currentEditRevision: outcome.currentEditRevision,
+      }
   }
 }

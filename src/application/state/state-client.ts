@@ -124,7 +124,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
     try {
       for (;;) {
         if (page === undefined) {
-          const result = parseSnapshotPageResult(await invoke(STATE_SNAPSHOT_CHANNEL, { version: 1 }))
+          const result = parseSnapshotPageResult(await invoke(STATE_SNAPSHOT_CHANNEL, { version: 2 }))
           if (result === null) return { ok: false, code: 'STORAGE_UNAVAILABLE' }
           if (result.status === 'error') return { ok: false, code: result.code }
           page = result.page
@@ -134,7 +134,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
         if (snapshot !== undefined) return { ok: true, snapshot }
 
         const result = parseSnapshotPageResult(
-          await invoke(STATE_SNAPSHOT_CHANNEL, { version: 1, cursor: page.cursor }),
+          await invoke(STATE_SNAPSHOT_CHANNEL, { version: 2, cursor: page.cursor }),
         )
         if (result === null) return { ok: false, code: 'STORAGE_UNAVAILABLE' }
         if (result.status === 'error') return { ok: false, code: result.code }
@@ -242,7 +242,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
       if (parseStateRequest(request) === null) return Promise.resolve(failure('INVALID_REQUEST'))
       return serialize(async () => {
         const result = await runCycle()
-        return result.ok ? { version: 1, status: 'ok', snapshot: result.snapshot } : failure(result.code)
+        return result.ok ? { version: 2, status: 'ok', snapshot: result.snapshot } : failure(result.code)
       })
     },
 
@@ -252,7 +252,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
       }
 
       return serialize(async () => {
-        const wire = parseSubscribeWireResult(await invoke(STATE_SUBSCRIBE_CHANNEL, { version: 1 }))
+        const wire = parseSubscribeWireResult(await invoke(STATE_SUBSCRIBE_CHANNEL, { version: 2 }))
         if (wire === null) return failure('STORAGE_UNAVAILABLE')
         if (wire.status === 'error') return failure(wire.code)
 
@@ -272,7 +272,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
         if (!result.ok) {
           const id = wire.subscriptionId
           clearSubscription()
-          await invoke(STATE_UNSUBSCRIBE_CHANNEL, { version: 1, subscriptionId: id })
+          await invoke(STATE_UNSUBSCRIBE_CHANNEL, { version: 2, subscriptionId: id })
           return failure(result.code)
         }
 
@@ -281,7 +281,7 @@ export function createStateClient(transport: StateTransport, environment: StateC
         if (pendingRevision !== undefined && lastRevision !== undefined && pendingRevision > lastRevision) {
           scheduleResync()
         }
-        return { version: 1, status: 'ok', subscriptionId: wire.subscriptionId, snapshot: result.snapshot }
+        return { version: 2, status: 'ok', subscriptionId: wire.subscriptionId, snapshot: result.snapshot }
       })
     },
 

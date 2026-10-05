@@ -4,19 +4,24 @@
 // teste ao preload, e não implementa gerenciamento de tarefas.
 import type { App, BrowserWindow } from 'electron'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { formatRevision } from '../../application/storage/revisions.js'
 import type { UnitResult } from '../../application/storage/unit-of-work.js'
+import {
+  changeTaskStatusInUnit,
+  updateTaskInUnit,
+} from '../../application/tasks/task-commands.js'
 import type { StateSnapshotResult } from '../../contracts/state.js'
 import { utf8ByteLength } from '../../contracts/text.js'
+import { resolveNextScheduledAt } from '../../domain/task-recurrence.js'
 import type { Task } from '../../domain/task.js'
 import type { DocumentSessions } from '../ipc/document-sessions.js'
 import type { StateIpcService } from '../ipc/state.js'
-import type { ShutdownReport, StorageCoordinator } from '../storage/coordinator.js'
+import { StorageCoordinator, type ShutdownReport } from '../storage/coordinator.js'
 import { ProductDatabase, type StorageFaultPoint, type StorageFaults } from '../storage/product-database.js'
-import { PRODUCT_STORAGE_DEFINITION } from '../storage/product-schema.js'
+import { PRODUCT_STORAGE_DEFINITION, PRODUCT_V1_DEFINITION } from '../storage/product-schema.js'
 import { buildFictitiousTask, buildFictitiousTasks, buildMinimalFictitiousTask, fictitiousText } from './fixtures.js'
 
 const HARNESS_PREFIX = '--product-harness='
@@ -27,6 +32,9 @@ const CRASH_POINTS: readonly StorageFaultPoint[] = [
   'unit:before-commit',
   'unit:after-commit',
   'unit:before-publish',
+  'migrate:in-transaction',
+  'migrate:before-commit',
+  'migrate:after-commit',
 ]
 
 export type ProductHarnessScenario =
@@ -36,8 +44,20 @@ export type ProductHarnessScenario =
   | { name: 'drain' }
   | { name: 'tasks' }
   | { name: 'ui-bench' }
+  | { name: 'seed-sql1' }
+  | { name: 'inspect-sql1' }
+  | { name: 'recurrence' }
   | { name: 'a11y'; opener: 'real' | 'fake' }
-  | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' }
+  | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' | 'migrate' }
+
+/** Cenários que precisam do arquivo em SQL 1 intocado: o coordenador de produto não abre antes. */
+export function harnessSkipsCoordinatorStart(scenario: ProductHarnessScenario): boolean {
+  return (
+    scenario.name === 'seed-sql1' ||
+    scenario.name === 'inspect-sql1' ||
+    (scenario.name === 'crash' && scenario.unit === 'migrate')
+  )
+}
 
 export interface ProductHarnessDependencies {
   app: App
@@ -63,7 +83,9 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
-  if (value === 'tasks' || value === 'ui-bench') return { name: value }
+  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence') {
+    return { name: value }
+  }
   if (value === 'a11y') return { name: 'a11y', opener: 'real' }
   // Runner hospedado: sem navegador padrão garantido, a abertura usa um opener falso e o shell
   // real continua sendo prova da máquina de referência.
@@ -72,7 +94,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const [name, point, unit, ...rest] = value.split('|')
   if (name !== 'crash' || rest.length > 0) return null
   if (!CRASH_POINTS.includes(point as StorageFaultPoint)) return null
-  if (unit !== undefined && unit !== 'save' && unit !== 'claim') return null
+  if (unit !== undefined && unit !== 'save' && unit !== 'claim' && unit !== 'migrate') return null
   return { name: 'crash', point: point as StorageFaultPoint, unit: unit ?? 'save' }
 }
 
@@ -126,6 +148,19 @@ function round(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+/** Mede a duração de uma unidade real (soma de `onUnitMeasured`) e devolve o tempo de parede. */
+async function measuredUnit(
+  coordinator: StorageCoordinator,
+  durations: number[],
+  work: () => Promise<void>,
+): Promise<number> {
+  const stop = coordinator.onUnitMeasured((milliseconds) => durations.push(milliseconds))
+  const started = performance.now()
+  await work()
+  stop()
+  return performance.now() - started
+}
+
 function runtimeInfo(deps: ProductHarnessDependencies): Record<string, unknown> {
   return {
     electron: process.versions.electron,
@@ -140,7 +175,7 @@ function runtimeInfo(deps: ProductHarnessDependencies): Record<string, unknown> 
 
 const SUBSCRIBE_SCRIPT = `(async () => {
   window.__tf = { updates: [] }
-  const result = await window.taskflowDesktop.subscribeState({ version: 1 }, (update) => {
+  const result = await window.taskflowDesktop.subscribeState({ version: 2 }, (update) => {
     window.__tf.updates.push(update.type === 'snapshot'
       ? { type: 'snapshot', revision: update.snapshot.revision, tasks: update.snapshot.tasks.length, trash: update.snapshot.trash.length }
       : update)
@@ -156,7 +191,7 @@ const LAST_UPDATE_SCRIPT = `(() => {
   return { count: window.__tf.updates.length, last: snapshots.length ? snapshots[snapshots.length - 1] : null }
 })()`
 
-const SNAPSHOT_SCRIPT = 'window.taskflowDesktop.getStateSnapshot({ version: 1 })'
+const SNAPSHOT_SCRIPT = 'window.taskflowDesktop.getStateSnapshot({ version: 2 })'
 
 interface SubscribeProbe {
   status: string
@@ -199,6 +234,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     })`,
   )
   info['catalog'] = catalog
+  // Nove wrappers: diagnóstico/estado (5) e comandos (4 v2 + origem v1). Nenhum canal livre.
   checks['catalogClosed'] =
     JSON.stringify(catalog['keys']) ===
       JSON.stringify([
@@ -206,6 +242,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
         'createTask',
         'getStateSnapshot',
         'openTaskSource',
+        'setSubtaskDone',
         'subscribeState',
         'unsubscribeState',
         'updateTask',
@@ -230,7 +267,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     subscriptionA.subscriptionId !== subscriptionB.subscriptionId
   const repeated = await evaluate<SubscribeProbe>(
     surfaceA,
-    `window.taskflowDesktop.subscribeState({ version: 1 }).then((result) => ({ status: result.status, subscriptionId: result.subscriptionId }))`,
+    `window.taskflowDesktop.subscribeState({ version: 2 }).then((result) => ({ status: result.status, subscriptionId: result.subscriptionId }))`,
   )
   checks['subscribeIdempotent'] =
     repeated.subscriptionId === subscriptionA.subscriptionId && stateIpc.activeSubscriptions === 2
@@ -295,12 +332,12 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
   const negatives = await evaluate<Array<{ status: string; code?: string }>>(
     surfaceA,
     `Promise.all([
-      window.taskflowDesktop.getStateSnapshot({ version: 2 }),
-      window.taskflowDesktop.getStateSnapshot({ version: 1, extra: true }),
-      window.taskflowDesktop.getStateSnapshot({ version: 1, pad: 'x'.repeat(2000) }),
-      window.taskflowDesktop.subscribeState({ version: 1, sql: 'SELECT 1' }),
-      window.taskflowDesktop.unsubscribeState({ version: 1, subscriptionId: '../x' }),
-      window.taskflowDesktop.unsubscribeState({ version: 1, subscriptionId: ${JSON.stringify(subscriptionB.subscriptionId ?? '')} }),
+      window.taskflowDesktop.getStateSnapshot({ version: 1 }),
+      window.taskflowDesktop.getStateSnapshot({ version: 2, extra: true }),
+      window.taskflowDesktop.getStateSnapshot({ version: 2, pad: 'x'.repeat(2000) }),
+      window.taskflowDesktop.subscribeState({ version: 2, sql: 'SELECT 1' }),
+      window.taskflowDesktop.unsubscribeState({ version: 2, subscriptionId: '../x' }),
+      window.taskflowDesktop.unsubscribeState({ version: 2, subscriptionId: ${JSON.stringify(subscriptionB.subscriptionId ?? '')} }),
     ])`,
   )
   info['negatives'] = negatives.map((result) => result.code ?? result.status)
@@ -310,7 +347,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
   const unsubscribed = await evaluate<Array<{ status: string }>>(
     surfaceA,
     `(async () => {
-      const request = { version: 1, subscriptionId: ${JSON.stringify(subscriptionA.subscriptionId ?? '')} }
+      const request = { version: 2, subscriptionId: ${JSON.stringify(subscriptionA.subscriptionId ?? '')} }
       return [await window.taskflowDesktop.unsubscribeState(request), await window.taskflowDesktop.unsubscribeState(request)]
     })()`,
   )
@@ -325,8 +362,8 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     const refused = await evaluate<Array<{ status: string; code?: string }>>(
       unknown,
       `Promise.all([
-        window.taskflowDesktop.getStateSnapshot({ version: 1 }),
-        window.taskflowDesktop.subscribeState({ version: 1 }),
+        window.taskflowDesktop.getStateSnapshot({ version: 2 }),
+        window.taskflowDesktop.subscribeState({ version: 2 }),
         window.taskflowDesktop.verifyFoundation({ version: 1 }),
       ])`,
     )
@@ -343,7 +380,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     await loadSurface(wrongUrl, `${deps.surfaceUrl}/index.html?probe=1`)
     const probe = await evaluate<{ status: string; code?: string } | null>(
       wrongUrl,
-      `typeof window.taskflowDesktop === 'object' ? window.taskflowDesktop.getStateSnapshot({ version: 1 }) : null`,
+      `typeof window.taskflowDesktop === 'object' ? window.taskflowDesktop.getStateSnapshot({ version: 2 }) : null`,
     ).catch(() => null)
     info['wrongUrl'] = { url: wrongUrl.webContents.getURL(), result: probe?.code ?? probe?.status ?? 'no-bridge' }
     checks['wrongUrlRefused'] = probe === null || probe.code === 'UNAUTHORIZED'
@@ -444,9 +481,27 @@ function barrierFile(deps: ProductHarnessDependencies): string {
 async function runCrash(
   deps: ProductHarnessDependencies,
   point: StorageFaultPoint,
-  unit: 'save' | 'claim',
+  unit: 'save' | 'claim' | 'migrate',
 ): Promise<void> {
   const { coordinator } = deps
+
+  if (unit === 'migrate') {
+    // Migração real 1→2 sobre o perfil fictício semeado em SQL 1; o coordenador de produto não
+    // abriu antes. A barreira fica dentro da transação de migração.
+    const base = 0n
+    deps.faults.at = (reached) => {
+      if (reached !== point) return
+      writeFileSync(barrierFile(deps), JSON.stringify({ point, pid: process.pid, baseRevision: formatRevision(base) }))
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
+    }
+    emit({ scenario: 'crash', armed: true, point, unit, pid: process.pid, baseRevision: '0' })
+    const result = ProductDatabase.open(deps.productDatabaseFile, PRODUCT_STORAGE_DEFINITION, deps.faults)
+    if (result.ok) result.database.close()
+    // Só chega aqui se a barreira não foi alcançada: o runner trata como falha.
+    emit({ scenario: 'crash', armed: false, point, reached: false })
+    return
+  }
+
   const claimTask = buildFictitiousTask(7001, { idPrefix: 'claim' })
   const pending = claimTask.reminders.find((reminder) => reminder.processedFor === undefined && reminder.type === 'OFFSET')
   if (unit === 'claim') await coordinator.run((target) => target.saveTask(claimTask))
@@ -546,7 +601,7 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
       await coordinator.run((unit) => {
         const stored = unit.getTask(task.id)
         if (stored === undefined) return 'missing'
-        return unit.updateTaskConditionally(task.id, stored.contentRevision, (current) => ({
+        return unit.updateTaskConditionally(task.id, stored.editRevision, (current) => ({
           ...current,
           title: `${current.title} (editada)`,
         })).status
@@ -554,12 +609,81 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
     }
     const mutationDurations = [...unitDurations]
 
+    // TFA-005: varredura de portadora e fechamento/geração pelo caminho real de comandos.
+    // Portadoras sem lembretes (a guarda D8 bloquearia o fechamento de tarefas com reminders).
+    const carrierIds: string[] = []
+    const carrierDurations: number[] = []
+    let identity = 0
+    for (let index = 0; index < 3; index += 1) {
+      const base = buildFictitiousTask(95_000 + index, { idPrefix: `${prefix}-carrier` })
+      const carrier: Task = {
+        ...base,
+        reminders: [],
+        status: 'TODO',
+        dueAt: '2026-11-20T10:00:00.000Z',
+        seriesId: `serie-scan-${size}-${index}`,
+        recurrence: { frequency: 'MONTHLY', dayOfMonth: 15 },
+      }
+      delete carrier.completedAt
+      const saved = await coordinator.run((unit) => unit.saveTask(carrier))
+      if (saved.ok && saved.committed) carrierIds.push(carrier.id)
+    }
+    const closureMs = await measuredUnit(coordinator, carrierDurations, async () => {
+      const id = carrierIds[0]
+      if (id === undefined) return
+      await coordinator.run((unit) =>
+        changeTaskStatusInUnit(unit, {
+          taskId: id,
+          expectedEditRevision: unit.getTask(id)?.editRevision ?? 0n,
+          status: 'DONE',
+          now: new Date('2026-10-20T10:00:00.000Z'),
+          generateId: () => `gerada-${prefix}-${identity += 1}`,
+        }),
+      )
+    })
+    const dueUpdateMs = await measuredUnit(coordinator, carrierDurations, async () => {
+      const id = carrierIds[1]
+      if (id === undefined) return
+      await coordinator.run((unit) =>
+        updateTaskInUnit(unit, {
+          taskId: id,
+          expectedEditRevision: unit.getTask(id)?.editRevision ?? 0n,
+          patch: { dueAt: '2026-11-25T10:00:00.000Z' },
+          now: new Date('2026-10-20T10:00:00.000Z'),
+          generateId: () => `novo-${prefix}`,
+        }),
+      )
+    })
+    const titleUpdateMs = await measuredUnit(coordinator, carrierDurations, async () => {
+      const id = carrierIds[2]
+      if (id === undefined) return
+      await coordinator.run((unit) =>
+        updateTaskInUnit(unit, {
+          taskId: id,
+          expectedEditRevision: unit.getTask(id)?.editRevision ?? 0n,
+          patch: { title: `${prefix} título editado` },
+          now: new Date('2026-10-20T10:00:00.000Z'),
+          generateId: () => `novo2-${prefix}`,
+        }),
+      )
+    })
+    const carriersReady = carrierIds.length === 3
+
+    // Pior caso do limite de 32.768 passos (série antiga avançando até o relógio distante).
+    const limitStarted = performance.now()
+    const limitResult = resolveNextScheduledAt(
+      { frequency: 'DAILY', intervalDays: 1 },
+      '1900-01-01T12:00:00.000Z',
+      new Date('2200-01-01T12:00:00.000Z'),
+    )
+    const seriesLimitMs = performance.now() - limitStarted
+
     // Páginas pela bridge real: cada leitura de página é uma unidade medida.
     unitDurations.length = 0
     const snapshotStarted = performance.now()
     const snapshot = await evaluate<{ status: string; tasks?: number; trash?: number; code?: string }>(
       mainWindow,
-      `window.taskflowDesktop.getStateSnapshot({ version: 1 }).then((result) => result.status === 'ok'
+      `window.taskflowDesktop.getStateSnapshot({ version: 2 }).then((result) => result.status === 'ok'
         ? { status: 'ok', tasks: result.snapshot.tasks.length, trash: result.snapshot.trash.length }
         : result)`,
     )
@@ -584,6 +708,17 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
         count: mutationDurations.length,
         p95Ms: round(percentile(mutationDurations, 0.95)),
         maxMs: round(Math.max(0, ...mutationDurations)),
+      },
+      series: {
+        carriersReady,
+        closureMs: round(closureMs),
+        dueUpdateMs: round(dueUpdateMs),
+        titleUpdateMs: round(titleUpdateMs),
+        unitP95Ms: round(percentile(carrierDurations, 0.95)),
+        unitMaxMs: round(Math.max(0, ...carrierDurations)),
+        limitMs: round(seriesLimitMs),
+        limitStatus: limitResult.status,
+        stepLimit: 32_768,
       },
       page: {
         count: pageDurations.length,
@@ -617,6 +752,11 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
     drainWithin5s: report !== undefined && report.drainMs <= 5_000,
     saveManyAtomic: datasets.every((dataset) => dataset['replaced'] === 'REPLACED'),
     snapshotsComplete: datasets.every((dataset) => (dataset['snapshot'] as { status: string }).status === 'ok'),
+    // TFA-005: fechamento/varredura de portadora medidos com o volume real e limite finito.
+    seriesMeasured: datasets.every((dataset) => {
+      const series = dataset['series'] as { carriersReady: boolean; limitStatus: string } | undefined
+      return series?.carriersReady === true && series.limitStatus === 'RESOURCE_LIMIT'
+    }),
   }
 
   emit({
@@ -780,6 +920,23 @@ const UI_INTERACTION = (index: number): string => `(async () => {
   return { flushMs: afterFlush - started, macrotaskMs: afterMacrotask - afterFlush, layoutMs: afterLayout - afterMacrotask, paintMs: painted - afterLayout, moves };
 })()`
 
+/** TFA-005: expande o cartão e marca um item — mede o novo controle pelo orçamento D10. */
+const UI_SUBTASK_TOGGLE = (index: number): string => `(async () => {
+  const cards = [...document.querySelectorAll('[data-task-id]')];
+  const card = cards[${index}];
+  if (!card) return null;
+  const toggle = card.querySelector('[data-action="subtasks"]');
+  if (toggle && toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const box = card.querySelector('input.subtask-checkbox');
+  if (!box) return null;
+  const started = performance.now();
+  box.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  return performance.now() - started;
+})()`
+
 const CATALOG_SCRIPT = `({
   keys: Object.keys(window.taskflowDesktop).sort(),
   frozen: Object.isFrozen(window.taskflowDesktop),
@@ -859,22 +1016,24 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
     return read.ok && read.value?.task.status === 'TODO' && read.value.task.completedAt === undefined
   })
 
-  // Catálogo fechado e negativas na ponte real do pacote.
+  // Catálogo fechado e negativas na ponte real do pacote (v2; v1 antigo recusado).
   const catalog = await evaluate<{ keys: string[]; frozen: boolean; globals: string[] }>(surfaceA, CATALOG_SCRIPT)
   info['catalog'] = catalog
-  checks['catalogEightClosed'] =
-    catalog.keys.length === 8 &&
+  checks['catalogNineClosed'] =
+    catalog.keys.length === 9 &&
     catalog.frozen === true &&
     catalog.globals.every((kind) => kind === 'undefined') &&
-    ['remove', 'delete', 'trash', 'undo', 'shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'recurrence', 'subtask', 'reminder'].every(
+    ['remove', 'delete', 'trash', 'undo', 'shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'reminder'].every(
       (name) => !catalog.keys.some((key) => key.toLowerCase().includes(name)),
     )
   const negatives = await evaluate<Array<{ status: string; code?: string }>>(
     surfaceA,
     `Promise.all([
-      window.taskflowDesktop.createTask({ version: 1, draft: { title: 'x', id: 'forjado' } }),
-      window.taskflowDesktop.updateTask({ version: 1, taskId: 'a', expectedContentRevision: '01', patch: {} }),
-      window.taskflowDesktop.changeTaskStatus({ version: 1, taskId: 'a', expectedContentRevision: '1', status: 'NOPE' }),
+      window.taskflowDesktop.createTask({ version: 1, draft: { title: 'v1 recusado' } }),
+      window.taskflowDesktop.createTask({ version: 2, draft: { title: 'x', id: 'forjado' } }),
+      window.taskflowDesktop.updateTask({ version: 1, taskId: 'a', expectedEditRevision: '01', patch: {} }),
+      window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: 'a', expectedEditRevision: '1', status: 'NOPE' }),
+      window.taskflowDesktop.setSubtaskDone({ version: 2, taskId: 'a', expectedEditRevision: '1', subtaskId: 's', done: 'sim' }),
       window.taskflowDesktop.openTaskSource({ version: 1, taskId: 'a', expectedContentRevision: '1', url: 'https://x.test' }),
     ])`,
   )
@@ -882,8 +1041,10 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
   checks['negativeCommands'] =
     negatives[0]?.code === 'INVALID_REQUEST' &&
     negatives[1]?.code === 'INVALID_REQUEST' &&
-    negatives[2]?.code === 'VALIDATION_FAILED' &&
-    negatives[3]?.code === 'INVALID_REQUEST'
+    negatives[2]?.code === 'INVALID_REQUEST' &&
+    negatives[3]?.code === 'VALIDATION_FAILED' &&
+    negatives[4]?.code === 'INVALID_REQUEST' &&
+    negatives[5]?.code === 'INVALID_REQUEST'
 
   // Reconciliação por foco: dispara leitura coordenada mesmo sem evento novo visível.
   const unitsBefore = coordinator.metrics.units
@@ -894,7 +1055,7 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
   const lateTitle = `UI tardia ${Date.now()}`
   await evaluate<string>(
     surfaceA,
-    `(() => { window.__late = window.taskflowDesktop.createTask({ version: 1, draft: { title: ${JSON.stringify(lateTitle)} } }).catch(() => undefined); return 'issued' })()`,
+    `(() => { window.__late = window.taskflowDesktop.createTask({ version: 2, draft: { title: ${JSON.stringify(lateTitle)} } }).catch(() => undefined); return 'issued' })()`,
   )
   const reloaded = new Promise<void>((resolve) => surfaceA.webContents.once('did-finish-load', () => resolve()))
   surfaceA.webContents.reload()
@@ -929,6 +1090,192 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
     deps.mainWindow.once('closed', () => resolve())
     deps.mainWindow.close()
   })
+}
+
+/** Seleciona o cartão pelo título (IDs históricos nunca entram em seletor CSS). */
+function uiCardSelector(title: string): string {
+  return `(function () {
+    return [...document.querySelectorAll('[data-task-id]')].find((element) => (element.textContent || '').includes(${JSON.stringify(title)}));
+  })()`
+}
+
+function uiCardHas(title: string, selector: string): string {
+  return `(() => { const card = ${uiCardSelector(title)}; return Boolean(card && card.querySelector(${JSON.stringify(selector)})); })()`
+}
+
+/** Marca/desmarca o item de subtarefa pelo checkbox do cartão (índice na ordem atual). */
+function uiToggleSubtask(title: string, index: number): string {
+  return `(async () => {
+    const card = ${uiCardSelector(title)};
+    if (!card) return false;
+    const toggle = card.querySelector('[data-action="subtasks"]');
+    if (toggle && toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const boxes = [...card.querySelectorAll('input.subtask-checkbox')];
+    const box = boxes[${index}];
+    if (!box || box.disabled) return false;
+    box.click();
+    return true;
+  })()`
+}
+
+interface CommandProbe {
+  status: string
+  code?: string
+  taskId?: string
+  revision?: string
+  contentRevision?: string
+  editRevision?: string
+  currentEditRevision?: string
+}
+
+interface RecurrenceProbe {
+  status: string
+  code?: string
+  taskId?: string
+  editRevision?: string
+}
+
+/**
+ * TFA-005: recorrência/subtarefas no pacote real — criação, marcação pela UI, save após checks,
+ * fechamento com geração, conflito de duas sessões, escolha obrigatória/END e reconciliação.
+ */
+async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
+  const { coordinator, mainWindow: surfaceA, stateIpc, sessions } = deps
+  const checks: Record<string, boolean> = {}
+  const info: Record<string, unknown> = { runtime: runtimeInfo(deps) }
+  const now = Date.now()
+  const due = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const later = new Date(now + 21 * 24 * 60 * 60 * 1000).toISOString()
+
+  expectOkUnit(
+    await coordinator.run((unit) => {
+      unit.emptyTrash()
+      return unit.replaceAllTasks([], unit.baseRevision)
+    }),
+  )
+  checks['recurrenceUiReady'] = await evaluate<boolean>(surfaceA, uiBodyHas('Nenhuma tarefa ainda'))
+
+  const title = `Recorrente fictícia ${now}`
+  const created = await evaluate<CommandProbe>(
+    surfaceA,
+    `window.taskflowDesktop.createTask({ version: 2, draft: { title: ${JSON.stringify(title)}, dueAt: ${JSON.stringify(due)}, recurrence: { frequency: 'DAILY', intervalDays: 1 }, subtasks: [{ title: 'Passo A' }, { title: 'Passo B' }] } })`,
+  )
+  info['created'] = created
+  checks['createAccepted'] =
+    created.status === 'ok' &&
+    typeof created.taskId === 'string' &&
+    created.contentRevision === created.editRevision &&
+    created.editRevision !== undefined
+  const taskId = created.taskId ?? ''
+  const baseEdit = created.editRevision ?? '0'
+  checks['createVisibleUi'] = await evaluate<boolean>(surfaceA, uiBodyHas(title))
+
+  const surfaceB = deps.createSurface(true)
+  if (surfaceB === null) throw new Error('second surface unavailable')
+  await loadSurface(surfaceB, deps.surfaceUrl)
+  checks['secondSurfaceConverges'] = await evaluate<boolean>(surfaceB, uiBodyHas(title))
+  checks['recurrenceBadgeOnBoth'] =
+    (await evaluate<boolean>(surfaceA, uiCardHas(title, '[data-test="recurrence-badge"]'))) &&
+    (await evaluate<boolean>(surfaceB, uiCardHas(title, '[data-test="recurrence-badge"]'))) &&
+    (await evaluate<boolean>(surfaceA, uiCardHas(title, '[data-test="recurrence-summary"]')))
+
+  // Marcação pela UI: conteúdo avança, edição é conservada; as duas superfícies mostram progresso.
+  checks['toggleThroughUi'] = await evaluate<boolean>(surfaceA, uiToggleSubtask(title, 0))
+  checks['togglePersisted'] = await waitFor(async () => {
+    const read = await coordinator.read((reader) => reader.getTask(taskId))
+    return read.ok && read.value?.task.subtasks[0]?.done === true
+  })
+  const afterToggle = await coordinator.read((reader) => reader.getTask(taskId))
+  checks['toggleKeepsEdit'] =
+    afterToggle.ok &&
+    afterToggle.value?.editRevision.toString() === baseEdit &&
+    afterToggle.value.contentRevision.toString() !== baseEdit
+  checks['progressOnBoth'] =
+    (await evaluate<boolean>(surfaceA, uiBodyHas('1 de 2'))) && (await evaluate<boolean>(surfaceB, uiBodyHas('1 de 2')))
+
+  // Save depois do check (mesma revisão de edição) conserva o done lido agora.
+  const editedTitle = `${title} editada`
+  const saved = await evaluate<CommandProbe>(
+    surfaceA,
+    `window.taskflowDesktop.updateTask({ version: 2, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
+  )
+  checks['saveAfterCheck'] = saved.status === 'ok'
+  const afterSave = await coordinator.read((reader) => reader.getTask(taskId))
+  checks['saveKeptDone'] =
+    afterSave.ok &&
+    afterSave.value?.task.subtasks[0]?.done === true &&
+    afterSave.value?.task.title === editedTitle
+
+  // Fechar DONE transfere a regra para exatamente uma próxima TODO no mesmo commit.
+  const editForClose = afterSave.ok && afterSave.value !== undefined ? afterSave.value.editRevision.toString() : '0'
+  const closed = await evaluate<CommandProbe>(
+    surfaceA,
+    `window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(editForClose)}, status: 'DONE' })`,
+  )
+  checks['closeAccepted'] = closed.status === 'ok'
+  const afterClose = await coordinator.read((reader) => reader.listTasks())
+  const closedRecord = afterClose.ok ? afterClose.value.find((stored) => stored.task.id === taskId) : undefined
+  const generated = afterClose.ok
+    ? afterClose.value.find(
+        (stored) => stored.task.id !== taskId && stored.task.seriesId === closedRecord?.task.seriesId,
+      )
+    : undefined
+  checks['oneNextTodo'] =
+    afterClose.ok &&
+    afterClose.value.length === 2 &&
+    generated?.task.status === 'TODO' &&
+    generated?.task.recurrence !== undefined &&
+    closedRecord?.task.recurrence === undefined
+  checks['generatedVisibleUi'] =
+    generated !== undefined ? await evaluate<boolean>(surfaceB, uiBodyHas(generated.task.title)) : false
+
+  // Duas sessões: base de edição antiga recebe CONFLICT com as revisões atuais e nada é duplicado.
+  const conflict = await evaluate<CommandProbe>(
+    surfaceB,
+    `window.taskflowDesktop.updateTask({ version: 2, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: 'stale' } })`,
+  )
+  info['conflict'] = conflict
+  checks['staleConflicts'] =
+    conflict.status === 'error' && conflict.code === 'CONFLICT' && conflict.currentEditRevision !== undefined
+  const countAfterConflict = await coordinator.read((reader) => reader.listTasks())
+  checks['noThirdTask'] = countAfterConflict.ok && countAfterConflict.value.length === 2
+
+  // Cancelamento de portadora: escolha obrigatória sem write; END fecha sem gerar.
+  const title2 = `Cancelável fictícia ${now}`
+  const created2 = await evaluate<RecurrenceProbe>(
+    surfaceA,
+    `window.taskflowDesktop.createTask({ version: 2, draft: { title: ${JSON.stringify(title2)}, dueAt: ${JSON.stringify(later)}, recurrence: { frequency: 'WEEKLY', weekdays: [1, 3] } } })`,
+  )
+  const noChoice = await evaluate<CommandProbe>(
+    surfaceA,
+    `window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED' })`,
+  )
+  checks['choiceRequired'] = noChoice.status === 'error' && noChoice.code === 'RECURRENCE_CHOICE_REQUIRED'
+  const ended = await evaluate<CommandProbe>(
+    surfaceA,
+    `window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED', cancellation: 'END' })`,
+  )
+  checks['endAccepted'] = ended.status === 'ok'
+  const finalTasks = await coordinator.read((reader) => reader.listTasks())
+  checks['endNoGeneration'] =
+    finalTasks.ok &&
+    finalTasks.value.length === 3 &&
+    finalTasks.value.filter((stored) => stored.task.recurrence !== undefined).length === 1
+
+  // Reopen validado preserva o estado das duas séries e o done marcado.
+  const unitsBefore = coordinator.metrics.units
+  await evaluate<boolean>(surfaceA, `(() => { window.dispatchEvent(new Event('focus')); return true })()`)
+  checks['focusReconciles'] = await waitFor(() => coordinator.metrics.units > unitsBefore, 10_000)
+
+  surfaceB.destroy()
+  await waitFor(() => sessions.size === 1 && stateIpc.trackedDocuments <= 1, 10_000)
+  checks['testSurfaceReleased'] = sessions.size === 1
+
+  emit({ scenario: 'recurrence', ok: Object.values(checks).every(Boolean), checks, info })
+
+  // Encerramento normal: o runner valida a saída 0 e a ausência de residual.
+  deps.app.quit()
 }
 
 /** Unidade que precisa ter sucesso; falha vira erro do cenário. */
@@ -1023,6 +1370,14 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
         moveCounts.push(segments.moves)
       }
     }
+
+    // TFA-005: novos controles (expansão + marcação de subtarefa) medidos pelo mesmo orçamento.
+    const subtaskTimes: number[] = []
+    for (let index = 0; index < 5; index += 1) {
+      const measured = await evaluate<number | null>(surface, UI_SUBTASK_TOGGLE(index))
+      subtaskTimes.push(measured ?? Number.POSITIVE_INFINITY)
+    }
+    const subtaskP95 = round(percentile(subtaskTimes, 0.95))
     const heartbeat = await evaluate<{ max: number } | null>(surface, UI_HEARTBEAT_READ)
     const dom = await evaluate<{ cards: number; elements: number }>(
       surface,
@@ -1047,6 +1402,11 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
         paintP95Ms: round(percentile(paintTimes, 0.95)),
         maxMoves: Math.max(0, ...moveCounts),
       },
+      subtaskControls: {
+        count: subtaskTimes.length,
+        p95Ms: subtaskP95,
+        maxMs: round(Math.max(0, ...subtaskTimes)),
+      },
       heartbeatMaxMs: round(heartbeat?.max ?? Number.POSITIVE_INFINITY),
     })
   }
@@ -1055,6 +1415,8 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
   const second = datasets[1] ?? {}
   const firstInteractions = first['interactions'] as { p95Ms: number } | undefined
   const secondInteractions = second['interactions'] as { p95Ms: number } | undefined
+  const firstSubtasks = first['subtaskControls'] as { p95Ms: number } | undefined
+  const secondSubtasks = second['subtaskControls'] as { p95Ms: number } | undefined
   const gates = {
     mount1000Within2s: Number(first['mountMs'] ?? Number.POSITIVE_INFINITY) <= 2_000,
     mount10000Within5s: Number(second['mountMs'] ?? Number.POSITIVE_INFINITY) <= 5_000,
@@ -1064,6 +1426,9 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
     interactionsP95Within500ms:
       (firstInteractions?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500 &&
       (secondInteractions?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500,
+    subtaskControlsP95Within500ms:
+      (firstSubtasks?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500 &&
+      (secondSubtasks?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500,
     heartbeatWithin250ms:
       Number(first['heartbeatMaxMs'] ?? Number.POSITIVE_INFINITY) <= 250 &&
       Number(second['heartbeatMaxMs'] ?? Number.POSITIVE_INFINITY) <= 250,
@@ -1164,6 +1529,74 @@ async function runA11y(deps: ProductHarnessDependencies, openerMode: 'real' | 'f
 }
 
 /**
+ * Semeia o perfil fictício em SQL 1 (schema anterior), recriando o arquivo do zero. Usado pelo
+ * smoke para exercitar a migração real 1→2 no pacote: abre a origem, grava fixtures e encerra
+ * sem migrar. Nenhum dado real participa.
+ */
+async function runSeedSql1(deps: ProductHarnessDependencies): Promise<void> {
+  const file = deps.productDatabaseFile
+  for (const suffix of ['', '-journal', '-wal', '-shm']) {
+    rmSync(`${file}${suffix}`, { force: true })
+  }
+
+  const opened = ProductDatabase.open(file, PRODUCT_V1_DEFINITION)
+  if (!opened.ok) {
+    emit({ scenario: 'seed-sql1', ok: false, code: opened.reason })
+    deps.app.exit(3)
+    return
+  }
+  opened.database.close()
+
+  const coordinator = new StorageCoordinator({
+    open: () => ProductDatabase.open(file, PRODUCT_V1_DEFINITION),
+  })
+  coordinator.start()
+  const tasks = [...buildFictitiousTasks(12), buildMinimalFictitiousTask('sql1-minima')]
+  const saved = await coordinator.run((unit) => unit.saveTasks(tasks))
+  const moved = await coordinator.run((unit) =>
+    unit.moveToTrash(tasks[0]?.id ?? 'ausente', '2026-09-12T08:00:00.000Z'),
+  )
+  const revision = coordinator.confirmedRevision ?? 0n
+  const report = coordinator.shutdown()
+
+  emit({
+    scenario: 'seed-sql1',
+    ok: saved.ok && saved.committed && moved.ok && moved.committed,
+    revision: formatRevision(revision),
+    tasks: tasks.length,
+    drainMs: Math.round(report.drainMs * 100) / 100,
+    runtime: runtimeInfo(deps),
+  })
+  deps.app.quit()
+}
+
+/**
+ * Inspeciona o perfil com o leitor SQL 1 (origem): evidência de que um kill antes do commit da
+ * migração deixou o arquivo antigo inteiro (e de que o pós-commit já é SQL 2).
+ */
+function runInspectSql1(deps: ProductHarnessDependencies): void {
+  const result = ProductDatabase.open(deps.productDatabaseFile, PRODUCT_V1_DEFINITION)
+  if (!result.ok) {
+    emit({ scenario: 'inspect-sql1', ok: false, code: result.reason })
+    deps.app.quit()
+    return
+  }
+  try {
+    emit({
+      scenario: 'inspect-sql1',
+      ok: true,
+      schemaVersion: 1,
+      revision: formatRevision(result.database.readGlobalRevision()),
+      tasks: result.database.listRows('tasks').length,
+      trash: result.database.listRows('trash').length,
+    })
+  } finally {
+    result.database.close()
+  }
+  deps.app.quit()
+}
+
+/**
  * Executa o cenário e reporta uma linha JSON no stdout. Cenários de verificação pontual
  * encerram o app ao final; `bridge` permanece vivo para o teste de segunda instância.
  */
@@ -1182,6 +1615,18 @@ export async function runProductHarness(
     }
     if (scenario.name === 'tasks') {
       await runTasks(deps)
+      return
+    }
+    if (scenario.name === 'recurrence') {
+      await runRecurrence(deps)
+      return
+    }
+    if (scenario.name === 'seed-sql1') {
+      await runSeedSql1(deps)
+      return
+    }
+    if (scenario.name === 'inspect-sql1') {
+      runInspectSql1(deps)
       return
     }
     if (scenario.name === 'reopen') await runReopen(deps)

@@ -10,6 +10,8 @@ export interface StoredRow {
   payloadVersion: number
   payloadJson: string
   contentRevision: Revision
+  /** Revisão de edição (campos/status/regra/estrutura); conservada por marcação/claim. */
+  editRevision: Revision
   /** Presente somente na lixeira. */
   deletedAt?: string
 }
@@ -37,6 +39,7 @@ export interface StorageRowPort {
 export interface StoredTask {
   task: Task
   contentRevision: Revision
+  editRevision: Revision
 }
 
 export interface StoredTrashItem {
@@ -44,6 +47,7 @@ export interface StoredTrashItem {
   deletedAt: string
   /** Revisão que o conteúdo tinha ao ser excluído; não autoriza edição após restauração. */
   contentRevision: Revision
+  editRevision: Revision
 }
 
 export type SaveOutcome = 'CREATED' | 'UPDATED' | 'UNCHANGED'
@@ -54,15 +58,23 @@ export type ReplaceAllResult =
   | { status: 'CONFLICT'; currentRevision: Revision }
 
 export type TrashRestoreResult =
-  | { status: 'RESTORED'; task: Task; contentRevision: Revision }
+  | { status: 'RESTORED'; task: Task; contentRevision: Revision; editRevision: Revision }
   | { status: 'NOT_IN_TRASH' }
   | { status: 'ID_EXISTS' }
 
 export type ConditionalUpdateResult =
-  | { status: 'UPDATED'; task: Task; contentRevision: Revision }
-  | { status: 'UNCHANGED'; task: Task; contentRevision: Revision }
+  | { status: 'UPDATED'; task: Task; contentRevision: Revision; editRevision: Revision }
+  | { status: 'UNCHANGED'; task: Task; contentRevision: Revision; editRevision: Revision }
   | { status: 'NOT_FOUND' }
-  | { status: 'CONFLICT'; currentRevision: Revision }
+  | { status: 'CONFLICT'; currentContentRevision: Revision; currentEditRevision: Revision }
+
+/** Marcação tipada: altera só `done`/`updatedAt`, conservando a revisão de edição. */
+export type MarkSubtaskDoneResult =
+  | { status: 'UPDATED'; task: Task; contentRevision: Revision; editRevision: Revision }
+  | { status: 'UNCHANGED'; task: Task; contentRevision: Revision; editRevision: Revision }
+  | { status: 'NOT_FOUND' }
+  | { status: 'CONFLICT'; currentContentRevision: Revision; currentEditRevision: Revision }
+  | { status: 'SUBTASK_NOT_FOUND'; task: Task; contentRevision: Revision; editRevision: Revision }
 
 export interface RevertPreconditions {
   /** Tarefa a reverter e a revisão de conteúdo produzida pela ação que será desfeita. */
@@ -72,7 +84,7 @@ export interface RevertPreconditions {
 }
 
 export type ConditionalRevertResult =
-  | { status: 'REVERTED'; task: Task; contentRevision: Revision }
+  | { status: 'REVERTED'; task: Task; contentRevision: Revision; editRevision: Revision }
   | { status: 'REMOVED' }
   | { status: 'CHANGED'; currentRevision: Revision }
   | { status: 'GENERATED_CHANGED' }
@@ -83,6 +95,16 @@ export interface ReminderOccurrenceClaim {
   reminderId: string
   /** Instante efetivo (ISO 8601 UTC) que deve ser registrado como processado. */
   processedFor: string
+}
+
+/**
+ * Resumo leve de uma linha para checagens de portadora: identifica série e presença de regra
+ * sem normalizar o payload inteiro. Não substitui a leitura validada de `StoredTask`.
+ */
+export interface CarrierSummary {
+  id: string
+  seriesId: string | undefined
+  hasRecurrence: boolean
 }
 
 /**
@@ -98,6 +120,12 @@ export interface TaskStorageReader {
   /** Percorre em ordem estável de identificador, sem materializar a coleção inteira. */
   iterateTasks(afterId: string | undefined): Iterable<StoredTask>
   iterateTrash(afterId: string | undefined): Iterable<StoredTrashItem>
+  /**
+   * Percorre resumos de portadora (id/série/regra) sem decodificar o payload completo.
+   * Mesma ordem e mesmas linhas de `iterateTasks`/`iterateTrash`; leitura inválida falha com
+   * `INCOMPATIBLE_DATA` em vez de omitir a linha.
+   */
+  iterateCarrierSummaries(collection: StoredCollection, afterId: string | undefined): Iterable<CarrierSummary>
 }
 
 /**
@@ -122,19 +150,31 @@ export interface TaskStorageUnit extends TaskStorageReader {
   /** Expurgo explícito: remove os itens que `shouldPurge` indicar. Leituras nunca expurgam. */
   purgeTrash(shouldPurge: (item: StoredTrashItem) => boolean): number
   /**
-   * Edição condicional: aplica `change` sobre a tarefa atual somente se a revisão de conteúdo
-   * ainda for a esperada. Marcadores `processedFor` de ocorrências inalteradas são conservados.
+   * Edição condicional: aplica `change` sobre a tarefa atual somente se a revisão de **edição**
+   * ainda for a esperada. Uma alteração efetiva atualiza conteúdo e edição (revisão global nova);
+   * marcadores `processedFor` de ocorrências inalteradas são conservados.
    */
   updateTaskConditionally(
     id: string,
-    expectedContentRevision: Revision,
+    expectedEditRevision: Revision,
     change: (task: Task) => Task | undefined,
   ): ConditionalUpdateResult
+  /**
+   * Marcação tipada de subtarefa: conserva a revisão de edição (conteúdo e global avançam).
+   * Nunca altera status, prazo, regra ou lembretes.
+   */
+  markSubtaskDone(
+    id: string,
+    expectedEditRevision: Revision,
+    subtaskId: string,
+    done: boolean,
+    now: Date,
+  ): MarkSubtaskDoneResult
   /** Reversão condicional de uma ação, verificando as revisões de conteúdo na mesma unidade. */
   revertConditionally(preconditions: RevertPreconditions, restore: (current: Task) => Task): ConditionalRevertResult
   /**
    * Registra `processedFor` somente se a mesma ocorrência ainda estiver válida e pendente.
-   * Altera a revisão global, conservando `updatedAt` e a revisão de conteúdo.
+   * Altera a revisão global, conservando `updatedAt`, a revisão de conteúdo e a de edição.
    */
   claimReminderOccurrence(claim: ReminderOccurrenceClaim): boolean
 }

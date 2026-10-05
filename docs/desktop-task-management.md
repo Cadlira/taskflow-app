@@ -140,3 +140,70 @@ await window.taskflowDesktop.updateTask({ version: 1, taskId: 'a', expectedConte
   - **Revisão concreta já aplicada (sem truncar, virtualizar ou remover o gate):** cartões como componentes persistentes (props inalteradas não re-renderizam; só movem), registro raso no store, comparadores com chaves pré-calculadas, `content-visibility` por cartão e remoção de uma camada de `<li>`. O custo bruto medido do Chrome para reordenar os mesmos 10.000 nós é de ~165-340 ms (mover + estabilizar) sem framework; o alvo de 500 ms fica no limite dessa base. **Pendência de revisão:** para cumprir D10 em 10.000 com garantia, é necessária uma decisão explícita de produto/arquitetura (por exemplo, janela de renderização aprovada) ou a revisão formal do orçamento para o caso de reordenação completa; o gate permanece medido e reprovado. Na **máquina de referência** (sem flags), `smoke:packaged` termina reprovado por esse gate; no **runner hospedado**, a CI usa `smoke:packaged -- --ci-runner`, em que o orçamento pendente é reportado como WARN (medido, registrado e não bloqueante) e a abertura usa opener falso — o shell real e o gate D10 continuam sendo critérios da máquina de referência, sem truncamento ou virtualização.
 
 **Diferenciação de níveis:** os testes de DOM/mocks provam regras, foco e estados; o harness prova UI+preload+main+banco no pacote; `verify:package` prova conteúdo/manifestos do ASAR; nada aqui prova instalação, Setup, notificações, bandeja, atalhos globais, performance em conta padrão ou CI remota (a CI não foi consultada nesta sessão).
+
+## TFA-005 — catálogo v2
+
+**Estado:** Change `preservar-recorrencias-e-subtarefas` em **apply** (ainda não arquivada). Esta seção documenta a fronteira IPC v2 desta etapa (grupo 4 — contratos e fronteira IPC); os grupos 5–7 (store/formulário, cartões e produto empacotado) e o `verification.md` permanecem pendentes e não são anunciados como concluídos.
+
+### Nove wrappers de produção
+
+O preload expõe um único objeto congelado com exatamente nove operações; nenhum canal livre, `send`, SQL, caminho, Task completa, UndoPlan, callback remoto ou hook de teste. As versões mudam em bloco: **estado e mutações de tarefas em v2**, `verifyFoundation` e `openTaskSource` conservados em v1.
+
+| Wrapper | Canal | Request exato | Sucesso |
+| --- | --- | --- | --- |
+| `verifyFoundation` | `foundation:verify:v1` | v1 inalterado | `FoundationResult` v1 |
+| `getStateSnapshot` | `state:snapshot:v2` | `{ version: 2 }` (ou `cursor` opaco) | `{ version: 2, status: 'ok', page }` |
+| `subscribeState` | `state:subscribe:v2` | `{ version: 2 }` + callback local | `{ version: 2, status: 'ok', subscriptionId, page }` |
+| `unsubscribeState` | `state:unsubscribe:v2` | `{ version: 2, subscriptionId }` | `{ version: 2, status: 'ok' }` |
+| `createTask` | `task:create:v2` | `{ version: 2, draft }` | `{ version: 2, status: 'ok', taskId, revision, contentRevision, editRevision }` |
+| `updateTask` | `task:update:v2` | `{ version: 2, taskId, expectedEditRevision, patch, cancellation? }` | igual ao create, sem `taskId` |
+| `changeTaskStatus` | `task:status:v2` | `{ version: 2, taskId, expectedEditRevision, status, cancellation? }` | igual ao create, sem `taskId` |
+| `setSubtaskDone` | `task:subtask-done:v2` | `{ version: 2, taskId, expectedEditRevision, subtaskId, done }` | igual ao create, sem `taskId` |
+| `openTaskSource` | `task:source:open:v1` | `{ version: 1, taskId, expectedContentRevision }` | `{ version: 1, status: 'ok' }` |
+
+### Shapes exatos dos comandos
+
+- **`createTask`/draft:** os nove campos básicos (`title` obrigatório; `null` em opcional equivale a ausência) + `recurrence` opcional + `subtasks: [{ title }]`. A regra aceita exatamente `frequency` (`DAILY`/`WEEKLY`/`MONTHLY`) e as chaves fechadas `intervalDays`, `weekdays`, `dayOfMonth`, `until`; parâmetros de frequência alheia são recusados na forma (`INVALID_REQUEST`) antes de qualquer leitura, e a pertinência/limites 1–365/0–6 distintos/1–31 são validados no domínio, que devolve `REQUIRED`/`INVALID_VALUE` em `fields.recurrence`. `anchorAt`, `seriesId`, `id`, auditoria, `reminders`, `processedFor`, filhos, `path`, UndoPlan e opções do shell são recusados por chave exata antes de qualquer leitura.
+- **`updateTask`/patch:** ausente conserva; `null` limpa `description`, `requester`, `assignee`, `dueAt` e `sourceUrl`; `[]` limpa `tags` e `subtasks`; `title`/`status`/`priority` não aceitam `null`. `recurrence` omitida conserva a regra (inclusive âncora), `null` a retira conservando status/série; `until` omitido conserva o limite, `null` o retira e string o altera. `subtasks` é uma lista ordenada `{ id?, title }`: `id` presente precisa existir na lista atual; ausente pede identidade nova desmarcada; `done` é proibido no draft.
+- **`changeTaskStatus`/`setSubtaskDone`:** status e intenção explícitos; `done` precisa ser `boolean` (formas extrínsecas como string/inversão são `INVALID_REQUEST`). `expectedEditRevision` é a base CAS de edição; o toggle conserva a revisão de edição e nunca fecha/gera.
+- **`cancellation`:** somente `'SKIP'`/`'END'`, apenas quando o plano CANCELLED carrega a regra; escolha em plano não pertinente devolve `INVALID_REQUEST` sem gravar, e falta devolve `RECURRENCE_CHOICE_REQUIRED`.
+- **`openTaskSource`:** continua enviando `taskId` + `expectedContentRevision`; a URL e as opções do shell nunca vêm do renderer.
+- **Snapshot v2:** cada `TaskRecord` carrega `{ task, contentRevision, editRevision }`; cada `TrashRecord` acrescenta `deletedAt`. As duas revisões são decimais canônicos, com `edit <= content`; leitura histórica não regrava payload nem expurga a lixeira.
+- **Eventos v2:** `state:changed:v2` carrega `{ version: 2, subscriptionId, revision }` e `state:unavailable:v2` carrega `{ version: 2, subscriptionId, code }`; são invalidações pós-commit, nunca patches de tarefas.
+
+### Códigos de erro fechados
+
+- **Estado/diagnóstico (9):** `INVALID_REQUEST`, `UNAUTHORIZED`, `BUSY`, `SESSION_CLOSED`, `SNAPSHOT_STALE`, `RESOURCE_LIMIT`, `INCOMPATIBLE_DATA`, `CORRUPTED_DATA`, `STORAGE_UNAVAILABLE`.
+- **Mutações v2:** a base de estado + `VALIDATION_FAILED`, `CONFLICT`, `NOT_FOUND`, `ADVANCED_TASK_RESTRICTED`, `RECURRENCE_CHOICE_REQUIRED`, `RECURRENCE_OUT_OF_RANGE`, `SERIES_CONFLICT`, `IDENTITY_CONFLICT`, `SUBTASK_NOT_FOUND`.
+- **`openTaskSource` v1:** a base de estado + `CONFLICT`, `NOT_FOUND`, `SOURCE_NOT_AVAILABLE`, `SOURCE_NOT_ALLOWED`, `SOURCE_TOO_LONG`, `EXTERNAL_OPEN_FAILED`.
+- `VALIDATION_FAILED` transporta somente `fields` finitos: nove campos básicos com códigos fechados e, em forma posicional, `recurrence.<campo>`, `subtasks.list` e `subtasks.items[{ index: 0–19, title?, id? }]`. `CONFLICT` pode expor `currentContentRevision` e `currentEditRevision`, nunca conteúdo. Nenhum erro transporta stack, `cause`, SQL, caminho, payload ou URL.
+
+### Orçamentos em bytes (UTF-8 serializado, envelope e escaping incluídos)
+
+| Mensagem | Limite | Comportamento no excesso |
+| --- | --- | --- |
+| Request dos cinco comandos | 64 KiB | `INVALID_REQUEST` medido no envelope completo; nada é truncado ou reescrito |
+| Resposta dos cinco comandos | 8 KiB | `RESOURCE_LIMIT` no main; o ack nunca é cortado para caber |
+| Estado/diagnóstico e eventos | 1 KiB | request recusado; evento não é enviado |
+| Página de snapshot | 256 KiB por página | fragmentação byte a byte, sem omitir registros; a montagem só publica com a mesma revisão e contagem conferida |
+| Cursor/inscrição opacos | 16–128 caracteres `[A-Za-z0-9_-]` | token fora do padrão é recusado |
+
+### Migração simultânea e ausência de alias
+
+Main, preload e renderer mudam **no mesmo pacote**: não há negociação de downgrade nem fallback para estado/mutação v1. `{ version: 1 }` nos canais v2 de estado e mutação é recusado (`INVALID_REQUEST`) antes de qualquer leitura, e o preload recusa o request v1 sem sequer invocar o main. `verifyFoundation` e `openTaskSource` conservam v1; a abertura da origem continua exigindo a revisão de conteúdo atual. Não existe alias permissivo (canal v1 aceito no lugar do v2), canal de teste/harness/smoke na bridge de produção, `ipcRenderer.send` nem invoke genérico: o catálogo de canais é fechado em `TASK_COMMAND_CHANNELS` e nas listas de estado, e o preload só invoca esses canais.
+
+**Evidência desta etapa (arquivos e cobertura):** `tests/contracts/task-command-contract.test.ts` (shapes v2, autoridade, budgets 64 KiB/8 KiB, saídas válidas/malformadas), `tests/contracts/state-contract.test.ts` (requests/eventos/registros v2, 1 KiB/256 KiB, fragmentos), `tests/main/ipc-tasks.test.ts` (guardas de admissão/execução/saída nos cinco comandos, ack pós-commit, no-op sem evento, toggle, série/identidade, ack+snapshot de fechamento) e `tests/main/ipc-state.test.ts`, `tests/application/state-client.test.ts`, `tests/application/snapshot-paging.test.ts` e `tests/preload/bridge-catalog.test.ts` (paginação v2, handshake/tokens, eventos pós-commit, dois registros de revisão, nove wrappers e canais exatos). A prova no Electron empacotado e a limpeza de listeners/timers em runtime real continuam na task 7.1.
+
+## Operação: recorrência, subtarefas e guarda de lembretes
+
+| Fluxo | O que está disponível agora | Limitações transitórias |
+| --- | --- | --- |
+| Criar/editar regra | Frequência e parâmetro exatos, limite `until` com revisão de fuso, retirada explícita da regra (conserva status/série) e âncora preservada ao adiar/retornar. | Sem novos tipos de recorrência, sem fuso por série e sem reescrita de ocorrências antigas. |
+| Concluir/pular/encerrar | DONE/SKIP transferem a regra para no máximo uma próxima TODO no mesmo commit; END fecha sem gerar; fim natural remove a regra; reabrir não recupera regra. | Sem desfazer/token/histórico e sem botão de lixeira (TFA-006). |
+| Subtarefas | Até 20 itens ordenados, títulos 1–200, adicionar/remover/mover por teclado, progresso derivado e checkbox por intenção em qualquer status. | Sem status/prazo/lembrete/filhos por item; sem vínculo automático com o status da tarefa. |
+| Save após marcações | O formulário aberto continua salvando após checks externos, conservando o `done` lido no main por ID; mudanças estruturais/campos/ordem conflitam sem rebase geral. | Alterações concorrentes exigem conferir/descartar explicitamente como antes. |
+| Cancelar recorrente | Enter/ponteiro/save abrem o diálogo SKIP/END sem gravar; abandonar/Escape não altera nada; saída de foco restaura a seleção sem diálogo nem comando. | Diálogo apenas para CANCELLED com regra; DONE não exige escolha. |
+| Lembretes (guarda D8) | Mensagem acessível explica o bloqueio; edições independentes, regra sem fechamento e retirada isolada continuam permitidas, preservando dados/marcadores. | Prazo/status e fechamento/geração com lembretes só na TFA-008; nenhum scheduler/notificação é entregue. |
+| Responsividade | Cartões preservam identidade/cores/rótulos; sem redesign ou novas colunas; D10 herdado da TFA-004 segue medido e identificado quando reprovado. | Nenhuma virtualização, truncamento de registros ou remoção de gate para “passar”. |
+
+**Fora do escopo desta entrega (por decisão):** desfazer, lixeira funcional, backup/restauração, lembretes/notificações, captura/atalhos, IA, lifecycle/bandeja e distribuição. A UI não monta esses controles.

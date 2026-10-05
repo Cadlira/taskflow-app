@@ -15,6 +15,7 @@ import {
 } from '../contracts/state.js'
 import {
   TASK_COMMAND_CHANNELS,
+  type SubtaskDoneRequest,
   type TaskCreateRequest,
   type TaskOpenSourceRequest,
   type TaskStatusRequest,
@@ -74,6 +75,7 @@ const desktopApi: TaskFlowDesktopApi = Object.freeze({
   createTask: (request: TaskCreateRequest) => taskClient.createTask(request),
   updateTask: (request: TaskUpdateRequest) => taskClient.updateTask(request),
   changeTaskStatus: (request: TaskStatusRequest) => taskClient.changeTaskStatus(request),
+  setSubtaskDone: (request: SubtaskDoneRequest) => taskClient.setSubtaskDone(request),
   openTaskSource: (request: TaskOpenSourceRequest) => taskClient.openTaskSource(request),
 })
 

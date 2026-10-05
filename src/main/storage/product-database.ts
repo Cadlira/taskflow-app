@@ -95,6 +95,7 @@ interface RawRow {
   payload_version: unknown
   payload_json: unknown
   content_revision: unknown
+  edit_revision?: unknown
   deleted_at?: unknown
 }
 
@@ -211,7 +212,12 @@ function assertEffectiveConfiguration(runtime: StorageRuntimeInfo): void {
   }
 }
 
-function toStoredRow(raw: RawRow, collection: StoredCollection): StoredRow {
+/**
+ * Converte a linha crua conforme a versão do schema: na versão 1 a revisão de edição não existe
+ * no disco e equivale à de conteúdo; na versão 2 o metadado é obrigatório e validado
+ * (`1 <= edit <= content`). Leitura nunca fabrica revisão de edição em banco SQL 2.
+ */
+function toStoredRow(raw: RawRow, collection: StoredCollection, version: number): StoredRow {
   const { id, payload_version: payloadVersion, payload_json: payloadJson, content_revision: contentRevision } = raw
   if (
     typeof id !== 'string' ||
@@ -223,7 +229,19 @@ function toStoredRow(raw: RawRow, collection: StoredCollection): StoredRow {
     throw new StorageFailure('INCOMPATIBLE_DATA')
   }
 
-  const row: StoredRow = { id, payloadVersion: Number(payloadVersion), payloadJson, contentRevision }
+  let editRevision: bigint
+  if (version >= 2) {
+    if (typeof raw.edit_revision !== 'bigint') throw new StorageFailure('INCOMPATIBLE_DATA')
+    editRevision = raw.edit_revision
+  } else {
+    editRevision = contentRevision
+  }
+
+  if (!isRevision(editRevision) || editRevision < 1n || editRevision > contentRevision) {
+    throw new StorageFailure('INCOMPATIBLE_DATA')
+  }
+
+  const row: StoredRow = { id, payloadVersion: Number(payloadVersion), payloadJson, contentRevision, editRevision }
   if (collection === 'trash') {
     if (typeof raw.deleted_at !== 'string') throw new StorageFailure('INCOMPATIBLE_DATA')
     row.deletedAt = raw.deleted_at
@@ -326,31 +344,31 @@ export class ProductDatabase {
     this.#statement('UPDATE taskflow_metadata SET global_revision = ? WHERE id = 1').run(revision)
   }
 
+  /** Colunas das linhas conforme a versão do schema: SQL 1 não tem `edit_revision`. */
+  #columns(collection: StoredCollection): string {
+    const versionTwo = this.runtime.schemaVersion >= 2
+    const base = versionTwo
+      ? 'id, payload_version, payload_json, content_revision, edit_revision'
+      : 'id, payload_version, payload_json, content_revision'
+    return collection === 'tasks' ? base : `${base}, deleted_at`
+  }
+
   readRow(collection: StoredCollection, id: string): StoredRow | undefined {
     const raw = this.#statement(
-      collection === 'tasks'
-        ? 'SELECT id, payload_version, payload_json, content_revision FROM tasks WHERE id = ?'
-        : 'SELECT id, payload_version, payload_json, content_revision, deleted_at FROM trash WHERE id = ?',
+      `SELECT ${this.#columns(collection)} FROM ${collection} WHERE id = ?`,
     ).get(id)
-    return raw === undefined ? undefined : toStoredRow(raw as unknown as RawRow, collection)
+    return raw === undefined ? undefined : toStoredRow(raw as unknown as RawRow, collection, this.runtime.schemaVersion)
   }
 
   /** Linhas em ordem estável de identificador, a partir de `afterId` (exclusivo). */
   *iterateRows(collection: StoredCollection, afterId: string | undefined): Generator<StoredRow> {
-    const statement =
+    const statement = this.#statement(
       afterId === undefined
-        ? this.#statement(
-            collection === 'tasks'
-              ? 'SELECT id, payload_version, payload_json, content_revision FROM tasks ORDER BY id'
-              : 'SELECT id, payload_version, payload_json, content_revision, deleted_at FROM trash ORDER BY id',
-          )
-        : this.#statement(
-            collection === 'tasks'
-              ? 'SELECT id, payload_version, payload_json, content_revision FROM tasks WHERE id > ? ORDER BY id'
-              : 'SELECT id, payload_version, payload_json, content_revision, deleted_at FROM trash WHERE id > ? ORDER BY id',
-          )
+        ? `SELECT ${this.#columns(collection)} FROM ${collection} ORDER BY id`
+        : `SELECT ${this.#columns(collection)} FROM ${collection} WHERE id > ? ORDER BY id`,
+    )
     const rows = afterId === undefined ? statement.iterate() : statement.iterate(afterId)
-    for (const raw of rows) yield toStoredRow(raw as unknown as RawRow, collection)
+    for (const raw of rows) yield toStoredRow(raw as unknown as RawRow, collection, this.runtime.schemaVersion)
   }
 
   listRows(collection: StoredCollection): StoredRow[] {
@@ -358,22 +376,44 @@ export class ProductDatabase {
   }
 
   writeRow(collection: StoredCollection, row: StoredRow): void {
+    // Escrita segue a versão do schema aberta: perfis SQL 2 gravam a revisão de edição; perfis
+    // SQL 1 (somente fixtures/leitor antigo) conservam as colunas originais.
+    const versionTwo = this.runtime.schemaVersion >= 2
+
     if (collection === 'tasks') {
       this.#statement(
-        `INSERT INTO tasks (id, payload_version, payload_json, content_revision) VALUES (?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET payload_version = excluded.payload_version,
-           payload_json = excluded.payload_json, content_revision = excluded.content_revision`,
-      ).run(row.id, row.payloadVersion, row.payloadJson, row.contentRevision)
+        versionTwo
+          ? `INSERT INTO tasks (id, payload_version, payload_json, content_revision, edit_revision) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET payload_version = excluded.payload_version,
+               payload_json = excluded.payload_json, content_revision = excluded.content_revision,
+               edit_revision = excluded.edit_revision`
+          : `INSERT INTO tasks (id, payload_version, payload_json, content_revision) VALUES (?, ?, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET payload_version = excluded.payload_version,
+               payload_json = excluded.payload_json, content_revision = excluded.content_revision`,
+      ).run(
+        ...(versionTwo
+          ? [row.id, row.payloadVersion, row.payloadJson, row.contentRevision, row.editRevision]
+          : [row.id, row.payloadVersion, row.payloadJson, row.contentRevision]),
+      )
       return
     }
 
     if (row.deletedAt === undefined) throw new StorageFailure('INVALID_DATA')
     this.#statement(
-      `INSERT INTO trash (id, payload_version, payload_json, content_revision, deleted_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET payload_version = excluded.payload_version,
-         payload_json = excluded.payload_json, content_revision = excluded.content_revision,
-         deleted_at = excluded.deleted_at`,
-    ).run(row.id, row.payloadVersion, row.payloadJson, row.contentRevision, row.deletedAt)
+      versionTwo
+        ? `INSERT INTO trash (id, payload_version, payload_json, content_revision, edit_revision, deleted_at) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (id) DO UPDATE SET payload_version = excluded.payload_version,
+             payload_json = excluded.payload_json, content_revision = excluded.content_revision,
+             edit_revision = excluded.edit_revision, deleted_at = excluded.deleted_at`
+        : `INSERT INTO trash (id, payload_version, payload_json, content_revision, deleted_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (id) DO UPDATE SET payload_version = excluded.payload_version,
+             payload_json = excluded.payload_json, content_revision = excluded.content_revision,
+             deleted_at = excluded.deleted_at`,
+    ).run(
+      ...(versionTwo
+        ? [row.id, row.payloadVersion, row.payloadJson, row.contentRevision, row.editRevision, row.deletedAt]
+        : [row.id, row.payloadVersion, row.payloadJson, row.contentRevision, row.deletedAt]),
+    )
   }
 
   deleteRow(collection: StoredCollection, id: string): void {
@@ -427,17 +467,24 @@ function readMetadata(
 }
 
 /** Valida todas as linhas: nenhuma inválida é omitida para produzir sucesso aparente. */
-function validateRows(connection: DatabaseSync, globalRevision: Revision): void {
+function validateRows(connection: DatabaseSync, version: number, globalRevision: Revision): void {
   for (const collection of ['tasks', 'trash'] as const) {
+    const columns =
+      version >= 2
+        ? 'id, payload_version, payload_json, content_revision, edit_revision'
+        : 'id, payload_version, payload_json, content_revision'
     const statement = connection.prepare(
       collection === 'tasks'
-        ? 'SELECT id, payload_version, payload_json, content_revision FROM tasks'
-        : 'SELECT id, payload_version, payload_json, content_revision, deleted_at FROM trash',
+        ? `SELECT ${columns} FROM tasks`
+        : `SELECT ${columns}, deleted_at FROM trash`,
     )
     statement.setReadBigInts(true)
     for (const raw of statement.iterate()) {
-      const row = toStoredRow(raw as unknown as RawRow, collection)
+      const row = toStoredRow(raw as unknown as RawRow, collection, version)
       if (row.contentRevision < 1n || row.contentRevision > globalRevision) {
+        throw new StorageFailure('INCOMPATIBLE_DATA')
+      }
+      if (row.editRevision < 1n || row.editRevision > row.contentRevision) {
         throw new StorageFailure('INCOMPATIBLE_DATA')
       }
       if (collection === 'trash' && !isStoredDeletedAt(row.deletedAt)) {
@@ -459,7 +506,7 @@ function schemaFor(definition: StorageDefinition, version: number): StorageSchem
 function validateVersion(connection: DatabaseSync, definition: StorageDefinition, version: number): Revision {
   assertStructure(connection, schemaFor(definition, version))
   const metadata = readMetadata(connection, { signature: definition.signature, schemaVersion: version })
-  validateRows(connection, metadata.globalRevision)
+  validateRows(connection, version, metadata.globalRevision)
   return metadata.globalRevision
 }
 

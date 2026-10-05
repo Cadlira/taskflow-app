@@ -16,11 +16,12 @@ function mountApp(foundation: FoundationApi): VueWrapper {
   const api: TaskFlowDesktopApi = {
     ...foundation,
     getStateSnapshot: vi.fn(),
-    subscribeState: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'STORAGE_UNAVAILABLE' }),
+    subscribeState: vi.fn().mockResolvedValue({ version: 2, status: 'error', code: 'STORAGE_UNAVAILABLE' }),
     unsubscribeState: vi.fn(),
     createTask: vi.fn(),
     updateTask: vi.fn(),
     changeTaskStatus: vi.fn(),
+    setSubtaskDone: vi.fn(),
     openTaskSource: vi.fn(),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api })

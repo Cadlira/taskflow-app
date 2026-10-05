@@ -2,8 +2,8 @@
 // Adaptação revisada de taskflow-extension@a763e7a src/components/tasks/TaskList.vue (MIT, mesmo
 // autor): o cartão é um componente persistente por tarefa. Em uma ordenação, o componente com as
 // mesmas props não é re-renderizado — apenas o nó é movido —, o que mantém o orçamento D10 sem
-// truncar, virtualizar ou paginar a lista. Preserva o seletor de status com teclado/foco e as
-// ações rápidas; não monta Excluir nem controles de recorrência/subtarefas.
+// truncar, virtualizar ou paginar a lista. Preserva o seletor de status com teclado/foco, as ações
+// rápidas e habilita resumo da regra, expansão transitória e marcação de subtarefa por intenção.
 import { ref, watch } from 'vue'
 import { TASK_STATUSES, type Task, type TaskStatus } from '../../../../domain/task.js'
 import { getDueSituation } from '../../../../domain/task-queries.js'
@@ -12,7 +12,7 @@ import { formatDateTime } from './date-time.js'
 import {
   DUE_SITUATION_LABELS,
   PRIORITY_LABELS,
-  RECURRENCE_READONLY_LABEL,
+  recurrenceSummaryLabel,
   STATUS_LABELS,
   SUBTASKS_TOGGLE_LABEL,
   subtaskProgressLabel,
@@ -28,6 +28,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   edit: [task: Task]
   'change-status': [task: Task, status: TaskStatus, origin: StatusChangeOrigin]
+  'toggle-subtask': [task: Task, subtaskId: string, done: boolean]
 }>()
 
 const cardElement = ref<HTMLElement | null>(null)
@@ -39,6 +40,10 @@ function dueSituation(): ReturnType<typeof getDueSituation> {
 
 function isRecurring(): boolean {
   return props.task.recurrence !== undefined
+}
+
+function recurrenceLabel(): string {
+  return props.task.recurrence === undefined ? '' : recurrenceSummaryLabel(props.task.recurrence)
 }
 
 function titleId(): string {
@@ -54,12 +59,17 @@ function progressLabel(): string {
   return subtaskProgressLabel(done, total)
 }
 
-function subtaskStateLabel(done: boolean): string {
-  return done ? 'Feita' : 'Pendente'
-}
-
 function toggleSubtasks(): void {
   expandedSubtasks.value = !expandedSubtasks.value
+}
+
+/**
+ * Intenção explícita: o clique é cancelado no DOM (`prevent`) e o valor confirmado continua vindo
+ * do snapshot. Sem marcação otimista, falha não inventa sucesso e o controle conserva o foco.
+ */
+function handleSubtaskToggle(subtaskId: string, done: boolean): void {
+  if (props.busy) return
+  emit('toggle-subtask', props.task, subtaskId, !done)
 }
 
 /** Status escolhido no seletor e ainda não confirmado. */
@@ -75,6 +85,8 @@ function resetStatus(): void {
     if (select !== null) select.value = props.task.status
   }
 }
+
+defineExpose({ resetStatus })
 
 watch(
   () => props.task,
@@ -98,7 +110,7 @@ function handleEdit(): void {
 }
 
 function handleQuickStatus(status: TaskStatus, action: TaskStatusAction): void {
-  if (props.busy || isRecurring()) return
+  if (props.busy) return
   emit('change-status', props.task, status, { action, fromFocusout: false })
 }
 
@@ -106,7 +118,7 @@ function handleStatusSelect(event: Event): void {
   const select = event.target as HTMLSelectElement
   const status = select.value as TaskStatus
 
-  if (props.busy || isRecurring()) {
+  if (props.busy) {
     select.value = displayedStatus()
     return
   }
@@ -133,7 +145,7 @@ function handleStatusKeydown(event: KeyboardEvent): void {
 
   if (event.key === 'Enter') {
     const pending = pendingStatus.value
-    if (pending !== null && pending !== props.task.status && !props.busy && !isRecurring()) {
+    if (pending !== null && pending !== props.task.status && !props.busy) {
       emit('change-status', props.task, pending, { action: 'status', fromFocusout: false })
     }
     keyboardNavigation = false
@@ -145,7 +157,13 @@ function handleStatusKeydown(event: KeyboardEvent): void {
 
 function handleStatusFocusout(): void {
   const pending = pendingStatus.value
-  if (pending !== null && pending !== props.task.status && !props.busy && !isRecurring()) {
+  if (pending !== null && pending !== props.task.status && !props.busy) {
+    // Exceção documentada: CANCELLED de recorrente por saída de foco restaura a seleção sem
+    // diálogo, sem comando e sem deslocar o foco que o usuário já levou para outro controle.
+    if (pending === 'CANCELLED' && isRecurring()) {
+      resetStatus()
+      return
+    }
     pendingStatus.value = null
     emit('change-status', props.task, pending, { action: 'status', fromFocusout: true })
   }
@@ -184,10 +202,13 @@ function handleStatusFocusout(): void {
 
     <p
       v-if="isRecurring()"
-      class="task-restriction"
-      data-test="recurrence-restriction"
+      class="task-recurrence"
+      data-test="recurrence-summary"
     >
-      {{ RECURRENCE_READONLY_LABEL }}
+      {{ recurrenceLabel() }}
+      <template v-if="task.recurrence?.until">
+        · limite <time :datetime="task.recurrence.until">{{ formatDateTime(task.recurrence.until) }}</time>
+      </template>
     </p>
 
     <dl class="task-meta">
@@ -231,7 +252,7 @@ function handleStatusFocusout(): void {
       </button>
 
       <ul
-        v-show="expandedSubtasks"
+        v-if="expandedSubtasks"
         :id="subtaskListId()"
         class="subtask-list"
       >
@@ -241,8 +262,17 @@ function handleStatusFocusout(): void {
           class="subtask-item"
           :class="{ 'subtask-done': subtask.done }"
         >
-          <span class="subtask-state">{{ subtaskStateLabel(subtask.done) }}:</span>
-          <span>{{ subtask.title }}</span>
+          <label class="subtask-toggle">
+            <input
+              type="checkbox"
+              class="subtask-checkbox"
+              :checked="subtask.done"
+              :data-subtask-id="subtask.id"
+              :aria-disabled="busy ? 'true' : undefined"
+              @click.prevent="handleSubtaskToggle(subtask.id, subtask.done)"
+            >
+            <span>{{ subtask.title }}</span>
+          </label>
         </li>
       </ul>
     </div>
@@ -258,58 +288,56 @@ function handleStatusFocusout(): void {
         Editar<span class="visually-hidden"> {{ task.title }}</span>
       </button>
 
-      <template v-if="!isRecurring()">
-        <template v-if="task.status === 'TODO' || task.status === 'IN_PROGRESS'">
-          <button
-            type="button"
-            class="button-small"
-            data-action="complete"
-            :aria-disabled="busy ? 'true' : undefined"
-            @click="handleQuickStatus('DONE', 'complete')"
-          >
-            Concluir<span class="visually-hidden"> {{ task.title }}</span>
-          </button>
-          <button
-            type="button"
-            class="button-small button-secondary"
-            data-action="cancel"
-            :aria-disabled="busy ? 'true' : undefined"
-            @click="handleQuickStatus('CANCELLED', 'cancel')"
-          >
-            Cancelar tarefa<span class="visually-hidden"> {{ task.title }}</span>
-          </button>
-        </template>
+      <template v-if="task.status === 'TODO' || task.status === 'IN_PROGRESS'">
         <button
-          v-else
+          type="button"
+          class="button-small"
+          data-action="complete"
+          :aria-disabled="busy ? 'true' : undefined"
+          @click="handleQuickStatus('DONE', 'complete')"
+        >
+          Concluir<span class="visually-hidden"> {{ task.title }}</span>
+        </button>
+        <button
           type="button"
           class="button-small button-secondary"
-          data-action="reopen"
+          data-action="cancel"
           :aria-disabled="busy ? 'true' : undefined"
-          @click="handleQuickStatus('TODO', 'reopen')"
+          @click="handleQuickStatus('CANCELLED', 'cancel')"
         >
-          Reabrir<span class="visually-hidden"> {{ task.title }}</span>
+          Cancelar tarefa<span class="visually-hidden"> {{ task.title }}</span>
         </button>
-
-        <label class="status-select">
-          <span class="visually-hidden">Alterar status de {{ task.title }}</span>
-          <select
-            :value="displayedStatus()"
-            data-action="status"
-            :aria-disabled="busy ? 'true' : undefined"
-            @keydown="handleStatusKeydown"
-            @focusout="handleStatusFocusout"
-            @change="handleStatusSelect"
-          >
-            <option
-              v-for="status in TASK_STATUSES"
-              :key="status"
-              :value="status"
-            >
-              {{ STATUS_LABELS[status] }}
-            </option>
-          </select>
-        </label>
       </template>
+      <button
+        v-else
+        type="button"
+        class="button-small button-secondary"
+        data-action="reopen"
+        :aria-disabled="busy ? 'true' : undefined"
+        @click="handleQuickStatus('TODO', 'reopen')"
+      >
+        Reabrir<span class="visually-hidden"> {{ task.title }}</span>
+      </button>
+
+      <label class="status-select">
+        <span class="visually-hidden">Alterar status de {{ task.title }}</span>
+        <select
+          :value="displayedStatus()"
+          data-action="status"
+          :aria-disabled="busy ? 'true' : undefined"
+          @keydown="handleStatusKeydown"
+          @focusout="handleStatusFocusout"
+          @change="handleStatusSelect"
+        >
+          <option
+            v-for="status in TASK_STATUSES"
+            :key="status"
+            :value="status"
+          >
+            {{ STATUS_LABELS[status] }}
+          </option>
+        </select>
+      </label>
     </div>
   </li>
 </template>
@@ -378,7 +406,7 @@ function handleStatusFocusout(): void {
   background: var(--color-primary-soft);
 }
 
-.task-restriction {
+.task-recurrence {
   margin: 0;
   font-size: 0.8rem;
   color: var(--color-muted);
@@ -425,21 +453,24 @@ function handleStatusFocusout(): void {
 }
 
 .subtask-item {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.subtask-toggle {
   display: flex;
   align-items: flex-start;
   gap: 0.4rem;
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
+}
+
+.subtask-toggle input {
+  flex: none;
+  margin-top: 0.15rem;
 }
 
 .subtask-done span {
   color: var(--color-muted);
   text-decoration: line-through;
-}
-
-.subtask-state {
-  flex: none;
-  font-weight: 600;
 }
 
 .task-actions {

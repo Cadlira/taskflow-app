@@ -1,7 +1,9 @@
 import type { Task } from '../../domain/task.js'
 import { claimReminderOccurrence, preserveProcessedMarkers } from '../../domain/task-reminders.js'
+import { setSubtaskDone } from '../../domain/task-subtasks.js'
 import { isRevision, type Revision } from './revisions.js'
 import {
+  decodeTaskCarrierSummary,
   decodeTaskPayload,
   encodeTaskPayload,
   encodeTaskPayloads,
@@ -11,13 +13,16 @@ import {
 } from './stored-task-codec.js'
 import { StorageFailure, storageFailureReasonOf } from './task-storage-error.js'
 import type {
+  CarrierSummary,
   ConditionalRevertResult,
   ConditionalUpdateResult,
+  MarkSubtaskDoneResult,
   ReminderOccurrenceClaim,
   ReplaceAllResult,
   RevertPreconditions,
   SaveOutcome,
   StorageRowPort,
+  StoredCollection,
   StoredRow,
   StoredTask,
   StoredTrashItem,
@@ -31,7 +36,15 @@ export interface ActiveTaskStorageUnit {
   expire(): void
 }
 
-function decodeStoredRevision(row: StoredRow): Revision {
+/** Revisão de edição válida por linha: inteiro >= 1 e nunca acima da revisão de conteúdo. */
+function decodeStoredEditRevision(row: StoredRow, contentRevision: Revision): Revision {
+  if (!isRevision(row.editRevision) || row.editRevision < 1n || row.editRevision > contentRevision) {
+    throw new StorageFailure('INCOMPATIBLE_DATA')
+  }
+  return row.editRevision
+}
+
+function decodeStoredContentRevision(row: StoredRow): Revision {
   if (!isRevision(row.contentRevision) || row.contentRevision < 1n) {
     throw new StorageFailure('INCOMPATIBLE_DATA')
   }
@@ -39,9 +52,11 @@ function decodeStoredRevision(row: StoredRow): Revision {
 }
 
 function decodeTaskRow(row: StoredRow): StoredTask {
+  const contentRevision = decodeStoredContentRevision(row)
   return {
     task: decodeTaskPayload(row.payloadVersion, row.payloadJson, row.id),
-    contentRevision: decodeStoredRevision(row),
+    contentRevision,
+    editRevision: decodeStoredEditRevision(row, contentRevision),
   }
 }
 
@@ -71,8 +86,13 @@ function runCallback<T>(callback: () => T): T {
 }
 
 /**
- * Primitives portáveis sobre a porta de linhas da transação. Não conhecem SQLite, Electron ou
+ * Primitivas portáveis sobre a porta de linhas da transação. Não conhecem SQLite, Electron ou
  * a fila; toda decisão usa o estado lido na própria unidade.
+ *
+ * Classificação de revisões (TFA-005): criar/gerar/restaurar/recriar identidade e toda edição
+ * genérica (save/replace/revert) atualizam conteúdo **e** edição; a marcação tipada de subtarefa
+ * (`markSubtaskDone`) conserva a edição; `claimReminderOccurrence` conserva ambas e o `updatedAt`;
+ * no-op/recusa/rollback não alocam revisão.
  */
 export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUnit {
   let active = true
@@ -81,12 +101,16 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
     if (!active) throw new StorageFailure('INVALID_UNIT')
   }
 
-  function writeTask(encoded: EncodedTaskPayload, contentRevision: Revision): void {
+  function writeTask(encoded: EncodedTaskPayload, contentRevision: Revision, editRevision: Revision): void {
+    if (!isRevision(editRevision) || editRevision < 1n || editRevision > contentRevision) {
+      throw new StorageFailure('INVALID_DATA')
+    }
     port.writeRow('tasks', {
       id: encoded.task.id,
       payloadVersion: encoded.payloadVersion,
       payloadJson: encoded.payloadJson,
       contentRevision,
+      editRevision,
     })
   }
 
@@ -95,8 +119,18 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
     if (row !== undefined && isSameJsonValue(decodeTaskRow(row).task, encoded.task)) {
       return 'UNCHANGED'
     }
-    writeTask(encoded, port.allocateRevision())
+    const revision = port.allocateRevision()
+    writeTask(encoded, revision, revision)
     return row === undefined ? 'CREATED' : 'UPDATED'
+  }
+
+  function conflictFrom(row: StoredRow): ConditionalUpdateResult & { status: 'CONFLICT' } {
+    const current = decodeTaskRow(row)
+    return {
+      status: 'CONFLICT',
+      currentContentRevision: current.contentRevision,
+      currentEditRevision: current.editRevision,
+    }
   }
 
   const unit: TaskStorageUnit = {
@@ -136,6 +170,15 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       for (const row of port.iterateRows('trash', afterId)) yield decodeTrashRow(row)
     },
 
+    *iterateCarrierSummaries(collection: StoredCollection, afterId: string | undefined): Generator<CarrierSummary> {
+      assertActive()
+      // Leitura leve para checagens de portadora: mesma ordem/linhas da leitura completa, sem
+      // normalizar o payload; linha inválida falha em vez de ser omitida.
+      for (const row of port.iterateRows(collection, afterId)) {
+        yield decodeTaskCarrierSummary(row.payloadJson, row.id)
+      }
+    },
+
     saveTask(task: Task): SaveOutcome {
       assertActive()
       return saveEncoded(encodeTaskPayload(task))
@@ -167,7 +210,7 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
 
       const revision = port.allocateRevision()
       for (const id of removed) port.deleteRow('tasks', id)
-      for (const item of changed) writeTask(item, revision)
+      for (const item of changed) writeTask(item, revision, revision)
 
       const created = changed.filter((item) => !current.has(item.task.id)).length
       return { status: 'REPLACED', created, updated: changed.length - created, removed: removed.length }
@@ -187,7 +230,7 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       const row = port.readRow('tasks', id)
       if (row === undefined) return undefined
 
-      // O payload segue como está (inclusive em versão histórica); só a coleção muda.
+      // O payload e as revisões seguem como estão (inclusive em versão histórica); só a coleção muda.
       const { task } = decodeTaskRow(row)
       port.deleteRow('tasks', id)
       port.writeRow('trash', { ...row, deletedAt })
@@ -205,11 +248,11 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       const encoded = encodeTaskPayload(runCallback(() => prepare(task)))
       if (encoded.task.id !== id) throw new StorageFailure('INVALID_DATA')
 
-      // Restauração sempre recebe revisão de conteúdo nova: a antiga não autoriza draft anterior.
-      const contentRevision = port.allocateRevision()
+      // Restauração sempre recebe conteúdo e edição novos: a base antiga não autoriza draft anterior.
+      const revision = port.allocateRevision()
       port.deleteRow('trash', id)
-      writeTask(encoded, contentRevision)
-      return { status: 'RESTORED', task: encoded.task, contentRevision }
+      writeTask(encoded, revision, revision)
+      return { status: 'RESTORED', task: encoded.task, contentRevision: revision, editRevision: revision }
     },
 
     deleteFromTrash(id: string): boolean {
@@ -243,7 +286,7 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
 
     updateTaskConditionally(
       id: string,
-      expectedContentRevision: Revision,
+      expectedEditRevision: Revision,
       change: (task: Task) => Task | undefined,
     ): ConditionalUpdateResult {
       assertActive()
@@ -251,24 +294,58 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       if (row === undefined) return { status: 'NOT_FOUND' }
 
       const current = decodeTaskRow(row)
-      if (current.contentRevision !== expectedContentRevision) {
-        return { status: 'CONFLICT', currentRevision: current.contentRevision }
-      }
+      if (current.editRevision !== expectedEditRevision) return conflictFrom(row)
 
       const next = runCallback(() => change(current.task))
       if (next === undefined || next === current.task) {
-        return { status: 'UNCHANGED', ...current }
+        return { status: 'UNCHANGED', task: current.task, contentRevision: current.contentRevision, editRevision: current.editRevision }
       }
 
       const encoded = encodeTaskPayload(preserveProcessedMarkers(current.task, next))
       if (encoded.task.id !== id) throw new StorageFailure('INVALID_DATA')
       if (isSameJsonValue(current.task, encoded.task)) {
-        return { status: 'UNCHANGED', ...current }
+        return { status: 'UNCHANGED', task: current.task, contentRevision: current.contentRevision, editRevision: current.editRevision }
       }
 
-      const contentRevision = port.allocateRevision()
-      writeTask(encoded, contentRevision)
-      return { status: 'UPDATED', task: encoded.task, contentRevision }
+      const revision = port.allocateRevision()
+      writeTask(encoded, revision, revision)
+      return { status: 'UPDATED', task: encoded.task, contentRevision: revision, editRevision: revision }
+    },
+
+    markSubtaskDone(
+      id: string,
+      expectedEditRevision: Revision,
+      subtaskId: string,
+      done: boolean,
+      now: Date,
+    ): MarkSubtaskDoneResult {
+      assertActive()
+      const row = port.readRow('tasks', id)
+      if (row === undefined) return { status: 'NOT_FOUND' }
+
+      const current = decodeTaskRow(row)
+      if (current.editRevision !== expectedEditRevision) return conflictFrom(row)
+
+      const next = runCallback(() => setSubtaskDone(current.task, subtaskId, done, now))
+      if (next === undefined) {
+        return {
+          status: 'SUBTASK_NOT_FOUND',
+          task: current.task,
+          contentRevision: current.contentRevision,
+          editRevision: current.editRevision,
+        }
+      }
+      if (next === current.task) {
+        return { status: 'UNCHANGED', task: current.task, contentRevision: current.contentRevision, editRevision: current.editRevision }
+      }
+
+      const encoded = encodeTaskPayload(next)
+      if (encoded.task.id !== id) throw new StorageFailure('INVALID_DATA')
+
+      // Marcação conserva a edição: apenas o conteúdo (e a global) avançam.
+      const revision = port.allocateRevision()
+      writeTask(encoded, revision, current.editRevision)
+      return { status: 'UPDATED', task: encoded.task, contentRevision: revision, editRevision: current.editRevision }
     },
 
     revertConditionally(
@@ -301,13 +378,13 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       if (encoded.task.id !== target.id) throw new StorageFailure('INVALID_DATA')
 
       if (generated === undefined && isSameJsonValue(current.task, encoded.task)) {
-        return { status: 'REVERTED', ...current }
+        return { status: 'REVERTED', task: current.task, contentRevision: current.contentRevision, editRevision: current.editRevision }
       }
 
-      const contentRevision = port.allocateRevision()
+      const revision = port.allocateRevision()
       if (generated !== undefined) port.deleteRow('tasks', generated.id)
-      writeTask(encoded, contentRevision)
-      return { status: 'REVERTED', task: encoded.task, contentRevision }
+      writeTask(encoded, revision, revision)
+      return { status: 'REVERTED', task: encoded.task, contentRevision: revision, editRevision: revision }
     },
 
     claimReminderOccurrence(claim: ReminderOccurrenceClaim): boolean {
@@ -319,8 +396,8 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       const claimed = claimReminderOccurrence(current.task, claim.reminderId, claim.processedFor)
       if (claimed === undefined) return false
 
-      // Processamento interno: muda a revisão global, conserva `updatedAt` e a de conteúdo.
-      writeTask(encodeTaskPayload(claimed), current.contentRevision)
+      // Processamento interno: muda a revisão global, conserva `updatedAt`, conteúdo e edição.
+      writeTask(encodeTaskPayload(claimed), current.contentRevision, current.editRevision)
       port.allocateRevision()
       return true
     },

@@ -7,6 +7,7 @@ import { isRecurrence, type Recurrence } from '../../domain/task-recurrence.js'
 import { isReminderCollectionValid } from '../../domain/task-reminders.js'
 import { MAX_SUBTASKS, type Subtask } from '../../domain/task-subtasks.js'
 import { StorageFailure } from './task-storage-error.js'
+import type { CarrierSummary } from './unit-of-work.js'
 
 /** Versão do codec de payload gravada em novas escritas. Independe do schema SQL e do backup. */
 export const CURRENT_PAYLOAD_VERSION = 4
@@ -303,6 +304,40 @@ export function isKnownPayloadVersion(payloadVersion: unknown): payloadVersion i
  */
 export function decodeStoredTaskRecords(payloadVersion: unknown, values: unknown): Task[] {
   return decodeRecords(values, taskDecoderFor(payloadVersion))
+}
+
+/**
+ * Resumo leve de portadora a partir do payload bruto: valida somente o identificador da linha, o
+ * `seriesId` (não vazio quando presente) e a presença estrutural de `recurrence`. Não normaliza o
+ * restante do payload — a abertura do banco já validou todas as linhas com o codec completo — e
+ * nunca omite linha inválida: qualquer problema gera `INCOMPATIBLE_DATA`.
+ */
+export function decodeTaskCarrierSummary(payloadJson: unknown, expectedId: unknown): CarrierSummary {
+  if (typeof payloadJson !== 'string' || typeof expectedId !== 'string' || expectedId === '') {
+    throw new StorageFailure('INCOMPATIBLE_DATA')
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(payloadJson)
+  } catch {
+    throw new StorageFailure('INCOMPATIBLE_DATA')
+  }
+
+  if (!isRecord(parsed)) throw new StorageFailure('INCOMPATIBLE_DATA')
+
+  const id = parsed['id']
+  if (typeof id !== 'string' || id !== expectedId) throw new StorageFailure('INCOMPATIBLE_DATA')
+
+  const seriesId = parsed['seriesId']
+  if (seriesId !== undefined && (typeof seriesId !== 'string' || seriesId === '')) {
+    throw new StorageFailure('INCOMPATIBLE_DATA')
+  }
+
+  const recurrence = parsed['recurrence']
+  if (recurrence !== undefined && !isRecord(recurrence)) throw new StorageFailure('INCOMPATIBLE_DATA')
+
+  return { id, seriesId, hasRecurrence: recurrence !== undefined }
 }
 
 /** Instante de exclusão aceito pelo codec da lixeira da origem. */

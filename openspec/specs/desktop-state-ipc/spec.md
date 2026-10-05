@@ -7,28 +7,29 @@ Permitir que documentos desktop autorizados leiam e acompanhem estado local coer
 
 ### Requirement: Catálogo de estado mínimo e versionado
 
-A bridge SHALL oferecer getStateSnapshot, subscribeState e unsubscribeState para estado v1, verifyFoundation separado e os comandos v1 createTask, updateTask, changeTaskStatus e openTaskSource. Requests SHALL ter schema exato e validação runtime. Caminhos, SQL, callbacks remotos, repositories, Task livre como entrada, UndoPlan, IPC genérico e comandos de funcionalidades futuras SHALL permanecer indisponíveis.
+A bridge SHALL oferecer getStateSnapshot/subscribeState/unsubscribeState para estado v2, verifyFoundation v1 e comandos createTask/updateTask/changeTaskStatus/setSubtaskDone v2 e openTaskSource v1. Requests SHALL ter schema exato/validação runtime; v1 de estado/mutação SHALL ser recusado. Caminhos, SQL, callbacks remotos, repositories, Task livre, UndoPlan, IPC genérico e comandos futuros SHALL permanecer indisponíveis.
 
 #### Scenario: Operações disponíveis
-- **WHEN** o documento autorizado inspeciona o preload
-- **THEN** encontra wrappers explícitos para as três operações de estado, verifyFoundation separado e os quatro comandos previstos, sem canal livre
+- **WHEN** documento autorizado inspeciona preload
+- **THEN** encontra nove wrappers explícitos para estado/diagnóstico e os cinco comandos previstos, sem canal livre
+- **AND** versões de main/preload/renderer são coerentes no mesmo pacote, sem fallback para estado/mutação v1
 
 #### Scenario: Request malformado
 - **WHEN** chega versão errada, objeto inválido, campo extra, cursor/ID/revisão inválido ou request acima do orçamento de sua operação
-- **THEN** o main recusa antes de ler dados e retorna erro fechado, sem lançar erro de implementação através do IPC
-- **AND** estado/diagnóstico continuam limitados a 1 KiB UTF-8 e os comandos têm orçamento próprio de 64 KiB
+- **THEN** main recusa antes de ler dados e retorna erro fechado, sem lançar erro de implementação através do IPC
+- **AND** estado/diagnóstico continuam limitados a 1 KiB UTF-8 e comandos têm orçamento próprio de 64 KiB
 
 ### Requirement: Snapshot completo pertence a uma revisão
 
-Snapshot SHALL conter tarefas/lixeira validadas e metadados públicos de revisão, sem credenciais ou detalhes do banco. Páginas SHALL pertencer à mesma revisão global; alterações entre páginas SHALL invalidar a continuação, sem publicar coleção incompleta ou misturada como estado atual.
+Snapshot v2 SHALL conter tarefas/lixeira validadas e revisões públicas de conteúdo completo e edição, sem credenciais ou detalhes do banco. Páginas SHALL pertencer à mesma revisão global; alterações entre páginas SHALL invalidar continuação, sem publicar coleção incompleta/misturada como estado atual. Metadados SHALL permanecer separados de Task e de formato de backup.
 
 #### Scenario: Páginas estáveis
-- **WHEN** uma coleção é lida por todas as páginas sem mudança de revisão
-- **THEN** o cliente reúne e valida o snapshot completo numa única revisão, preservando todos os registros e campos conhecidos
+- **WHEN** coleção é lida por todas as páginas sem mudança de revisão
+- **THEN** cliente reúne/valida snapshot completo numa única revisão, preservando registros/campos conhecidos e revisões de conteúdo/edição exatas
 
 #### Scenario: Commit entre páginas
-- **WHEN** a revisão muda depois da primeira página e antes de uma continuação
-- **THEN** a continuação retorna `SNAPSHOT_STALE` e o cliente descarta a montagem parcial, conserva seu último estado completo e ressincroniza
+- **WHEN** revisão muda depois da primeira página e antes de continuação
+- **THEN** continuação retorna SNAPSHOT_STALE e cliente descarta montagem parcial, conserva último estado completo e ressincroniza
 
 #### Scenario: Leitura não altera produto
 - **WHEN** snapshot inclui lixeira antiga ou payload histórico compatível
@@ -48,15 +49,15 @@ Inscrição, revisão base e primeira página SHALL ser coordenadas sem lacuna o
 
 ### Requirement: Eventos são invalidações posteriores ao commit
 
-Eventos SHALL ser versionados e carregar inscrição e revisão global exata, sem payload de tarefas ou patches livres. Alteração SHALL ser emitida somente após commit confirmado. No-op, conflito, rollback e recusa SHALL não emitir alteração. Indisponibilidade SHALL comunicar erro seguro distinto de snapshot vazio.
+Eventos v2 SHALL carregar inscrição e revisão global exata, sem payload de tarefas/patches livres. Alteração SHALL ser emitida somente após commit confirmado. No-op, conflito, rollback e recusa SHALL não emitir alteração. Indisponibilidade SHALL comunicar erro seguro distinto de snapshot vazio; eventos de versão incorreta SHALL não ser aceitos como estado.
 
 #### Scenario: Commit e no-op
-- **WHEN** uma unidade confirma alteração e outra é no-op ou rollback
-- **THEN** somente a alteração confirmada produz invalidação com sua revisão; nenhuma mensagem anuncia a unidade revertida como sucesso
+- **WHEN** unidade confirma alteração e outra é no-op/rollback
+- **THEN** somente alteração confirmada produz invalidação com revisão; nenhuma mensagem anuncia unidade revertida como sucesso
 
 #### Scenario: Perda de validade dos dados
-- **WHEN** erro incerto ou corrupção torna o estado de produto indisponível
-- **THEN** subscribers autorizados recebem indisponibilidade por código seguro e conservam último snapshot marcado stale, sem substituição por lista vazia
+- **WHEN** erro incerto/corrupção torna produto indisponível
+- **THEN** subscribers autorizados recebem indisponibilidade por código seguro e conservam último snapshot stale, sem substituição por lista vazia
 
 ### Requirement: Revisões determinam ressincronização
 
@@ -104,100 +105,110 @@ Requests, execução enfileirada e envio de respostas/eventos SHALL verificar we
 
 ### Requirement: Transporte limitado preserva dados legítimos
 
-Requests de estado/diagnóstico e eventos SHALL respeitar 1 KiB UTF-8; páginas SHALL respeitar 256 KiB incluindo envelope/escaping. Requests dos quatro comandos SHALL respeitar 64 KiB e suas respostas 8 KiB UTF-8 serializados. Um registro maior SHALL ser fragmentado no snapshot e validado integralmente antes da publicação. Limites SHALL não cortar campos, omitir registros ou limitar quantidade total persistida aos volumes do benchmark.
+Requests de estado/diagnóstico e eventos SHALL respeitar 1 KiB UTF-8; páginas SHALL respeitar 256 KiB incluindo envelope/escaping. Requests dos cinco comandos SHALL respeitar 64 KiB e respostas 8 KiB UTF-8 serializados. Registro maior SHALL ser fragmentado no snapshot e validado integralmente antes da publicação. Limites SHALL não cortar campos/IDs, omitir registros ou limitar quantidade total persistida aos volumes do benchmark.
 
 #### Scenario: Unicode e registro grande
-- **WHEN** um registro historicamente válido ou Unicode/escaping excede o tamanho de uma página
-- **THEN** cada mensagem respeita o orçamento e a reunião das partes recupera o conteúdo completo sem quebrar caracteres ou publicar registro parcial
+- **WHEN** registro historicamente válido ou Unicode/escaping excede tamanho de uma página
+- **THEN** mensagens respeitam orçamento e reunião das partes recupera conteúdo completo/metadados sem quebrar caracteres ou publicar registro parcial
 
 #### Scenario: Pressão de recursos
-- **WHEN** recurso de leitura não pode ser alocado dentro do orçamento da máquina
-- **THEN** retorna RESOURCE_LIMIT, preserva banco/último estado completo e não apresenta truncamento ou vazio como sucesso
+- **WHEN** recurso de leitura não pode ser alocado no orçamento da máquina
+- **THEN** retorna RESOURCE_LIMIT, preserva banco/último estado completo e não apresenta truncamento/vazio como sucesso
 
 #### Scenario: Estado transitório limitado
-- **WHEN** sessões realizam leituras/subscriptions sucessivas ou o harness registra mais de oito documentos
-- **THEN** cada documento mantém no máximo uma inscrição e um cursor ativo e excedente de admissão é recusado sem vazamento de listener/token
+- **WHEN** sessões realizam leituras/subscriptions sucessivas ou harness registra mais de oito documentos
+- **THEN** cada documento mantém no máximo uma inscrição/cursor ativo e excedente é recusado sem vazamento de listener/token
 
 #### Scenario: Formulário com caracteres escapados
-- **WHEN** campos básicos válidos próximos dos limites contêm Unicode ou caracteres que aumentam o JSON serializado
-- **THEN** o orçamento é medido em bytes UTF-8 do envelope completo e nenhum texto é cortado para caber
-- **AND** valor histórico não alterado é omitido do patch e conservado; comando excessivo é recusado explicitamente, sem novo limite de codec
+- **WHEN** campos básicos válidos nos limites e 20 títulos de subtarefas de 200 contêm Unicode/escaping com IDs/revisões/envelope
+- **THEN** orçamento é medido em bytes UTF-8 completo e nenhum texto/ID é cortado para caber
+- **AND** valor histórico intacto é omitido quando possível; comando excessivo é recusado explicitamente sem limite novo de codec e conserva draft/banco
 
 ### Requirement: Erros são dados seguros discriminados
 
-Resultados SHALL ser uniões versionadas de sucesso/erro validadas por discriminante, com códigos fechados por operação. Falhas SHALL não transportar stack, cause, SQL, paths, payloads ou protótipos de Error. Erros de campo SHALL usar códigos públicos de campos básicos. Transporte invalidado SHALL exigir ressync antes de nova decisão, sem confiar em instanceof remoto ou repetir escrita automaticamente.
+Resultados SHALL ser uniões versionadas validadas por discriminante com códigos fechados por operação. Falhas SHALL não transportar stack/cause/SQL/paths/payloads/protótipos de Error. Erros de campos SHALL ter nomes/códigos/índices finitos para básicos, regra e lista de subtarefas. Transporte invalidado SHALL exigir ressync antes de nova decisão, sem instanceof remoto/replay automático.
 
 #### Scenario: Erro de produto sanitizado
 - **WHEN** há incompatibilidade, corrupção, indisponibilidade, request inválido, falta de autorização, sessão encerrada, snapshot stale ou limite
-- **THEN** leitura conserva seus códigos INCOMPATIBLE_DATA, CORRUPTED_DATA, STORAGE_UNAVAILABLE, INVALID_REQUEST, UNAUTHORIZED, SESSION_CLOSED, SNAPSHOT_STALE, RESOURCE_LIMIT ou BUSY
-- **AND** a validação do preload recusa saída malformada sem expor detalhes sensíveis
+- **THEN** leitura conserva códigos INCOMPATIBLE_DATA, CORRUPTED_DATA, STORAGE_UNAVAILABLE, INVALID_REQUEST, UNAUTHORIZED, SESSION_CLOSED, SNAPSHOT_STALE, RESOURCE_LIMIT ou BUSY
+- **AND** validação do preload recusa saída malformada sem expor detalhes sensíveis
 
 #### Scenario: Resultado tardio após commit
-- **WHEN** commit interno confirma e a resposta se perde ou sessão encerra
-- **THEN** o banco conserva o commit, o cliente ressincroniza após nova autorização e nenhuma repetição automática de escrita é feita
+- **WHEN** commit interno confirma e resposta se perde ou sessão encerra
+- **THEN** banco conserva commit, cliente ressincroniza após nova autorização e não há repetição automática de escrita
 
 #### Scenario: Erros funcionais dos comandos
-- **WHEN** um comando tem campos inválidos, base antiga, tarefa ausente, recurso avançado bloqueado, origem ausente/proibida/longa ou falha de abertura
-- **THEN** seu envelope usa VALIDATION_FAILED, CONFLICT, NOT_FOUND, ADVANCED_TASK_RESTRICTED, SOURCE_NOT_AVAILABLE, SOURCE_NOT_ALLOWED, SOURCE_TOO_LONG ou EXTERNAL_OPEN_FAILED conforme a operação
-- **AND** VALIDATION_FAILED contém somente campos/códigos finitos, e CONFLICT pode informar revisão atual sem devolver Task ou refletir o payload recebido
+- **WHEN** comando tem campos inválidos, base antiga, tarefa/item ausente, recurso bloqueado, escolha faltante, cálculo impossível, série/identidade conflitante ou origem recusada
+- **THEN** usa VALIDATION_FAILED, CONFLICT, NOT_FOUND, SUBTASK_NOT_FOUND, ADVANCED_TASK_RESTRICTED, RECURRENCE_CHOICE_REQUIRED, RECURRENCE_OUT_OF_RANGE, SERIES_CONFLICT, IDENTITY_CONFLICT, SOURCE_NOT_AVAILABLE, SOURCE_NOT_ALLOWED, SOURCE_TOO_LONG ou EXTERNAL_OPEN_FAILED conforme operação
+- **AND** VALIDATION_FAILED usa apenas campos/códigos e índices 0–19 pertinentes; CONFLICT pode informar revisões atuais sem Task ou reflexão do payload
 
 ### Requirement: IPC de estado é comprovado no pacote
 
-A validação SHALL exercitar bridge real no Electron empacotado com dados/perfis fictícios, incluindo catálogo, isolamento, negativas, sessões, ressincronização e UI de tarefas inscrita. Mocks e Node externo SHALL não substituir essa evidência nem anunciar funcionalidades futuras como disponíveis.
+Validação SHALL exercitar bridge real no Electron empacotado fictício, catálogo v2/isolamento/negativas/sessões/ressincronização e UI inscrita com recorrência/subtarefas. Mocks e Node externo SHALL não substituir evidência nem anunciar funcionalidades futuras disponíveis. Evidências SHALL distinguir migração, commits/kill, produto empacotado e gates herdados de instalação.
 
 #### Scenario: Harness de produto e bridge
-- **WHEN** o teste empacotado abre duas superfícies de teste autorizadas e provoca alterações fictícias
-- **THEN** ambas convergem por snapshots/eventos, guardas negativas e limpeza de documentos funcionam no runtime real
-- **AND** hooks de teste não aparecem na bridge normal nem substituem os comandos de produto por implementação exclusiva do harness
+- **WHEN** teste empacotado abre duas superfícies autorizadas e provoca alterações fictícias de campos/checks/fechamento
+- **THEN** ambas convergem por snapshots/eventos e guardas/limpeza funcionam no runtime real, com no máximo uma gerada e save preservando marcações atuais
+- **AND** hooks de teste não aparecem na bridge normal nem substituem comandos por implementação exclusiva do harness
 
 #### Scenario: UI inscrita perde evento ou documento
-- **WHEN** há evento perdido, retorno de foco, reconciliação de 30 s, reload ou crash controlado da superfície de teste com UI inscrita
-- **THEN** a interface corrente recupera snapshot completo sem regressão e a sessão anterior não entrega respostas/eventos
-- **AND** listeners/timers não se acumulam e dados confirmados sobrevivem à reabertura; draft perdido num crash é documentado como transitório
+- **WHEN** há evento perdido, foco, reconciliação30s, reload ou crash controlado com UI inscrita
+- **THEN** interface recupera snapshot completo sem regressão e sessão anterior não entrega respostas/eventos
+- **AND** listeners/timers não se acumulam, commits sobrevivem a reopen e draft perdido num crash é transitório
 
-### Requirement: Comandos aceitam somente intenção básica
+### Requirement: Comandos aceitam somente intenções de tarefas autorizadas
 
-createTask SHALL aceitar campos básicos validados; updateTask SHALL aceitar ID, revisão de conteúdo esperada e patch básico; changeTaskStatus SHALL aceitar ID, revisão e status; openTaskSource SHALL aceitar ID e revisão. Auditoria, campos avançados, URL arbitrária e opções de sistema SHALL ser recusados. Omissão no patch SHALL preservar valor; limpeza opcional SHALL ser explícita.
+createTask SHALL aceitar básicos/regra/títulos; updateTask SHALL aceitar ID/editRevision esperada e patch desses campos; changeTaskStatus SHALL aceitar ID/editRevision/status/escolha pertinente; setSubtaskDone SHALL aceitar ID/editRevision/subtaskId/done boolean; openTaskSource SHALL conservar ID/contentRevision v1. Autoridade e campos futuros SHALL ser recusados. Omissão SHALL conservar; limpeza opcional SHALL ser explícita.
 
 #### Scenario: Draft e patch fechados
-- **WHEN** criação ou edição contém somente campos básicos autorizados, com tipos corretos
-- **THEN** a criação normaliza os campos e a edição altera somente os campos presentes, preservando os demais
-- **AND** null limpa somente descrição, solicitante, responsável, prazo ou origem; tags vazias limpam tags, e título/status/prioridade não aceitam null
+- **WHEN** criação/edição contém somente campos autorizados e tipos corretos
+- **THEN** criação normaliza e edição muda somente campos presentes, preservando demais
+- **AND** null limpa só opcionais básicos, regra ou until; [] limpa tags/subtarefas; título/status/prioridade não aceitam null
+- **AND** regra omite until conservando o existente; subtarefas do form contêm títulos/IDs, nunca done
 
 #### Scenario: Campos de autoridade indevidos
-- **WHEN** um request inclui id na criação, createdAt, updatedAt, completedAt, recurrence, seriesId, subtasks, reminders, processedFor, path ou opções do shell
-- **THEN** é recusado antes de ler ou modificar dados
+- **WHEN** request inclui id em criação, createdAt/updatedAt/completedAt, anchorAt/seriesId, done em draft, reminders/processedFor, filhos, path, UndoPlan ou opções do shell
+- **THEN** é recusado antes de ler/modificar dados; regra/subtarefas fora dos shapes autorizados também falham
+
+#### Scenario: Escolha e intenção explícitas
+- **WHEN** plano CANCELLED recorrente não recebe SKIP/END, escolha é extrínseca ou toggle recebe inversão sem boolean desejado
+- **THEN** falta pertinente retorna RECURRENCE_CHOICE_REQUIRED e formas extrínsecas/inválidas são recusadas sem gravar
+- **AND** criação terminal não exige escolha nem gera imediatamente
 
 ### Requirement: Escritas são decisões condicionais no proprietário
 
-O proprietário SHALL gerar IDs/clock de criação e decidir, validar e confirmar mutações sobre o estado atual numa unidade coordenada. Criação SHALL não substituir ID existente. Edição/status SHALL verificar existência e revisão de conteúdo na mesma unidade; revisão global ou timestamp SHALL não substituir essa condição. Recusa/no-op SHALL não produzir commit de alteração ou evento.
+Proprietário SHALL gerar IDs/clock e decidir/validar/confirmar sobre estado atual em unidade coordenada. Criação SHALL não substituir ID existente. Edição/status/toggle SHALL verificar existência/editRevision na mesma unidade; global/timestamp SHALL não substituir condição. Checks SHALL conservar edit e ser retidos pelo form; regras/portadoras/identidades SHALL seguir validação final. Recusa/no-op SHALL não produzir alteração/evento.
 
 #### Scenario: Criação colide
-- **WHEN** o gerador fornece ID já existente em tarefas ou lixeira
+- **WHEN** gerador fornece ID existente em tarefas/lixeira ou identidade local/série conflitante
 - **THEN** nenhum item é substituído; outra identidade pode ser gerada com tentativas limitadas e falha final segura
 
 #### Scenario: Mesma base concorre
-- **WHEN** duas sessões editam ou mudam status da mesma tarefa/revisão
-- **THEN** a primeira alteração aplicável confirma e a outra recebe CONFLICT, sem perda de dados
-- **AND** tarefa ausente retorna NOT_FOUND e nunca é recriada pelo comando de edição
+- **WHEN** duas sessões editam estrutura/campos ou mudam status da mesma tarefa/editRevision
+- **THEN** primeira alteração aplicável confirma e outra recebe CONFLICT sem perda de dados ou segunda geração
+- **AND** tarefa ausente retorna NOT_FOUND e nunca é recriada por edição
 
 #### Scenario: Conteúdo independente e avançados
-- **WHEN** outra tarefa muda, ocorre claim isolado ou são editados campos independentes de tarefa com lembretes/subtarefas
-- **THEN** não há conflito por revisão global/claim apenas e os campos avançados atuais são conservados
-- **AND** recorrência presente impede mutação; com lembretes, mudança efetiva de prazo/status é recusada até sua integração funcional
+- **WHEN** outra tarefa muda, há claim/check isolado ou são editados campos independentes de tarefa com recorrência/lembretes/subtarefas
+- **THEN** global/claim/check apenas não conflitam com revisão de edição e campos/marks atuais são conservados
+- **AND** recorrência segue seus contratos; com lembretes, mudança efetiva de prazo/status e fechamento/geração são recusados até integração funcional
 
 ### Requirement: Confirmação de comando converge com snapshot
 
-Sucesso de escrita SHALL informar revisão global e revisão de conteúdo exatas após confirmação; criação SHALL informar o novo ID. Estado completo SHALL continuar vindo do snapshot. O cliente SHALL aguardar snapshot completo de revisão igual ou superior para encerrar a sincronização, sem upsert por resposta antiga ou anúncio de rollback após commit.
+Sucesso v2 de escrita SHALL informar global/contentRevision/editRevision exatas após confirmação; criação SHALL informar novo ID. Estado completo SHALL vir do snapshot. Cliente SHALL aguardar snapshot completo de revisão igual/superior ao ack para encerrar sincronização, sem upsert por resposta antiga ou anúncio de rollback após commit. No-op SHALL informar revisões atuais sem evento.
 
 #### Scenario: Resposta chega depois de snapshot novo
-- **WHEN** uma resposta confirmada antiga chega depois de o cliente ter recebido snapshot mais recente
-- **THEN** a lista conserva o snapshot recente e a resposta não reinstala conteúdo antigo
+- **WHEN** resposta confirmada antiga chega após snapshot mais recente
+- **THEN** lista conserva snapshot recente e resposta não reinstala conteúdo antigo nem perde done atual
 
 #### Scenario: Commit sem resposta
-- **WHEN** há possível commit e falha de transporte antes da confirmação ao cliente
-- **THEN** o cliente preserva draft, sinaliza resultado incerto e exige ressync/revisão explícita antes de nova escrita
-- **AND** não reenvia criação/status/edição automaticamente nem infere criação confirmada pela igualdade de título
+- **WHEN** há possível commit e falha de transporte antes da confirmação
+- **THEN** cliente preserva draft, sinaliza incerto e exige ressync/revisão explícita antes de nova escrita
+- **AND** não reenvia criação/status/edição/toggle automaticamente nem infere confirmação por título
+
+#### Scenario: Fechada e próxima no snapshot
+- **WHEN** ack confirma fechamento com geração
+- **THEN** snapshot autoritativo mostra anterior e próxima na mesma revisão ou uma posterior válida, sem publicação otimista de meia geração
 
 ### Requirement: Origem salva abre somente por operação controlada
 

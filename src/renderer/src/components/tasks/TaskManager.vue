@@ -1,16 +1,19 @@
 <script setup lang="ts">
-// Adaptação básica revisada de taskflow-extension@a763e7a src/components/tasks/TaskManager.vue
+// Adaptação revisada de taskflow-extension@a763e7a src/components/tasks/TaskManager.vue
 // (MIT, mesmo autor). Preserva fluxo lista/criar/editar, estados, foco pós-ação e live regions.
-// Não monta captura, lixeira, backup, IA, undo, recorrência mutável ou subtarefas editáveis.
+// Acrescenta diálogo SKIP/END, marcação de subtarefa e mensagens D8; não monta captura, lixeira,
+// backup, IA, undo nem lembretes.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { TaskRecord } from '../../../../contracts/state.js'
-import type { BasicFieldErrors } from '../../../../domain/task-draft.js'
+import type { TaskCancellation } from '../../../../contracts/tasks.js'
+import type { EditTaskPatch, TaskFieldErrors } from '../../../../domain/task-draft.js'
 import type { Task, TaskStatus } from '../../../../domain/task.js'
 import { useTasksStore, type TaskCommandStoreResult } from '../../stores/tasks.js'
+import TaskCancellationDialog from './TaskCancellationDialog.vue'
 import TaskFilters from './TaskFilters.vue'
 import TaskForm, { type TaskFormSubmission } from './TaskForm.vue'
 import TaskList from './TaskList.vue'
-import { STATUS_LABELS } from './task-labels.js'
+import { REMINDERS_RESTRICTED_HINT, STATUS_LABELS } from './task-labels.js'
 import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin.js'
 
 type Feedback = { tone: 'success' | 'warning' | 'error'; text: string }
@@ -22,17 +25,30 @@ interface PendingListAction {
   fromFocusout: boolean
 }
 
+/** Escolha SKIP/END pendente: só existe depois do pedido explícito do main, nada gravado antes. */
+type PendingCancellation =
+  | {
+      kind: 'status'
+      taskId: string
+      taskTitle: string
+      editRevision: string
+      status: TaskStatus
+      pending: PendingListAction
+    }
+  | { kind: 'update'; taskId: string; taskTitle: string; editRevision: string; patch: EditTaskPatch }
+
 const store = useTasksStore()
 
 const mode = ref<'list' | 'form'>('list')
 const editingRecord = ref<TaskRecord | null>(null)
 const formKey = ref(0)
-const formErrors = ref<BasicFieldErrors>({})
+const formErrors = ref<TaskFieldErrors>({})
 const formMessage = ref<string | null>(null)
 const feedback = ref<Feedback | null>(null)
 const actionError = ref<string | null>(null)
 const busyTaskId = ref<string | null>(null)
 const pendingAction = ref<PendingListAction | null>(null)
+const pendingCancellation = ref<PendingCancellation | null>(null)
 const conflictInspect = ref<TaskRecord | null>(null)
 const reloadConfirm = ref(false)
 
@@ -102,10 +118,6 @@ function listPosition(taskId: string): number {
   return store.visibleTasks.findIndex((task) => task.id === taskId)
 }
 
-function revisionOf(taskId: string): string | undefined {
-  return store.records.find((record) => record.task.id === taskId)?.contentRevision
-}
-
 function equivalentAction(action: TaskStatusAction): TaskStatusAction {
   if (action === 'complete' || action === 'cancel') return 'reopen'
   if (action === 'reopen') return 'complete'
@@ -168,6 +180,7 @@ function closeForm(focusButton = true): void {
   editingRecord.value = null
   formMessage.value = null
   formErrors.value = {}
+  pendingCancellation.value = null
   store.clearConflict()
   store.clearNotFound()
   if (focusButton) void nextTick(() => newTaskButton.value?.focus())
@@ -188,7 +201,29 @@ function errorText(code: string): string {
   return messages[code] ?? 'Não foi possível concluir a operação.'
 }
 
-async function showFormErrors(errors: BasicFieldErrors, message: string): Promise<void> {
+/** Mensagens específicas de recorrência/subtarefas; nunca refletem payload do main. */
+function mutationFailureText(result: TaskCommandStoreResult): string {
+  switch (result.status) {
+    case 'restricted':
+      return REMINDERS_RESTRICTED_HINT
+    case 'choice-required':
+      return 'Escolha como tratar as próximas ocorrências antes de continuar.'
+    case 'series-conflict':
+      return 'Há outra ocorrência da mesma série; nada foi gravado.'
+    case 'identity-conflict':
+      return 'Não foi possível reservar a identidade da nova ocorrência; nada foi gravado.'
+    case 'recurrence-out-of-range':
+      return 'O cálculo da próxima ocorrência saiu do intervalo representável; nada foi gravado.'
+    case 'subtask-not-found':
+      return 'A subtarefa não está mais na tarefa; nada foi gravado.'
+    case 'blocked':
+      return errorText(result.code)
+    default:
+      return 'A operação não foi concluída.'
+  }
+}
+
+async function showFormErrors(errors: TaskFieldErrors, message: string): Promise<void> {
   formErrors.value = errors
   formMessage.value = message
   await nextTick()
@@ -212,8 +247,8 @@ async function handleMutationResult(result: TaskCommandStoreResult): Promise<voi
     case 'not-found':
       formMessage.value = 'A tarefa não existe mais. O preenchimento foi mantido.'
       return
-    case 'restricted':
-      await showFormErrors({}, 'Esta tarefa não pode ser alterada nesta versão (recorrência ou lembretes).')
+    case 'choice-required':
+      await showFormErrors({}, 'Escolha como tratar as próximas ocorrências; nada foi gravado.')
       return
     case 'uncertain':
       formMessage.value = 'Resultado incerto: confira a lista antes de tentar novamente. O preenchimento foi mantido.'
@@ -221,29 +256,47 @@ async function handleMutationResult(result: TaskCommandStoreResult): Promise<voi
     case 'blocked':
       await showFormErrors({}, errorText(result.code))
       return
+    default:
+      await showFormErrors({}, mutationFailureText(result))
+      return
   }
 }
 
 async function handleSubmit(submission: TaskFormSubmission): Promise<void> {
+  if (pendingCancellation.value !== null) return
   formMessage.value = null
   formErrors.value = {}
   const record = editingRecord.value
 
-  const result =
-    submission.kind === 'create'
-      ? await store.create(submission.draft)
-      : record === null
-        ? ({ status: 'blocked', code: 'STORAGE_UNAVAILABLE' } as const)
-        : await store.update(record.task.id, record.contentRevision, submission.patch)
+  if (submission.kind === 'create') {
+    await handleMutationResult(await store.create(submission.draft))
+    return
+  }
 
+  if (record === null) {
+    await handleMutationResult({ status: 'blocked', code: 'STORAGE_UNAVAILABLE' })
+    return
+  }
+
+  const result = await store.update(record.task.id, record.editRevision, submission.patch)
+  if (result.status === 'choice-required') {
+    pendingCancellation.value = {
+      kind: 'update',
+      taskId: record.task.id,
+      taskTitle: record.task.title,
+      editRevision: record.editRevision,
+      patch: submission.patch,
+    }
+    return
+  }
   await handleMutationResult(result)
 }
 
 async function handleChangeStatus(task: Task, status: TaskStatus, origin: StatusChangeOrigin): Promise<void> {
-  if (busyTaskId.value !== null) return
+  if (busyTaskId.value !== null || pendingCancellation.value !== null) return
   resetMessages()
-  const revision = revisionOf(task.id)
-  if (revision === undefined) {
+  const record = store.records.find((candidate) => candidate.task.id === task.id)
+  if (record === undefined) {
     actionError.value = 'A tarefa não está mais na lista atual.'
     taskList.value?.resetStatus(task.id)
     return
@@ -255,30 +308,106 @@ async function handleChangeStatus(task: Task, status: TaskStatus, origin: Status
     action: origin.action,
     fromFocusout: origin.fromFocusout,
   }
+  await performStatus(task.id, task.title, status, record.editRevision, pending)
+}
 
-  busyTaskId.value = task.id
-  const result = await store.changeStatus(task.id, revision, status)
+/** Executa a mudança de status; a mesma revisão capturada é usada após a escolha SKIP/END. */
+async function performStatus(
+  taskId: string,
+  taskTitle: string,
+  status: TaskStatus,
+  editRevision: string,
+  pending: PendingListAction,
+  cancellation?: TaskCancellation,
+): Promise<void> {
+  busyTaskId.value = taskId
+  const result = await store.changeStatus(taskId, editRevision, status, cancellation)
   busyTaskId.value = null
 
   if (result.status === 'accepted') {
     pendingAction.value = pending
-    feedback.value = { tone: 'success', text: `Status de “${task.title}” alterado para ${STATUS_LABELS[status]}.` }
+    feedback.value = { tone: 'success', text: `Status de “${taskTitle}” alterado para ${STATUS_LABELS[status]}.` }
     return
   }
 
-  taskList.value?.resetStatus(task.id)
+  if (result.status === 'choice-required') {
+    pendingCancellation.value = { kind: 'status', taskId, taskTitle, editRevision, status, pending }
+    return
+  }
+
+  taskList.value?.resetStatus(taskId)
   if (result.status === 'conflict' || result.status === 'not-found') {
     feedback.value = null
     return
   }
-  actionError.value =
-    result.status === 'restricted'
-      ? 'Esta tarefa não pode mudar de status nesta versão (recorrência ou lembretes).'
-      : result.status === 'blocked'
-        ? errorText(result.code)
-        : 'O status não foi alterado.'
+  actionError.value = mutationFailureText(result)
   await nextTick()
-  taskList.value?.focusControl(task.id, origin.action)
+  taskList.value?.focusControl(taskId, pending.action)
+}
+
+/** Marca/desmarca por intenção; o valor exibido só muda com a confirmação no snapshot. */
+async function handleToggleSubtask(task: Task, subtaskId: string, done: boolean): Promise<void> {
+  if (busyTaskId.value !== null || pendingCancellation.value !== null) return
+  resetMessages()
+  const record = store.records.find((candidate) => candidate.task.id === task.id)
+  if (record === undefined) {
+    actionError.value = 'A tarefa não está mais na lista atual.'
+    return
+  }
+
+  busyTaskId.value = task.id
+  const result = await store.setSubtaskDone(task.id, record.editRevision, subtaskId, done)
+  busyTaskId.value = null
+
+  switch (result.status) {
+    case 'accepted':
+      feedback.value = { tone: 'success', text: done ? 'Subtarefa marcada.' : 'Subtarefa desmarcada.' }
+      return
+    case 'subtask-not-found':
+      actionError.value = 'A subtarefa não está mais na tarefa; nada foi marcado.'
+      await nextTick()
+      if (taskList.value?.focusSubtask(task.id, subtaskId) !== true) taskList.value?.focusControl(task.id, 'edit')
+      return
+    case 'conflict':
+    case 'not-found':
+      feedback.value = null
+      return
+    case 'uncertain':
+      // O painel de resultado incerto fica visível; nenhuma marcação é anunciada.
+      return
+    default:
+      actionError.value = mutationFailureText(result)
+      return
+  }
+}
+
+async function resolveCancellation(choice: TaskCancellation): Promise<void> {
+  const pending = pendingCancellation.value
+  if (pending === null) return
+  pendingCancellation.value = null
+
+  if (pending.kind === 'update') {
+    const result = await store.update(pending.taskId, pending.editRevision, pending.patch, choice)
+    await handleMutationResult(result)
+    return
+  }
+
+  await performStatus(pending.taskId, pending.taskTitle, pending.status, pending.editRevision, pending.pending, choice)
+}
+
+/** Abandonar o diálogo conserva dados/draft e devolve o foco ao controle pertinente. */
+async function abandonCancellation(): Promise<void> {
+  const pending = pendingCancellation.value
+  if (pending === null) return
+  pendingCancellation.value = null
+  await nextTick()
+  if (pending.kind === 'update') {
+    taskForm.value?.focusSubmit()
+    return
+  }
+  if (taskList.value?.focusControl(pending.pending.taskId, pending.pending.action) !== true) {
+    void focusAfterListAction(pending.pending)
+  }
 }
 
 async function inspectConflict(): Promise<void> {
@@ -656,10 +785,18 @@ function clearFilters(): void {
             :busy-task-id="busyTaskId"
             @edit="openEdit"
             @change-status="handleChangeStatus"
+            @toggle-subtask="handleToggleSubtask"
           />
         </section>
       </template>
     </template>
+
+    <TaskCancellationDialog
+      v-if="pendingCancellation !== null"
+      :task-title="pendingCancellation.taskTitle"
+      @choose="resolveCancellation"
+      @cancel="abandonCancellation"
+    />
   </main>
 </template>
 

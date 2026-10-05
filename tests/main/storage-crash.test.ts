@@ -13,8 +13,8 @@ import { build } from 'vite'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { buildFictitiousTask, buildFictitiousTasks } from '../../src/main/harness/fixtures.js'
 import { ProductDatabase, type StorageFaultPoint } from '../../src/main/storage/product-database.js'
-import { PRODUCT_STORAGE_DEFINITION } from '../../src/main/storage/product-schema.js'
-import { CRASH_CLAIM, crashMigrationDefinition } from '../support/crash-fixture.js'
+import { PRODUCT_STORAGE_DEFINITION, PRODUCT_V1_DEFINITION } from '../../src/main/storage/product-schema.js'
+import { CRASH_CLAIM } from '../support/crash-fixture.js'
 import { cleanupStorage, createProductFile, createTempRoot, expectOk, openCoordinator } from '../support/storage.js'
 
 const BARRIER_TIMEOUT_MS = 30_000
@@ -60,6 +60,27 @@ async function seed(): Promise<Seeded> {
   const file = createProductFile()
   const claimTask = buildFictitiousTask(1, { idPrefix: 'claim' })
   const coordinator = openCoordinator(file)
+  expectOk(await coordinator.run((unit) => unit.saveTasks([...buildFictitiousTasks(20), claimTask])))
+  const revision = coordinator.confirmedRevision ?? 0n
+  coordinator.shutdown()
+
+  const pending = claimTask.reminders.find((reminder) => reminder.id === CRASH_CLAIM.reminderId)
+  if (pending?.type !== 'OFFSET' || claimTask.dueAt === undefined || claimTask.id !== CRASH_CLAIM.taskId) {
+    throw new Error('claim fixture mismatch')
+  }
+  return {
+    file,
+    revision,
+    taskIds: [...buildFictitiousTasks(20).map((task) => task.id), claimTask.id].sort(),
+    processedFor: new Date(Date.parse(claimTask.dueAt) - pending.offsetMinutes * 60_000).toISOString(),
+  }
+}
+
+/** Semeia o mesmo perfil fictício na origem SQL 1, para exercitar a migração real 1→2. */
+async function seedV1(): Promise<Seeded> {
+  const file = createProductFile()
+  const claimTask = buildFictitiousTask(1, { idPrefix: 'claim' })
+  const coordinator = openCoordinator(file, { definition: PRODUCT_V1_DEFINITION })
   expectOk(await coordinator.run((unit) => unit.saveTasks([...buildFictitiousTasks(20), claimTask])))
   const revision = coordinator.confirmedRevision ?? 0n
   coordinator.shutdown()
@@ -192,32 +213,56 @@ describe('interrupção de processo durante migração (fixture isolada)', () =>
   }
 
   it.each<[StorageFaultPoint]>([['migrate:in-transaction'], ['migrate:before-commit']])(
-    'encerrado em %s: reopen encontra o schema e os dados anteriores, sem migração parcial',
+    'encerrado em %s: origem SQL1 inteira; o binário novo pode migrar depois',
     async (point) => {
-      const seeded = await seed()
+      const seeded = await seedV1()
       await interruptAt(seeded, point, 'migrate')
 
-      // O produto (schema 1) reabre normalmente: nada parcialmente migrado.
-      const state = await reopen(seeded.file)
-      expect(state.revision).toBe(seeded.revision)
-      expect(state.taskIds).toEqual(seeded.taskIds)
+      // O leitor 1 (origem) encontra tudo intacto: nada parcialmente migrado.
+      const origin = openCoordinator(seeded.file, { definition: PRODUCT_V1_DEFINITION })
+      expect(origin.availability).toEqual({ state: 'ready' })
+      const read = expectOk(
+        await origin.read((reader) => ({ revision: reader.baseRevision, taskIds: reader.listTasks().map((stored) => stored.task.id) })),
+      )
+      expect(read.value.revision).toBe(seeded.revision)
+      expect(read.value.taskIds.sort()).toEqual(seeded.taskIds)
+      origin.shutdown()
       expect(userVersion(seeded.file)).toBe(1)
+
+      // Continuar com o binário novo aplica a migração real: uma vez, preservando dados.
+      const migrated = openCoordinator(seeded.file)
+      const state = expectOk(
+        await migrated.read((reader) => ({
+          revision: reader.baseRevision,
+          taskIds: reader.listTasks().map((stored) => stored.task.id).sort(),
+          editsMatchContent: reader.listTasks().every((stored) => stored.editRevision === stored.contentRevision),
+        })),
+      )
+      expect(state.value.revision).toBe(seeded.revision + 1n)
+      expect(state.value.taskIds).toEqual(seeded.taskIds)
+      expect(state.value.editsMatchContent).toBe(true)
+      expect(userVersion(seeded.file)).toBe(2)
+      migrated.shutdown()
     },
     60_000,
   )
 
-  it('encerrado depois do commit da migração: o destino está inteiro e o leitor antigo recusa', async () => {
-    const seeded = await seed()
+  it('encerrado depois do commit da migração: destino inteiro e leitor antigo recusa', async () => {
+    const seeded = await seedV1()
     await interruptAt(seeded, 'migrate:after-commit', 'migrate')
 
     expect(userVersion(seeded.file)).toBe(2)
-    expect(ProductDatabase.open(seeded.file, PRODUCT_STORAGE_DEFINITION)).toEqual({ ok: false, reason: 'INCOMPATIBLE_DATA' })
+    // Leitor antigo recusa o schema 2 sem downgrade nem exclusão de dados.
+    expect(ProductDatabase.open(seeded.file, PRODUCT_V1_DEFINITION)).toEqual({ ok: false, reason: 'INCOMPATIBLE_DATA' })
 
-    const migrated = ProductDatabase.open(seeded.file, crashMigrationDefinition())
-    if (!migrated.ok) throw new Error(migrated.reason)
-    expect(migrated.migrated).toBe(false)
-    expect(migrated.database.readGlobalRevision()).toBe(seeded.revision + 1n)
-    expect(migrated.database.listRows('tasks')).toHaveLength(seeded.taskIds.length)
-    migrated.database.close()
+    const product = ProductDatabase.open(seeded.file, PRODUCT_STORAGE_DEFINITION)
+    if (!product.ok) throw new Error(product.reason)
+    expect(product.migrated).toBe(false)
+    expect(product.database.readGlobalRevision()).toBe(seeded.revision + 1n)
+    expect(product.database.listRows('tasks')).toHaveLength(seeded.taskIds.length)
+    for (const row of product.database.listRows('tasks')) {
+      expect(row.editRevision).toBe(row.contentRevision)
+    }
+    product.database.close()
   }, 60_000)
 })

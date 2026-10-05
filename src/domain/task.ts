@@ -8,6 +8,9 @@ export const TASK_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 export type TaskPriority = (typeof TASK_PRIORITIES)[number]
 
+/** Gerador de identidade injetado pelo proprietário; nunca vem do renderer. */
+export type IdGenerator = () => string
+
 interface TaskReminderBase {
   /** UUID gerado localmente, preservado ao editar a configuração. */
   id: string
