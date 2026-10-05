@@ -25,9 +25,12 @@ import {
   type StorageDefinition,
 } from '../../src/main/storage/product-database.js'
 import {
+  PRODUCT_MIGRATION_1_TO_2,
   PRODUCT_SCHEMA_V1_DDL,
+  PRODUCT_SCHEMA_V2_DDL,
   PRODUCT_SIGNATURE,
   PRODUCT_STORAGE_DEFINITION,
+  PRODUCT_V1_DEFINITION,
 } from '../../src/main/storage/product-schema.js'
 import {
   cleanupStorage,
@@ -63,6 +66,19 @@ function openReason(file: string, definition: StorageDefinition = PRODUCT_STORAG
 /** Cria um banco de produto fictício com tarefas e lixeira e o fecha. */
 async function seedProduct(file: string, tasks: Task[] = buildFictitiousTasks(12)): Promise<bigint> {
   const coordinator = openCoordinator(file)
+  expectOk(await coordinator.run((unit) => unit.saveTasks(tasks)))
+  const first = tasks[0]
+  if (first !== undefined) {
+    expectOk(await coordinator.run((unit) => unit.moveToTrash(first.id, '2026-09-12T08:00:00.000Z')))
+  }
+  const revision = coordinator.confirmedRevision ?? 0n
+  coordinator.shutdown()
+  return revision
+}
+
+/** Semeia o mesmo perfil na origem SQL 1, para exercitar a migração real 1→2. */
+async function seedProductV1(file: string, tasks: Task[] = buildFictitiousTasks(12)): Promise<bigint> {
+  const coordinator = openCoordinator(file, { definition: PRODUCT_V1_DEFINITION })
   expectOk(await coordinator.run((unit) => unit.saveTasks(tasks)))
   const first = tasks[0]
   if (first !== undefined) {
@@ -156,12 +172,14 @@ describe('criação e fidelidade', () => {
     result.database.close()
 
     withRawConnection(file, (connection) => {
-      expect(connection.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 1 })
+      expect(connection.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 })
       expect(connection.prepare('SELECT * FROM taskflow_metadata').all()).toEqual([
-        expect.objectContaining({ id: 1, signature: PRODUCT_SIGNATURE, schema_version: 1, global_revision: 0 }),
+        expect.objectContaining({ id: 1, signature: PRODUCT_SIGNATURE, schema_version: 2, global_revision: 0 }),
       ])
       const tables = connection.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all()
       expect(tables.map((row) => row['name'])).toEqual(['taskflow_metadata', 'tasks', 'trash'])
+      const columns = connection.prepare('PRAGMA table_info(tasks)').all().map((row) => row['name'])
+      expect(columns).toEqual(['id', 'payload_version', 'payload_json', 'content_revision', 'edit_revision'])
     })
     expect(existsSync(`${file}-journal`)).toBe(false)
   })
@@ -196,7 +214,7 @@ describe('criação e fidelidade', () => {
     expect(read.value.base).toBe(revision)
     expect(read.value.tasks.map((stored) => stored.task)).toEqual(expectedActive)
     expect(read.value.trash).toEqual([
-      { task: tasks[0], deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: 1n },
+      { task: tasks[0], deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: 1n, editRevision: 1n },
     ])
     expect(read.committed).toBe(false)
     expect(coordinator.confirmedRevision).toBe(revision)
@@ -233,7 +251,7 @@ describe('configuração efetiva da conexão', () => {
       synchronous: 3,
       foreignKeys: 1,
       busyTimeoutMs: LOCK_WAIT_MS,
-      schemaVersion: 1,
+      schemaVersion: 2,
     })
     expect(LOCK_WAIT_MS).toBe(100)
     expect(result.database.runtime.sqliteVersion).toMatch(/^3\.\d+\.\d+/)
@@ -358,10 +376,18 @@ describe('preflight: ausência versus dados existentes', () => {
     const file = createProductFile()
     await seedProduct(file)
     withRawConnection(file, (connection) => {
-      connection.exec('UPDATE taskflow_metadata SET schema_version = 2')
-      connection.exec('PRAGMA user_version = 2')
+      connection.exec('UPDATE taskflow_metadata SET schema_version = 3')
+      connection.exec('PRAGMA user_version = 3')
     })
     expectPreserved(file, 'INCOMPATIBLE_DATA')
+  })
+
+  it('schema SQL 2 recusa o leitor 1 (downgrade) sem alterar o banco', async () => {
+    const file = createProductFile()
+    await seedProduct(file)
+    const before = sha256(file)
+    expect(openReason(file, PRODUCT_V1_DEFINITION)).toBe('INCOMPATIBLE_DATA')
+    expect(sha256(file)).toBe(before)
   })
 
   it.each([
@@ -386,6 +412,24 @@ describe('preflight: ausência versus dados existentes', () => {
       const total = connection.prepare('SELECT (SELECT count(*) FROM tasks) + (SELECT count(*) FROM trash) AS total').get()
       expect(total).toMatchObject({ total: 12 })
     })
+  })
+
+  it('metadado de edição inválido no SQL2 bloqueia sem fabricar revisão nem descartar a linha', async () => {
+    for (const sql of [
+      'PRAGMA ignore_check_constraints = ON; UPDATE tasks SET edit_revision = 0',
+      'PRAGMA ignore_check_constraints = ON; UPDATE tasks SET edit_revision = content_revision + 1',
+    ]) {
+      const file = createProductFile()
+      await seedProduct(file)
+      withRawConnection(file, (connection) => connection.exec(sql))
+      // A violação do CHECK é detectada pelo motor na abertura; além disso, a validação por
+      // linha recusaria qualquer edição inválida que chegasse ao leitor.
+      expectPreserved(file, 'CORRUPTED_DATA')
+      withRawConnection(file, (connection) => {
+        const total = connection.prepare('SELECT (SELECT count(*) FROM tasks) + (SELECT count(*) FROM trash) AS total').get()
+        expect(total).toMatchObject({ total: 12 })
+      })
+    }
   })
 
   it('tabela sem chave primária (IDs duplicados) não corresponde ao schema e bloqueia', () => {
@@ -461,13 +505,14 @@ describe('migrações registradas (fixture isolada)', () => {
       currentVersion: 2,
       versions: [
         { version: 1, ddl: PRODUCT_SCHEMA_V1_DDL },
-        { version: 2, ddl: [...PRODUCT_SCHEMA_V1_DDL, FIXTURE_TABLE_SQL] },
+        { version: 2, ddl: [...PRODUCT_SCHEMA_V2_DDL, FIXTURE_TABLE_SQL] },
       ],
       migrations: [{ from: 1, to: 2, apply }],
     }
   }
 
   const migrate: StorageDefinition['migrations'][number]['apply'] = (connection) => {
+    PRODUCT_MIGRATION_1_TO_2(connection)
     connection.exec(FIXTURE_TABLE_SQL)
     connection.exec("INSERT INTO fixture_notes (id, note) SELECT id, 'migrada' FROM tasks")
   }
@@ -478,23 +523,25 @@ describe('migrações registradas (fixture isolada)', () => {
       state = {
         userVersion: connection.prepare('PRAGMA user_version').get(),
         metadata: connection.prepare('SELECT * FROM taskflow_metadata').all(),
-        tasks: connection.prepare('SELECT * FROM tasks ORDER BY id').all(),
-        trash: connection.prepare('SELECT * FROM trash ORDER BY id').all(),
+        tasks: connection.prepare('SELECT id, payload_version, payload_json, content_revision FROM tasks ORDER BY id').all(),
+        trash: connection.prepare('SELECT id, payload_version, payload_json, content_revision, deleted_at FROM trash ORDER BY id').all(),
         tables: connection.prepare("SELECT name FROM sqlite_master ORDER BY name").all(),
       }
     })
     return state
   }
 
-  it('o produto implantado é schema SQL 1, sem migração registrada', () => {
-    expect(PRODUCT_STORAGE_DEFINITION.currentVersion).toBe(1)
-    expect(PRODUCT_STORAGE_DEFINITION.versions.map((schema) => schema.version)).toEqual([1])
-    expect(PRODUCT_STORAGE_DEFINITION.migrations).toEqual([])
+  it('o produto implantado é schema SQL 2 com a migração real 1→2 registrada', () => {
+    expect(PRODUCT_STORAGE_DEFINITION.currentVersion).toBe(2)
+    expect(PRODUCT_STORAGE_DEFINITION.versions.map((schema) => schema.version)).toEqual([1, 2])
+    expect(PRODUCT_STORAGE_DEFINITION.migrations).toHaveLength(1)
+    expect(PRODUCT_STORAGE_DEFINITION.migrations[0]).toMatchObject({ from: 1, to: 2 })
+    expect(PRODUCT_V1_DEFINITION.migrations).toEqual([])
   })
 
   it('migração suportada confirma dados, schema e metadados juntos', async () => {
     const file = createProductFile()
-    const revision = await seedProduct(file)
+    const revision = await seedProductV1(file)
 
     const result = ProductDatabase.open(file, fixtureDefinition(migrate))
     if (!result.ok) throw new Error(result.reason)
@@ -512,7 +559,7 @@ describe('migrações registradas (fixture isolada)', () => {
 
   it('falha entre alterações reverte tudo e preserva a origem', async () => {
     const file = createProductFile()
-    await seedProduct(file)
+    await seedProductV1(file)
     const before = snapshotOf(file)
 
     const failing = fixtureDefinition((connection) => {
@@ -523,12 +570,12 @@ describe('migrações registradas (fixture isolada)', () => {
 
     expect(openReason(file, failing)).toBe('INCOMPATIBLE_DATA')
     expect(snapshotOf(file)).toEqual(before)
-    expect(openReason(file)).toBe('OPENED')
+    expect(openReason(file, PRODUCT_V1_DEFINITION)).toBe('OPENED')
   })
 
   it('destino inválido após a migração não é confirmado', async () => {
     const file = createProductFile()
-    await seedProduct(file)
+    await seedProductV1(file)
     const before = snapshotOf(file)
 
     // A migração "esquece" a tabela exigida pela versão de destino.
@@ -538,7 +585,7 @@ describe('migrações registradas (fixture isolada)', () => {
 
   it('falha de I/O identificada antes do commit preserva a origem como indisponibilidade', async () => {
     const file = createProductFile()
-    await seedProduct(file)
+    await seedProductV1(file)
     const before = snapshotOf(file)
 
     const result = ProductDatabase.open(file, fixtureDefinition(migrate), {
@@ -556,29 +603,113 @@ describe('migrações registradas (fixture isolada)', () => {
 
   it('leitor antigo recusa o schema migrado, sem downgrade ou exclusão', async () => {
     const file = createProductFile()
-    await seedProduct(file)
+    await seedProductV1(file)
     expect(openReason(file, fixtureDefinition(migrate))).toBe('OPENED')
     const hash = sha256(file)
 
-    expect(openReason(file)).toBe('INCOMPATIBLE_DATA')
+    expect(openReason(file, PRODUCT_V1_DEFINITION)).toBe('INCOMPATIBLE_DATA')
     expect(sha256(file)).toBe(hash)
   })
 
   it('sem caminho de migração registrado, a versão antiga não é adivinhada', async () => {
     const file = createProductFile()
-    await seedProduct(file)
+    await seedProductV1(file)
     const before = snapshotOf(file)
     const gap: StorageDefinition = {
       ...fixtureDefinition(migrate),
       currentVersion: 3,
       versions: [
         { version: 1, ddl: PRODUCT_SCHEMA_V1_DDL },
-        { version: 3, ddl: [...PRODUCT_SCHEMA_V1_DDL, FIXTURE_TABLE_SQL] },
+        { version: 3, ddl: [...PRODUCT_SCHEMA_V2_DDL, FIXTURE_TABLE_SQL] },
       ],
       migrations: [{ from: 2, to: 3, apply: migrate }],
     }
 
     expect(openReason(file, gap)).toBe('INCOMPATIBLE_DATA')
     expect(snapshotOf(file)).toEqual(before)
+  })
+})
+
+describe('migração real 1→2 do produto', () => {
+  interface DataRow {
+    id: string
+    payload_version: number
+    payload_json: string
+    content_revision: number
+    edit_revision?: number
+    deleted_at?: string
+  }
+
+  function dataRows(file: string): { tasks: DataRow[]; trash: DataRow[] } {
+    let state: { tasks: DataRow[]; trash: DataRow[] } = { tasks: [], trash: [] }
+    withRawConnection(file, (connection) => {
+      state = {
+        tasks: connection
+          .prepare('SELECT id, payload_version, payload_json, content_revision FROM tasks ORDER BY id')
+          .all() as unknown as DataRow[],
+        trash: connection
+          .prepare('SELECT id, payload_version, payload_json, content_revision, deleted_at FROM trash ORDER BY id')
+          .all() as unknown as DataRow[],
+      }
+    })
+    return state
+  }
+
+  it('migra sem reescrever payload/IDs/deletedAt, preenche edit=content e avança a global uma vez', async () => {
+    const file = createProductFile()
+    const revision = await seedProductV1(file)
+    const before = dataRows(file)
+
+    const result = ProductDatabase.open(file, PRODUCT_STORAGE_DEFINITION)
+    if (!result.ok) throw new Error(result.reason)
+    expect(result.migrated).toBe(true)
+    expect(result.database.readGlobalRevision()).toBe(revision + 1n)
+    for (const row of result.database.listRows('tasks')) {
+      expect(row.editRevision).toBe(row.contentRevision)
+    }
+    result.database.close()
+
+    // Comparação byte a byte das colunas existentes na origem.
+    let after: { tasks: DataRow[]; trash: DataRow[] } = { tasks: [], trash: [] }
+    withRawConnection(file, (connection) => {
+      after = {
+        tasks: connection
+          .prepare('SELECT id, payload_version, payload_json, content_revision, edit_revision FROM tasks ORDER BY id')
+          .all() as unknown as DataRow[],
+        trash: connection
+          .prepare('SELECT id, payload_version, payload_json, content_revision, edit_revision, deleted_at FROM trash ORDER BY id')
+          .all() as unknown as DataRow[],
+      }
+    })
+    expect(after.tasks.map(({ id, payload_version, payload_json, content_revision }) => ({ id, payload_version, payload_json, content_revision }))).toEqual(before.tasks)
+    expect(after.tasks.every((row) => row.edit_revision === row.content_revision)).toBe(true)
+    expect(
+      after.trash.map(({ id, payload_version, payload_json, content_revision, deleted_at }) => ({ id, payload_version, payload_json, content_revision, deleted_at })),
+    ).toEqual(before.trash)
+    expect(after.trash.every((row) => row.edit_revision === row.content_revision)).toBe(true)
+
+    // Reopen não repete a migração nem altera revisões.
+    const reopened = ProductDatabase.open(file, PRODUCT_STORAGE_DEFINITION)
+    if (!reopened.ok) throw new Error(reopened.reason)
+    expect(reopened.migrated).toBe(false)
+    expect(reopened.database.readGlobalRevision()).toBe(revision + 1n)
+    reopened.database.close()
+  })
+
+  it('perfil novo nasce em SQL2 sem itens/defaults artificiais e repetir bootstrap não migra', () => {
+    const file = createProductFile()
+    const created = ProductDatabase.open(file, PRODUCT_STORAGE_DEFINITION)
+    if (!created.ok) throw new Error(created.reason)
+    expect(created.created).toBe(true)
+    expect(created.migrated).toBe(false)
+    expect(created.database.listRows('tasks')).toEqual([])
+    expect(created.database.listRows('trash')).toEqual([])
+    created.database.close()
+
+    const again = ProductDatabase.open(file, PRODUCT_STORAGE_DEFINITION)
+    if (!again.ok) throw new Error(again.reason)
+    expect([again.created, again.migrated]).toEqual([false, false])
+    expect(again.database.readGlobalRevision()).toBe(0n)
+    again.database.close()
   })
 })

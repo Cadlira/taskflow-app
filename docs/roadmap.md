@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 integrada pelo PR #1; TFA-002 integrada pelo PR #2; TFA-003 verificada, aprovada, arquivada e integrada pelo PR #3, merge local `d74e02d`; TFA-004 em APPROVED/READY_FOR_APPLY, com aprovação humana de proposal/design/três deltas/tasks registrada e prompt consolidado de apply abaixo**. A TFA-003 entrega persistência e IPC de leitura; a implementação das funcionalidades de tarefas com interface (TFA-004 a TFA-012) ainda não foi iniciada.
+Preparado em **2026-10-03**; atualizado em **2026-10-04**. Estado: **TFA-001 a TFA-004 integradas pelos PRs #1 a #4; TFA-004 em DONE, merge local `64fe7ad`; TFA-005 em READY_FOR_MERGE — archive em 2026-10-04 com 44/44 tasks, specs consolidadas (17 adicionados, 21 modificados, 1 renomeado), otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms) e PR #5 aberto aguardando integração**. Já existem persistência, IPC e gerenciamento com interface, agora com recorrências/subtarefas, SQL 2 e catálogo v2. A pendência D10 de desempenho permanece documentada e melhorada, com o gate retido até decisão dos números do orçamento.
 
 ## Objetivo e limites confirmados
 
@@ -78,8 +78,8 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-001 | `definir-arquitetura-e-paridade-desktop` | DONE | — | 2026-10-03 | 2026-10-03 | Nenhuma | Concluída e integrada pelo PR #1 |
 | TFA-002 | `preparar-fundacao-desktop-e-validar-instalacao-por-usuario` | DONE | — | 2026-10-03 | 2026-10-04 | TFA-001 | Concluída e integrada pelo PR #2; merge local `c123261` conferido em 2026-10-04 |
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-002 | Integração do PR #3 conferida no Git local: `main` e referência local `origin/main` em `d74e02d`; dependência da TFA-004 satisfeita |
-| TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada por decisão humana e arquivada; branch pronta para commit/push/PR. D10 de 10.000 permanece reprovado como pendência pós-archive documentada |
-| TFA-005 | `preservar-recorrencias-e-subtarefas` | READY_FOR_EXPLORE | — | — | — | TFA-004 | Dependência satisfeita; explorar quando houver pedido explícito |
+| TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada e archive; PR #4 integrado, merge local `64fe7ad` conferido. D10 de 10.000 permanece como pendência pós-archive documentada |
+| TFA-005 | `preservar-recorrencias-e-subtarefas` | READY_FOR_MERGE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive em 2026-10-04; specs consolidadas (17 ADDED/21 MODIFIED/1 RENAMED); otimizações re-medidas (p95 661,6 ms; heartbeat 636,1 ms; varredura 141,7 ms); commit `49eee44`, push e PR #5 abertos. D10 retido como pendência pós-archive |
 | TFA-006 | `migrar-lixeira-e-desfazer` | PLANNED | — | — | — | TFA-005 | Após dependências, usar o prompt abaixo |
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | PLANNED | — | — | — | TFA-006 | Após dependências, usar o prompt abaixo |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
@@ -868,7 +868,7 @@ Ao concluir apply execute openspec-verify-change e gere verification.md dentro d
 
 ## TFA-005 — Recorrências e subtarefas
 
-**Slug sugerido:** `preservar-recorrencias-e-subtarefas`. **Dependências:** TFA-004.
+**Slug:** `preservar-recorrencias-e-subtarefas`. **Dependências:** TFA-004, arquivada e integrada pelo PR #4, merge local `64fe7ad` conferido em 2026-10-04. **Estado: READY_FOR_MERGE**; início **2026-10-04**, apply concluído em **2026-10-04** com **44/44 tasks**, archive em **2026-10-04** e PR #5 aberto. Branch local `codex/tfa-005-preservar-recorrencias-e-subtarefas`, criada na exploração a partir da `main` limpa. Artefatos aprovados pelo usuário em 2026-10-04; implementação, verificação aprovada, archive, README, commit, push e PR executados nos pedidos seguintes.
 
 **Resultado:** Manter regras avançadas de tarefas e sua integridade sobre a persistência desktop.
 
@@ -886,6 +886,254 @@ Trabalhe em C:\QSI\Workspaces\taskflow-app. Leia AGENTS.md, docs/roadmap.md e os
 Leia domain/task-recurrence.ts, task-subtasks.ts, task-status.ts, application/task-service.ts e os testes correspondentes. Explore como preservar as regras existentes no desktop, sem redesenhá-las. Examine fim de mês, horário local, limites de recorrência, geração duplicada, pular versus encerrar, reabertura, ids de subtarefas e concorrência. Delimite integração com lembretes e desfazer para as Changes próprias, estabelecendo contratos e cenários de regressão. Não amplie as regras com novos tipos de recorrência.
 
 Entregue achados com referências, alternativas e recomendação justificada, escopo e exclusões, dúvidas materiais, riscos e critérios de aceitação/testes a refinar no propose. Pare após a exploração: não implemente, não instale dependências, não crie artefatos da Change e não inicie propose/apply sem pedido explícito.
+```
+
+### Exploração concluída — 2026-10-04
+
+**Autorização e limites:** o usuário invocou `openspec-explore` para TFA-005 e pediu criar a branch e ajustar o roadmap. Branch criada da `main` em **`64fe7adc42b7eb0f4435c02970363f7d6b060e3f`**, merge do PR #4, igual à referência local `origin/main`; conferência pelo histórico local, sem consulta nova aos checks remotos. Somente este roadmap foi editado. Nenhum diretório ou artefato OpenSpec da TFA-005, código, teste novo ou dependência foi criado; propose/apply não iniciados. Sem commit, push, PR, merge, Setup ou distribuição nesta exploração.
+
+**Dependências e base:** lidos AGENTS.md e roadmap integralmente, proposal/design/tasks/verification e deltas arquivados da TFA-004, contratos relevantes da TFA-003, specs consolidadas de gerenciamento/persistência/IPC e código correspondente. A TFA-004 entrega 41/41 tasks, quatro comandos básicos e UI inscrita; a TFA-003 entrega unidade síncrona no main, `saveTasks`, CAS, claim, reversão condicional interna e revisões duráveis. OpenSpec **1.14.0**, raiz local, schema **spec-driven**, zero Changes ativas e seis specs. Origem revalidada em leitura no HEAD **`a763e7a0d646c664ecd4f979528bc2c3589fa8c4`**; nenhum teste/build/escrita ou alteração de Git/configuração na extensão. Os arquivos de recorrência/subtarefas do app são recortes de tipos/validação/progresso, não a implementação completa da origem.
+
+**Decisão humana confirmada nesta exploração:** à pergunta sobre salvar o formulário após mudanças somente em marcações, o usuário escolheu **“Preservar o save após marcações (recomendado; exige refinar o contrato de revisões).”** Isso confirma o comportamento pretendido e a necessidade de refinar o contrato no propose; não aprova um mecanismo específico, migração SQL, novos artefatos ou implementação. As demais recomendações abaixo continuam sujeitas à revisão dos artefatos futuros.
+
+#### Regras observadas e achados com referências
+
+| Referência | Comportamento real / consequência |
+| --- | --- |
+| [Regra e limites](C:/QSI/Workspaces/taskflow-extension/src/domain/task-recurrence.ts:14), [validação do draft](C:/QSI/Workspaces/taskflow-extension/src/domain/task-draft.ts:312) | DAILY: inteiro 1–365; WEEKLY: 1–7 dias distintos, 0=domingo a 6=sábado; MONTHLY: inteiro 1–31. Prazo obrigatório, limite opcional e lembretes absolutos incompatíveis. O formulário compara `until` ao **dueAt informado**, enquanto a spec fala em instante agendado; o validador estrutural isolado não verifica essa relação. Não confundir validação de edição com compatibilidade histórica do codec. |
+| [Avanço civil](C:/QSI/Workspaces/taskflow-extension/src/domain/task-recurrence.ts:130), [cálculo](C:/QSI/Workspaces/taskflow-extension/src/domain/task-recurrence.ts:162) e [testes](C:/QSI/Workspaces/taskflow-extension/tests/domain/task-recurrence.test.ts:81) | A base é `anchorAt ?? dueAt`, nunca o horário de conclusão. Avança ao menos um passo, inclusive ao concluir antes do prazo, até encontrar instante **estritamente maior que now**. Perdidas não viram tarefas. Próxima exatamente em `until` é aceita; posterior não gera. Mensal 31: jan→fev 28/29→mar 31, sem fixar o ajuste em 28/29. Não existe quantidade máxima de ocorrências nem frequência anual. |
+| [Testes DST](C:/QSI/Workspaces/taskflow-extension/tests/domain/task-recurrence.test.ts:220) | Usa fuso local corrente e Date, com segundos/milissegundos. Às 9h, avanço DST pode durar 23h/25h. Hora inexistente é ajustada pelo runtime; hora repetida escolhe a ocorrência anterior. Diferenciar **geração automática**, que ajusta gap, de **entrada manual**, que o helper desktop recusa. |
+| [Preservação de âncora](C:/QSI/Workspaces/taskflow-extension/src/domain/task-draft.ts:538), [testes de adiamento](C:/QSI/Workspaces/taskflow-extension/tests/domain/task-draft.test.ts:644) | Adiar somente esta ocorrência conserva a programação anterior em `anchorAt`; voltar ao instante original remove a âncora. Remover regra conserva `seriesId`. O código também conserva a âncora ao alterar **regra e prazo juntos**, sem comparar igualdade de regras: não introduzir reset automático da âncora por interpretação do rótulo “editar série”. |
+| [Transição](C:/QSI/Workspaces/taskflow-extension/src/application/task-service.ts:164), [teste atômico](C:/QSI/Workspaces/taskflow-extension/tests/application/task-service.test.ts:723) | Concluir ou SKIP retira regra da fechada e transfere para nova TODO na mesma gravação. A fechada conserva série/itens; nova recebe IDs próprios, campos editáveis, auditoria nova e nenhum completedAt. END por cancelamento fecha CANCELLED sem próxima; remover regra no formulário mantém o status. Abandonar confirmação não grava. Não há geração por relógio, startup ou leitura. |
+| [Construção da próxima](C:/QSI/Workspaces/taskflow-extension/src/domain/task-recurrence.ts:222) e [reset](C:/QSI/Workspaces/taskflow-extension/src/domain/task-subtasks.ts:143) | Próxima conserva `seriesId`/`until`, não transporta âncora antiga; copia subtarefas em ordem e com títulos iguais, todas desmarcadas e com novos IDs. Copia somente reminders OFFSET, com IDs novos e sem marcador antigo; a posterior liquidação de vencidos pertence ao serviço de lembretes. |
+| [Reabertura](C:/QSI/Workspaces/taskflow-extension/tests/application/task-service.test.ts:842), [status](C:/QSI/Workspaces/taskflow-extension/src/domain/task-status.ts:7) | Reabrir a antiga limpa completedAt e mantém série/itens, sem devolver regra, gerar outra tarefa ou alterar a próxima. Uma série pode ter várias tarefas ativas reabertas, mas apenas uma **portadora da regra**. Mesmo status no serviço é no-op. Não impor “uma tarefa TODO por série”. |
+| [Criação](C:/QSI/Workspaces/taskflow-extension/src/domain/task-draft.ts:556), [create do serviço](C:/QSI/Workspaces/taskflow-extension/src/application/task-service.ts:262) | Criar diretamente DONE/CANCELLED com regra é aceito: create persiste e não passa pela transição, portanto não gera próxima nesse momento. Um update posterior passa pela transição. É uma particularidade verificável, sem teste dedicado suficiente de serviço: preservar por padrão e explicitar cenário na proposta; proibir ou gerar imediatamente seria mudança de regra. |
+| [Drafts de subtarefas](C:/QSI/Workspaces/taskflow-extension/src/domain/task-subtasks.ts:40), [reconstrução](C:/QSI/Workspaces/taskflow-extension/src/domain/task-subtasks.ts:90) e [testes](C:/QSI/Workspaces/taskflow-extension/tests/domain/task-subtasks.test.ts:73) | Até 20 itens, título trim 1–200; IDs distintos **dentro da tarefa**. Form envia id/título, nunca done. Ausente conserva lista; [] remove todos; reordenar/renomear conserva identidade e marcação relida. O helper aceita ID desconhecido como desmarcado: não usá-lo para ressuscitar item removido após abertura do formulário; conflito estrutural precisa ser verificado antes. IDs de criação devem ser gerados no main. |
+| [Toggle](C:/QSI/Workspaces/taskflow-extension/src/domain/task-subtasks.ts:109), [serviço](C:/QSI/Workspaces/taskflow-extension/src/application/task-service.ts:310) e [teste concorrente](C:/QSI/Workspaces/taskflow-extension/tests/application/task-service.test.ts:416) | Intenção explícita `done: boolean` aplicada sobre estado recente, sem substituir Task inteira. Pode marcar em qualquer status, muda somente item/updatedAt; não muda status, completedAt, prazo ou reminders e não reconcilia alarmes. Mesmo valor é no-op; item/tarefa ausente não é recriado. Progresso é derivado. |
+| [Identidade da série na spec](C:/QSI/Workspaces/taskflow-extension/openspec/specs/task-recurrence/spec.md:56), [codec desktop](C:/QSI/Workspaces/taskflow-app/src/application/storage/stored-task-codec.ts:213) e [saveTasks](C:/QSI/Workspaces/taskflow-app/src/application/storage/task-storage-unit.ts:144) | A spec exige uma portadora por série; codecs verificam invariantes por tarefa, sem unicidade da portadora entre registros. `saveTask/saveTasks` podem substituir ID existente. Serializar save sozinho não basta: conferir base/portadora/identidades antes de escrever, no mesmo read/decide/commit. Não anunciar que essas primitivas já deduplicam a geração. |
+| [CAS básico](C:/QSI/Workspaces/taskflow-app/src/application/tasks/task-commands.ts:95), [CAS/undo internos](C:/QSI/Workspaces/taskflow-app/src/application/storage/task-storage-unit.ts:244) e [save com marcações recentes na origem](C:/QSI/Workspaces/taskflow-extension/tests/domain/task-draft.test.ts:807) | Hoje qualquer toggle salvo mudaria `contentRevision`, fazendo o formulário aberto conflitar. A preferência humana exige distinguir mudança de marcação de alteração estrutural. **Não** ocultar toggle como claim: toggle é conteúdo de usuário e deve invalidar o futuro undo. |
+
+**Sondagens sem arquivos ou testes na origem:** funções de domínio foram lidas/transpiladas e avaliadas **somente em memória**, pelo Node de build do app, com dados fictícios e `TZ` do subprocesso, sem mudar o fuso do PC. Confirmado: (a) em America/New_York, série diária 02:30 de 07/03/2026 gera 03:30 em 08/03 e continua 03:30 em 09/03 — a hora ajustada passa a ser a base; (b) âncora no limite superior representável de Date produz `RangeError` ao avançar, apesar da validação estrutural aceitar a data; (c) alterar dias semanais e prazo juntos conserva a âncora antiga; (d) criação DONE aceita regra. São evidências do código atual em memória, não testes desktop implementados ou homologação no Electron. A sequência DST adicional e overflow não estão cobertos pelos testes da origem lidos.
+
+#### Alternativas e recomendação
+
+| Alternativa | Benefício / custo e encaminhamento |
+| --- | --- |
+| Copiar regras/testes portáveis por revisão e adaptar a orquestração dentro da unidade desktop | **Recomendada:** preserva semântica/CSS/teclado, aproveita SQLite/snapshot existentes e torna fechamento+geração atômicos. Copiar só trechos pertinentes; nenhuma emulação Chrome ou scheduler fictício. |
+| Transportar TaskService completo e seus repositories/scheduler/undo | Não recomendado: leitura anterior ao save continua stale, mistura Changes futuras e cria falsa disponibilidade. |
+| Motor externo de recorrência/calendário, tipos novos, fuso por série ou rewrite visual | Fora do escopo: muda DST/âncora/fim de mês e aumenta migração sem benefício para preservar as regras existentes. |
+| CAS completo em todo save após toggle | Simples e seguro contra sobrescrita, mas altera a paridade escolhida. **Alternativa rejeitada pela preferência humana**; não reapresentar como default no apply. |
+| Revisão de edição estrutural monotônica, além de revisão global e de conteúdo completo | **Recomendação para o propose:** toggle aumenta global/conteúdo e updatedAt; campos básicos, regra ou id/título/ordem dos itens também aumentam revisão de edição. Save compara edição e reconstrói done atual; undo usa conteúdo completo. Evita merge arbitrário e conflito apenas por marcação. Exige especificar metadados, bootstrap/migração/ABA, snapshots/acks e gates; eventual schema SQL 2 só após proposta/revisão, sem alterar payload/backup por necessidade de metadado. |
+| Token de edição opaco, base mantida no main e classificação de mudanças durante sua validade | Alternativa sem novo metadado persistido, mas exige rastrear todas as mutações, validade por documento, expiração/reload/backup e ABA; comparar apenas hash dos campos ou timestamps não basta. Medir custo/complexidade antes de preferir ao modelo de revisões. Não enviar Task/base livre nem UndoPlan pela bridge. |
+
+```text
+Form/card --> intencao tipada --> main: sessao + validacao
+                                      |
+                                      v
+                         unidade: reler + verificar base/serie
+                                      |
+                          fechar antiga + criar proxima
+                                      |
+                                      v
+                           um commit + uma revisao global
+                                      |
+                                      v
+                           invalidacao --> snapshot completo
+```
+
+**Contratos candidatos, ainda sem schemas aprovados:** estender criação/patch/status somente com regra de recorrência, drafts ordenados de subtarefas e escolha SKIP/END; `recurrence` ausente conserva, null remove; `subtasks` ausente conserva, [] limpa. Main calcula âncora/série/IDs/tempo e não aceita esses campos de autoridade, auditoria ou done no formulário. Marcação usa wrapper dedicado `setSubtaskDone(taskId, subtaskId, done, precondicoes)` sobre estado atual; precondições de identidade/revisão, especialmente ABA, devem ser refinadas no design. Regra e edits estruturais permanecem condicionais; não trocar revisão-base silenciosamente após conflito real. Encerrar sem cancelar pode usar patch null, sem adicionar comando redundante por conveniência. Definir versionamento e erros fechados de regra/campo/item/escolha/conflito/ausência/recurso na proposta; catálogo finito, sem RPC genérico.
+
+**Geração e deduplicação:** conferir revisão e portadora atual, calcular sobre estado relido, proteger IDs novos de tarefa contra tarefas/lixeira e IDs de série contra séries conhecidas, garantir IDs locais de itens/reminders sem colisão e fechar+gerar na mesma unidade. Duas conclusões/SKIP da mesma base: um commit aplicável e outro conflito/no-op definido, nunca duas próximas. Duplo gesto é barrado na UI; resposta perdida exige snapshot/revisão, sem replay automático. A restrição é uma portadora na coleção de tarefas, independentemente de seu status, não exclusividade de seriesId nem de status TODO. Detectar portadoras duplicadas preexistentes sem reset/rewrite; tratamento seguro e UX ficam pendentes de design, sem reparação/importação automática.
+
+**Fuso e recursos:** manter fuso local do SO no **main** para cálculo, sem fixar -03:00, salvar timezone por série ou converter dias em 24h. Preservar ISO/precisão de dueAt/until intactos; adaptar a revisão de fuso do formulário entregue pela TFA-004 também para limite alterado. A origem não fornece âncora civil permanente para restaurar 02:30 depois de um gap: não “corrigir” esse drift sem revisão. O laço de avanço não tem orçamento de iterações e só verifica until depois do avanço; datas históricas muito antigas e overflow podem bloquear/falhar no main. Refinar recusa tipada sem commit e cálculo limitado/equivalente, distinguindo limite natural de série de falha de representabilidade/recurso. Não encerrar silenciosamente uma série por timeout ou RangeError; worker ou otimização que mude resultados exige revisão.
+
+**UI e teclado:** reutilizar controles de regra/limite, encerrar no formulário, editor de itens e confirmação de série seletivamente. Mover cima/baixo, rótulos posicionais, primeiro erro, expansão por superfície não persistida, checkbox focável/busy/rollback e foco após atualização devem conservar a origem. CANCELLED recorrente por Enter/ponteiro abre escolha; **focusout restaura o status sem aplicar nem abrir diálogo**, exceção explícita à regra básica da TFA-004. CANCELLED simples mantém confirmação do seletor por Enter/ponteiro/focusout, sem diálogo de série. Após fechar com geração, aplicar destino de foco da tarefa acionada/vizinho conforme filtros; não deslocar automaticamente para a nova tarefa. Progresso/pesquisa devem refletir itens persistidos.
+
+#### Integrações delimitadas e exclusões
+
+| Destino | Contrato/regressão a preservar, sem antecipar a funcionalidade |
+| --- | --- |
+| TFA-006 — lixeira/desfazer | Reversão futura restaura a anterior e remove a gerada **juntas**, somente se revisões completas de ambas continuam válidas; editar/toggle da gerada impede reversão inteira. Claim isolado não invalida undo. Reversão usa referências internas e before-image do main, nunca Task/UndoPlan do renderer. Memória por superfície, sem histórico persistente. Documentar como a transição oferece os fatos necessários, sem implementar token/armazenamento/UI de undo agora. Excluir portadora encerra atividade, mas lixeira retém regra; restore/undo devolve regra sem gerar no momento da restauração, condicionados à unicidade da portadora. |
+| TFA-008 — lembretes | Regra exige prazo e só OFFSET; transição futura copia offsets com IDs novos/sem marcadores antigos, liquida vencidos e reconcilia fechada+nova **após commit**. Falha do scheduler não desfaz commit; claim relê ocorrência atual. Toggle não reconcilia. **Recorte recomendado nesta TFA-005:** manter bloqueio de mudança efetiva de prazo/status de tarefa com reminders e de geração dependente deles até TFA-008; permitir edits independentes/toggle e avaliar edição da regra sem efeitos de reminder. Não introduzir scheduler no-op, remover reminders nem anunciar agendamento. Copiar/remodelar a política de vencidos funcional fica para TFA-008; definir regressões contratuais agora. |
+| TFA-007 / TFA-010 | Backup v4 de tarefas preserva série/âncora/itens/ordem; novos metadados de revisão são de storage, não de backup. Importação/substituição e migração real ficam na TFA-007, com revisão da política de séries duplicadas. IA só na TFA-010, usando o mesmo contrato de drafts id/título e revisão humana, sem sugestões/rede nesta Change. |
+
+**Escopo recomendado:** regras e ações existentes de recorrência sem lembretes funcionais, subtarefas completas na janela principal, casos de uso portáveis no main, transação/CAS refinado para a preferência humana, UI/IPC seguro e regressões de calendário/IDs/concorrência. **Exclusões:** novos tipos/contagem de recorrência, retrogeração de perdidas, motor de calendário, timezone por série, redesign/dashboard, status/prazo/reminders próprios de subtarefa, subtarefas aninhadas, lixeira/desfazer/backup funcionais, scheduler/notificações/bandeja/login, captura/atalhos/Quick Add, IA/segredos/rede, novas janelas de produto, release/instalador/distribuição e reparação automática de dados. Não resolver o D10 herdado por virtualização, mudança de gate ou outra Change implícita.
+
+**Dúvidas materiais para fechar no propose:** (1) escolher e especificar o mecanismo de concorrência que atenda à preferência confirmada, incluindo migração/bootstrap/downgrade e ABA se acrescentar metadados; (2) aprovar o recorte conservador de reminders e mensagens, sem fingir paridade completa antes da TFA-008; (3) explicitar paridade de anchorAt ao alterar regra+prazo, until comparado a dueAt, criação terminal e drift após gap, separando bugs/correções de comportamento existente; (4) definir recusa segura para overflow/avanço muito antigo e portadoras duplicadas preexistentes; (5) fechar schemas/versionamento/erros/budgets e preservação de histórico nos novos campos. Stack/driver/instalador não precisam ser reabertos. Nenhuma dúvida exige implementar agora; recomendações não são aprovação.
+
+**Riscos principais:** duas portadoras por leitura stale (unidade única + pré-condições); ID novo substituir tarefa (colisão antes de save); formulário reintroduzir item removido ou marcação antiga (base estrutural + done relido); revisão parcial enfraquecer undo (conteúdo completo separado); omissão apagar advanced fields (patch explícito); série mudar fase/hora por “simplificação” (fixtures de âncora/DST); laço bloquear main/overflow virar encerramento falso (budget/erro atômico); mudança de schema interrompida (migração transacional testada); copiar manager completo expor futuras ações (cópia seletiva); controles busy perderem foco (aria-disabled e regressões). Preservar a pendência de performance e medir o incremento de UI, sem alegar smoke verde anterior.
+
+#### Critérios candidatos e testes a refinar no propose
+
+Os cenários abaixo são **planejados**, não implementados. Portáveis serão copiados por revisão somente no apply autorizado; testes/adapters Chrome serão substituídos por testes desktop no app.
+
+| ID | Resultado observável futuro |
+| --- | --- |
+| R01 — Validação | Limites 1/365 e 0/366/fracionário; dias vazios/repetidos/0–6; mensal 1/31 versus 0/32; regra sem prazo, até exatamente dueAt e limite anterior/inválido; absoluto incompatível. Erros de campo/item focados; zero commit em recusa. |
+| R02 — Calendário | Jan31→fev28/29→mar31; virada de ano, leap day, semanal domingo e vários dias, fase diária >1; conclusão antecipada avança um passo; atrasada pula perdidas; now exatamente candidato pula; until exatamente candidato aceita, posterior termina sem próxima. |
+| R03 — Fuso | TZ controlados UTC/America/Sao_Paulo/America/New_York, 23h/25h, segundos/ms, gap/repetição e sequência após gap com resultado da origem. Main e form usam interpretação coerente; troca de fuso com draft de prazo/limite exige revisão; sem mudar TZ do PC. |
+| R04 — Editar ocorrência/série | Adiar preserva âncora, voltar limpa; regra+prazo juntos seguem comportamento explicitado; alterar regra não reescreve antigas; encerrar sem cancelar remove só regra/conserva série/status; omissão conserva avançados/precisão. |
+| R05 — Fechar/gerar | DONE e SKIP geram uma TODO com mesmos campos/série/limite, sem completedAt/âncora antiga; itens em ordem/IDs novos/desmarcados. END, limite atingido e tarefa sem regra não geram. Form e cartão iguais; criação terminal explicitamente coberta; nenhuma geração ao abrir/ler/esperar. |
+| R06 — Escolha/reabertura | Cancelar portadora sem SKIP/END recusa; abandonar diálogo não grava; focusout CANCELLED recorrente restaura, Enter/ponteiro abre escolha; reabrir antiga mantém série/itens e deixa próxima intacta; concluir de novo não duplica. |
+| R07 — Atomicidade/IDs | Falha entre fechada/gerada e antes do commit preserva ambas/revisões; kill em perfil de teste antes/depois de COMMIT/resposta encontra anterior/novo inteiro. Colisões tarefa/lixeira/série/IDs locais não sobrescrevem; retries limitados de ID, nunca replay de mutação. |
+| R08 — Concorrência de série | Duas sessões fechando/SKIP/END/editando mesma base, inclusive relógio igual e resposta perdida: no máximo uma próxima/portadora. Base stale não grava; no-op não muda timestamp/revisão/evento. Portadora duplicada preexistente não é apagada/reparada silenciosamente. |
+| S01 — Drafts/identidade | Vazio/20/21, títulos 200/201 e trim, IDs vazios/repetidos; adicionar/renomear/remover/mover preserva ordem e marcação por ID; novos desmarcados/main IDs. Cancelar form não grava; omitted versus [] distintos; ID removido não é recriado por save stale. |
+| S02 — Toggle independente | Em quatro status, muda apenas done/updatedAt/revisões pertinentes; último item não conclui, status não muda marcas. Mesmo valor no-op; tarefa/item ausente não altera demais; toggle versus edit/claim preserva estado recente e processedFor; falha mantém banco/checkbox/foco. |
+| S03 — Preferência humana/CAS | Form aberto + toggles externos ainda salva seus campos com done recente; título/regra/ordem/IDs alterados externamente conflitam e preservam draft. Toggle aumenta revisão completa e invalida futuro undo, sem elevar revisão de edição; claim não altera nenhuma revisão de usuário. Testar ABA/recriação, reopen e migração se adotada. |
+| U01 — UI/a11y | Expansão inicia recolhida, sobrevive a snapshot na mesma superfície e não persiste; nomes/aria/progresso/search, Espaço, busy focável/duplo gesto, primeiro erro e mover até extremos; foco da ação/vizinho/dialog abort; janela mínima/zoom200/strings/IDs históricos. |
+| I01 — IPC/estado | Novos fields/schemas/versões e 64 KiB/8 KiB (candidatos a conservar) com composição máxima 20×200+campos básicos, Unicode/escaping/IDs históricos; sem Task/seriesId/anchor/auditoria/done indevido. Guards antes de acesso, sessões/reload, ack→snapshot, dois registros visíveis juntos, incerto sem replay; leitura 1 KiB/páginas256 KiB preservadas. |
+| C01 — Contratos futuros | Especificar testes TFA-006 de undo inteiro/gerada editada ou marcada/claim/no history e TFA-008 de offsets/settlement/reconcile pós-commit/claims concorrentes/falha scheduler. Nesta TFA-005 comprovar bloqueios de reminders e ausência de serviços/controles futuros, sem anunciar esses cenários funcionais como entregues. |
+| V01 — Recursos/runtime | Overflow e âncora antiga têm resultado seguro/limitado, sem fechamento parcial. Gates lint/typecheck/test/build/OpenSpec; pacote fictício com criar/editar/regra/fechar/SKIP/END/reabrir/toggle/reopen/duas sessões e negatives reais. Medir regressão de 1.000/10.000 mantendo D10 herdado; build não certifica Setup/notificações/bandeja/atalhos. |
+
+**Verificação desta exploração:** `npm run validate` com **Node 24.21.0/npm 11.21.0** já disponíveis passou: lint, cinco typechecks, **34 arquivos/475 testes aprovados + 1 skipped**, build main/preload/renderer. Sem instalar pacotes ou alterar lockfile/runtime. `openspec validate --all --strict --no-interactive --json`: **6/6 specs** válidas (INFO preexistente de texto longo per-user); `--archived`: **4/4 Changes** com tasks completas. Esses gates validam a **base entregue**, não a TFA-005 ou seus critérios futuros. As sondagens foram em memória e não executaram a suíte da extensão. Nenhum novo empacotamento, smoke, Setup ou teste Windows desta Change; D10 da TFA-004 permanece reprovado na evidência histórica, sem nova medição nesta exploração.
+
+### Prompt consolidado para opsx:propose
+
+Pronto para uso em **novo pedido explícito**. A preferência de concorrência acima está confirmada; mecanismos e demais recomendações precisam ser propostos/revisados. Salvar este prompt não inicia propose/apply.
+
+```text
+$openspec-propose TFA-005 — preservar-recorrencias-e-subtarefas
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app e reutilize codex/tfa-005-preservar-recorrencias-e-subtarefas, criada da main 64fe7adc42b7eb0f4435c02970363f7d6b060e3f (PR #4 integrado). Leia AGENTS.md, docs/roadmap.md (exploração TFA-005, achados, dúvidas e R01–V01), os artefatos arquivados das dependências TFA-004/003 e specs/código pertinentes. Extensão/Git em C:\QSI\Workspaces\taskflow-extension estritamente somente leitura, HEAD a763e7a0d646c664ecd4f979528bc2c3589fa8c4: sem editar, instalar, testar, construir ou alterar Git ali. Preserve trabalho preexistente.
+
+Crie apenas proposal/design/specs/tasks desta Change via CLI instalada 1.14.0/schema spec-driven, sem skip_specs documental; registre IN_PROGRESS/PROPOSE/data antes e IN_REVIEW/REVIEW depois. Evolua coerentemente desktop-task-management, desktop-state-ipc e desktop-foundation, que hoje vedam essas ações; local-task-persistence também se o contrato de revisões/migração mudar. Não implemente, instale, execute Setup, inicie apply/archive/commit/push/PR/merge/distribuição ou Changes futuras. Entregue artefatos para revisão e registre/entregue prompt de apply, sem inferir aprovação.
+
+Preserve Vue/Pinia/Electron, núcleo portável estrito, main proprietário e UI/teclado existentes. Proponha cópia revisada de cálculo/validação/transições/subtarefas e testes; adapte orquestração ao read/decide/commit desktop, sem TaskService completo, Chrome ou scheduler fictício. Somente DAILY 1–365, WEEKLY dias distintos 0–6, MONTHLY 1–31, prazo e until opcional; sem tipos/contagem/calendário novos. Base anchorAt??dueAt, avanço civil local ao menos uma vez até >now, mensal último dia sem ajuste permanente, até until inclusivo, perdidas puladas e uma próxima somente ao fechar. Conservar segundos/ms/ISO intactos, adiamento/retorno da âncora, seriesId e reabertura sem regra/nova geração. Explicite comportamento real de regra+prazo juntos, until comparado a dueAt, criação terminal com regra sem geração imediata e drift 02:30→03:30 após gap; qualquer correção material exige revisão, não simplificação silenciosa.
+
+Fechada e gerada no mesmo commit; DONE/SKIP transferem regra, END cancelando não gera, remover regra conserva status. Nova TODO copia campos/série/limite, itens ordenados com IDs novos/desmarcados, sem completedAt/âncora antiga. Confira CAS/portadora/IDs dentro da unidade, nunca apenas no save; proteção contra colisão tarefa/lixeira/série/IDs locais e duplicação por duas sessões/replay. Uma portadora por série permite antigas reabertas ativas. Defina recusa preservando dados em portadoras duplicadas/overflow/avanço excessivo; sem reset/reparação/encerramento silencioso.
+
+Subtarefas: até 20, título trim 1–200, profundidade única, IDs locais, ordem manual/controles de teclado, progresso derivado, toggle em qualquer status sem alterar tarefa/reminders. Form envia id/título, conserva done atual; ausente conserva e [] limpa. Preferência humana CONFIRMADA: save após mudanças apenas em marcações deve funcionar preservando done recente; alterações estruturais devem conflitar. Recomende revisão de edição monotônica separada da revisão completa de conteúdo (toggle invalida undo; claim não), compare token de edição no main e feche mecanismo/ABA/snapshot/ack/bootstrap/migração/downgrade no design. Eventual schema SQL novo exige proposta explícita; não alterar payload/backup por metadado de storage. Não esconder toggle como processamento interno nem fazer merge/rebase geral.
+
+Defina catálogo/DTOs/versionamento finitos para criação/patch/status/regra/SKIP-END e setSubtaskDone por intenção; main calcula IDs/âncora/série/clock, sem Task/auditoria/UndoPlan livres. Preserve budgets existentes ou justifique revisão com medição 20×200+campos básicos/Unicode/escaping/IDs históricos, sem truncar. Guards/sessões em admissão/execução/saída, ack pós-commit e snapshot autoritativo; incerto exige ressync sem replay. Preserve confirmação, focusout CANCELLED recorrente que restaura sem abrir/aplicar, expansão transitória, busy focável, erros posicionais e foco.
+
+Delimite TFA-006: reversão futura anterior+remoção da gerada atômicas por revisões completas; gerada editada/marcada bloqueia, claim não; lixeira conserva regra e restore não gera. Apenas contratos/cenários, sem undo/token/histórico/UI implementados. Delimite TFA-008: OFFSET com novos IDs, settlement de vencidos e reconcile depois de commit/claim condicional; falha externa não desfaz commit. Recomende manter bloqueio de prazo/status/geração dependente de reminders até integração real, permitindo edits independentes/toggle; feche recorte/mensagens na revisão, sem serviço no-op ou remoção de dados. Backup/importação/IA/captura/lifecycle/distribuição ficam nas Changes próprias.
+
+Refine R01–V01 em requisitos/cenários/tasks: limites/calendário/leap year/DST/gap/repetição/fuso/precisão; âncora/terminal/reabertura; atomicidade/colisão/duas sessões/ABA/commit sem resposta; drafts/toggles/CAS escolhido; UI/foco/IPC/bytes/snapshots; migração se necessária; limites seguros/runtime empacotado fictício. Gates existentes e OpenSpec estrito; preserve D10 herdado como pendência, sem virtualização ou remoção automática do gate. Diferencie base validada de testes futuros e pacote de instalação. Pare na proposta para revisão; apply só com autorização e artefatos aprovados.
+```
+
+### Proposta entregue para revisão — 2026-10-04
+
+**Autorização:** novo pedido explícito de `$openspec-propose` com o prompt consolidado anexado. Registrado IN_PROGRESS/PROPOSE/início 2026-10-04 antes da criação; entrega em IN_REVIEW/REVIEW. Reutilizada a branch da exploração sem alterar sua base ou o diff preexistente. CLI OpenSpec **1.14.0**, raiz local e schema **spec-driven**, sem skip_specs; status **4/4 artefatos completos** significa planejamento existente, não aprovação nem implementação.
+
+**Artefatos:** [proposal.md](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/proposal.md), [design.md](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/design.md), [tasks.md](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/tasks.md), `.openspec.yaml` gerado pela CLI e seis deltas:
+
+- Novos: [desktop-task-recurrence](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/specs/desktop-task-recurrence/spec.md) e [desktop-task-subtasks](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/specs/desktop-task-subtasks/spec.md).
+- Modificados: [desktop-task-management](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/specs/desktop-task-management/spec.md), [desktop-state-ipc](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/specs/desktop-state-ipc/spec.md), [desktop-foundation](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/specs/desktop-foundation/spec.md) e [local-task-persistence](C:/QSI/Workspaces/taskflow-app/openspec/changes/preservar-recorrencias-e-subtarefas/specs/local-task-persistence/spec.md). Incluída renomeação do requisito de intenção básica para intenções autorizadas.
+
+**Cobertura proposta:** **38 requisitos** (17 ADDED/21 MODIFIED), **98 cenários**, **44 tasks pendentes** em oito grupos. Todas as tasks definem verificação; testes/documentação acompanham cada grupo. Todos os nomes de cenários originais dos requisitos MODIFIED foram mantidos. R01–V01 estão rastreados no design e nas tasks; nenhum cenário futuro está anunciado como já aprovado/passando.
+
+**Decisões concretas propostas, ainda não aprovadas:**
+
+- Duas revisões persistidas: `contentRevision` completa inclui done; `editRevision` monotônica de edição muda para campos/status/regra/IDs-títulos-ordem e conserva para checks. Form/status/toggle usam CAS de edição; form recompõe done atual. Claim conserva ambas; no-op não grava. ABA de campo/tarefa/item continua protegido por revisão monotônica, sem hash/token transitório ou terceiro metadado.
+- **SQL 2 com migração transacional 1→2:** edit inicia igual a content, payloads/IDs/deletedAt permanecem integrais, global incrementa uma vez pela migração, como executor existente. Codec4 e backup não mudam. Perfil novo nasce em SQL2; antigo leitor bloqueia downgrade preservando banco.
+- **IPC de estado/mutação v2** em pacote único, nove wrappers; diagnóstico/openTaskSource permanecem v1. DTOs finitos, guards nas três fases, ack após commit e snapshot completo autoritativo; versões antigas de estado/mutação recusadas sem alias.
+- Preservados calendário/âncora/precisão e comportamentos reais observados: regra+prazo mantém antiga âncora; until compara dueAt; criar terminal com regra não gera imediatamente; gap do cálculo pode deslocar 02:30 para 03:30 e continuar ali. DONE/SKIP transferem regra atomicamente; END não gera; antigas reabertas sem regra não duplicam série.
+- Uma portadora com regra por série em tasks/trash, qualquer status; IDs gerados conferidos na unidade, até três tentativas. Duplicidade histórica recusa decisão afetada, sem alterar leitura/marks/edição independente. Cálculo limita **32.768 passos** e recusa overflow/excesso preservando dados, sem encerrar silenciosamente.
+- Guarda temporária D8: lembretes bloqueiam mudança efetiva de prazo/status ou fechamento/geração; permitem independentes/checks, regra em não terminal sem efeitos e retirada isolada conservando status/prazo. AT impede adicionar regra. Contratos TFA-006/008 têm fixtures/primitivas internas, sem undo/token/histórico/lixeira/scheduler/notificação funcional.
+
+**Medição de orçamento nesta proposta:** serialização fictícia em memória, com 20×200 títulos de subtarefas, básicos nos limites, controle escapado seis bytes/caractere, tags distintas, URL2081, UUIDs36 e revisão decimal máxima: create **55.047 bytes**, update **56.020 bytes**, abaixo de **65.536**. Conservados budgets de resposta8KiB, estado/evento1KiB e página256KiB. Isso não é execução de parsers/UI/runtime nem limite máximo para IDs históricos; dados maiores têm recusa segura sem corte. Unicode suplementar e demais extremos serão testes no apply.
+
+**Validação realizada nesta entrega:** Change estrita válida sem issues; `openspec validate --all --strict --no-interactive --json` **7/7** (6 specs e esta Change), com INFO preexistente em windows-per-user-installation; `--archived` **4/4**. Revisão de deltas confirmou nomes existentes e nenhum cenário original perdido; links locais dos artefatos válidos. `npm run validate` com Node24.21.0/npm11.21.0: lint, cinco typechecks, **34 arquivos / 475 testes passando + 1 skipped**, build main/preload/renderer. Esses gates verificam a base existente: código/testes funcionais TFA-005 não foram implementados. Diff/check e escopo conferidos no app; nenhum pacote/Setup foi executado nesta proposta. O D10 histórico de 10.000 continua reprovado/retido, sem nova medição ou virtualização.
+
+**Pendente:** revisão humana explícita de proposal/design/specs/tasks, incluindo compatibilidade SQL/IPC, limite seguro e guarda de lembretes; depois novo pedido de apply. Nenhuma implementação, nova dependência, relatório de verify, archive, commit/push/PR/merge/distribuição ou Change futura foi criada. A origem/Git foram somente consultados, com HEAD reconferido `a763e7a0d646c664ecd4f979528bc2c3589fa8c4`. Não foram modificadas specs principais, README ou documentação operacional para anunciar recursos planejados.
+
+### Aprovação dos artefatos — 2026-10-04
+
+**Evidência humana nesta conversa:** após receber os artefatos para revisão, o usuário declarou: **“Eu aprovo os artefatos. atualize o roadmap, commit e faça o push”**. A aprovação abrange a versão entregue de proposal, design, os seis deltas (`desktop-task-recurrence`, `desktop-task-subtasks`, `desktop-task-management`, `desktop-state-ipc`, `desktop-foundation` e `local-task-persistence`) e tasks da TFA-005, incluindo as decisões de SQL 2/`editRevision` com migração transacional 1→2, IPC de estado/mutação v2, limite de cálculo de 32.768 passos, guarda temporária D8 de lembretes e o orçamento de mutação medido. Estado atualizado para **APPROVED/READY_FOR_APPLY**; as **44 tasks permanecem pendentes** e não há início de implementação nem data de conclusão.
+
+O mesmo pedido autoriza atualizar o roadmap, commitar e dar push destes artefatos na branch **`codex/tfa-005-preservar-recorrencias-e-subtarefas`**, no Git próprio do app e remote `origin` (`https://github.com/Cadlira/taskflow-app.git`); é a autorização correspondente do item 45 do AGENTS.md para estas ações. O registro de aprovação não altera requisitos nem executa apply; archive, PR, merge, instalação e distribuição seguem suas autorizações próprias. As observações de aprovação pendente no registro de entrega descrevem o momento em que foram elaboradas; este registro estabelece a aprovação posterior sem alterar o conteúdo técnico dos artefatos. A validação relatada na entrega do propose continua evidência da base e dos artefatos, sem comprovar a implementação planejada.
+
+### Prompt consolidado para opsx:apply
+
+A aprovação humana explícita de proposal/design/seis deltas/tasks e suas decisões foi registrada acima em **2026-10-04**. Usar este prompt em **novo pedido de apply**; estar salvo no roadmap não inicia a implementação.
+
+```text
+$openspec-apply-change TFA-005 — preservar-recorrencias-e-subtarefas
+
+Use somente após aprovação humana explícita de proposal/design/seis deltas/tasks desta Change. Trabalhe em C:\QSI\Workspaces\taskflow-app, na codex/tfa-005-preservar-recorrencias-e-subtarefas (base 64fe7adc42b7eb0f4435c02970363f7d6b060e3f). Leia AGENTS.md, docs/roadmap.md, todos os artefatos em openspec/changes/preservar-recorrencias-e-subtarefas e dependências arquivadas TFA-004/003. Preserve o diff preexistente. Extensão e Git em C:\QSI\Workspaces\taskflow-extension apenas leitura, HEAD a763e7a0d646c664ecd4f979528bc2c3589fa8c4; nunca editar/instalar/testar/buildar/alterar Git ali.
+
+Implemente somente as 44 tasks aprovadas, marcando com evidência. Preserve Vue/Pinia/Electron, núcleo estrito portável e main read/decide/commit; copie apenas regras/testes revisados, sem TaskService inteiro/Chrome/scheduler no-op. Mantenha DAILY1–365, WEEKLY únicos0–6, MONTHLY1–31, due obrigatório/until inclusivo contra dueAt, anchorAt??dueAt, calendário local/fase/perdidas puladas, precisão intacta, criação terminal sem geração imediata, regra+prazo com antiga âncora e drift de gap. Limite cálculo a32.768 passos, recuse overflow/excesso sem mudar regra/status/dados.
+
+Fechar DONE/SKIP e gerar próxima TODO na mesma unidade; END não gera; retirar regra conserva status/série; reabrir histórica não recupera regra. Confira portadora única em tasks/trash, CAS e IDs na unidade/plano final, três tentativas por identidade, sem upsert colidente/reparação automática. Próxima copia campos/série/until e renova IDs de subtarefas/OFFSET sem done/processedFor/completedAt/âncora antiga.
+
+Implemente SQL2/editRevision e migração1→2 conforme design: edit=content, payloads intactos, global+1 da migração, bootstrap/reopen/migração atomicamente validados e downgrade recusado. Codec4/backup intactos. Edit/status/toggle usam expectedEditRevision; checks mudam contentRevision/updatedAt conservando edit, claim conserva ambas. Form envia IDs/títulos e recompõe done atual, tolera apenas marcações concorrentes; estrutura/campos/ABA conflitam sem rebase geral. Até20 itens, títulos trim1–200, IDs locais válidos, ordem manual/progresso derivado, toggle por boolean nos quatro status, omit conserva/[] limpa/histórico intacto.
+
+Entregue nove wrappers fechados; estado/eventos e quatro mutações v2, verifyFoundation/openTaskSource v1. Parsers/erros finitos e guards de sessão em admissão/execução/saída; budgets64KiB/8KiB/1KiB/256KiB, sem cortar dados/IDs. Ack pós-commit com global/content/edit e snapshot autoritativo; incerto exige ressync/nova decisão sem replay. Preserve diálogo SKIP/END/abandono, focusout CANCELLED recorrente restaurando sem diálogo/comando, expansão transitória, teclado/busy/foco/erros e revisão de fuso de prazo/limite.
+
+Mantenha guarda D8: com lembretes recuse mudança efetiva de prazo/status ou fechamento/geração; permita independentes/checks/regra sem fechamento e retirada isolada, preservando dados/marcadores. Só contratos/fixtures das primitivas existentes para TFA-006/008: reversão futura por conteúdo completo de anterior/gerada, check/edição da gerada bloqueia e claim não; trash conserva regra/restore não gera; OFFSET novos IDs/settlement/reconcile pós-commit/claim. Não entregar undo/token/histórico/UI/lixeira funcional/notifier/scheduler/backup/import/IA/captura/lifecycle/distribuição ou novas recorrências.
+
+Verifique R01–V01 e cada grupo de tasks com seus testes/documentação, gates existentes e OpenSpec1.14 estrito. Exercite produto/bridge/migração/kill/convergência no Electron empacotado fictício sem Setup/dados reais; meça32.768 passos/varredura/UI com1.000/10.000, Unicode/escaping/IDs históricos. Preserve D10 herdado e reporte falhas sem retirar gate/truncar/virtualizar/instalar worker ou afirmar smoke verde. Mudança material requer revisar artefatos antes de implementar o ponto; continue trabalho independente autorizado.
+
+Ao terminar apply, execute openspec-verify e crie verification.md nesta Change com evidências reais, pendências e rastreabilidade. Atualize roadmap IN_REVIEW/REVIEW e entregue para aprovação explícita antes de archive. Não iniciar archive/commit/push/PR/merge/Setup/distribuição ou outra Change sem pedido correspondente; README final fica para archive autorizado.
+```
+
+### Apply e verificação — 2026-10-04
+
+**Autorização e limites:** novo pedido explícito de apply com o prompt acima. Executadas somente as
+**44 tasks aprovadas**, na branch `codex/tfa-005-preservar-recorrencias-e-subtarefas`, preservando o
+diff preexistente (apenas `tasks.md` e artefatos da Change) e sem tocar a origem
+(`C:\QSI\Workspaces\taskflow-extension`, HEAD `a763e7a0…`, worktree limpo). Sem novas dependências,
+Setup, distribuição, commit/push/PR/merge, archive, README antecipado ou próxima Change.
+
+**Implementação (64 arquivos; +7.440/−1.495):** domínio portável de recorrência/subtarefas com
+limite de 32.768 passos; SQL 2 com `edit_revision` e migração real 1→2; comandos coordenados
+(criação/edição/status/toggle, fechamento DONE/SKIP/END, portadora única, guarda D8, identidades com
+três tentativas); contratos/preload/main v2 com nove wrappers e `setSubtaskDone`; store/formulário/
+cartões com diálogo SKIP/END, focusout excepcional, revisão de fuso de prazo/limite e progresso
+derivado; harness empacotado com cenários `seed-sql1`, `inspect-sql1`, `crash|migrate*`,
+`recurrence` e medições novas. Documentação: domínio, persistência/migração, catálogo v2,
+operacional, paridade, formulário/cartões e evidência de pacote.
+
+**Evidências reais:** `npm run validate` — lint sem warnings, 5 typechecks, **39 arquivos / 596
+testes + 11 skipped**, build ok; `openspec validate --all --strict` **7/7** e `--archived` **4/4**
+(INFO preexistente); `package:win` + `verify:package` OK; `smoke:packaged` com todas as fases novas
+**PASS** (migração/kill antes-durante-depois do commit, bridge 27 verificações, bench com gate
+D10 de mutação/página aprovado, UI de tarefas, `recurrence` 21/21 e `a11y`). O smoke termina com
+código 1 **somente** pelo gate D10 herdado de 10.000 tarefas: após as duas otimizações aprovadas na
+revisão (`v-if` nas subtarefas, −29% de nós; leitura leve de portadora), as interações p95 caíram
+de 783,8 para **661,6 ms**, o heartbeat de 865,6 para **636,1 ms** e a varredura de portadora de
+198,66 para **141,71 ms**; o alvo de 500/250 ms segue retido, sem virtualização ou truncamento. A
+rodada completa sofreu stall externo no `ui-bench` e a medição foi refeita isolada e limpa.
+Detalhes em [verification.md](../openspec/changes/archive/2026-10-04-preservar-recorrencias-e-subtarefas/verification.md)
+e [packaged-evidence-tfa005.md](packaged-evidence-tfa005.md); roteiro humano em
+[a11y-manual-checklist-tfa005.md](a11y-manual-checklist-tfa005.md).
+
+**Pendências para revisão humana:** decidir os números do orçamento de reordenação completa de
+10.000 (proposta: p95 ≤ 700 ms e heartbeat ≤ 700 ms, mantendo montagem ≤ 5 s e cartões completos)
+e do fechamento/varredura (proposta: ≤ 250 ms), ou aprovar Change de janela de renderização;
+executar o roteiro manual de acessibilidade. Setup, instalação corporativa, distribuição e
+notificações/bandeja/atalhos não foram exercitados.
+
+### Archive — 2026-10-04
+
+**Evidência humana:** o usuário determinou textualmente: **“Rode o opsx-verify e não ocorrendo
+nenhum critico ou warning bloqueante, rode o archive. Depois atualize o roadmap, commit, faça o
+push e gere o PR”**. Antes disso, aprovou as duas otimizações de performance e o roteiro manual de
+acessibilidade. O relatório `verification.md` não tem CRITICAL; os três WARNING foram tratados como
+**não bloqueantes** pela decisão do usuário: D10 herdado com números melhorados e proposta de
+orçamento registrada (gate retido, sem virtualização/truncamento), varredura com orçamento próprio
+proposto e prova humana com roteiro entregue para execução.
+
+**Archive:** `openspec archive preservar-recorrencias-e-subtarefas --yes --json` moveu a Change para
+`openspec/changes/archive/2026-10-04-preservar-recorrencias-e-subtarefas` e consolidou as specs:
+**17 requisitos adicionados**, **21 modificados** e **1 renomeado** em `desktop-task-recurrence`
+(nova), `desktop-task-subtasks` (nova), `desktop-task-management`, `desktop-state-ipc`,
+`desktop-foundation` e `local-task-persistence`. `openspec validate --all --strict --no-interactive`:
+**8/8**; `--archived --strict`: **5/5**. README factual, datas e links atualizados neste archive;
+commit **`49eee44`**, push para `origin/codex/tfa-005-preservar-recorrencias-e-subtarefas` e
+**PR #5** abertos pelo pedido explícito do usuário
+([Cadlira/taskflow-app#5](https://github.com/Cadlira/taskflow-app/pull/5)). Estado
+**READY_FOR_MERGE** em **2026-10-04**; a **TFA-006** permanece PLANNED com seu prompt de explore
+próprio.
+
+**Prompt consolidado para o archive (não inicia nada por si):**
+
+```text
+$openspec-archive-change TFA-005 — preservar-recorrencias-e-subtarefas
+
+Somente após aprovação explícita do relatório de verificação desta Change pelo usuário. Trabalhe em C:\QSI\Workspaces\taskflow-app, na branch codex/tfa-005-preservar-recorrencias-e-subtarefas. Leia AGENTS.md, docs/roadmap.md, os artefatos da Change e verification.md. Extensão/Git em C:\QSI\Workspaces\taskflow-extension estritamente somente leitura (HEAD a763e7a0d646c664ecd4f979528bc2c3589fa8c4): nunca editar/instalar/testar/buildar/alterar Git ali.
+
+Arquive a Change na mesma branch somente com o relatório aprovado: consolide as specs, atualize roadmap (DONE), README conforme o item 38 do AGENTS.md, datas e documentação final; rode openspec validate --all --strict e --archived, e os gates finais. Não altere o gate D10, não virtualize nem trunque dados; registre a pendência como decisão pós-archive. Commit/push/PR/merge e qualquer próxima Change (TFA-006) somente com pedido correspondente; sem Setup, instalação corporativa ou distribuição.
 ```
 
 ## TFA-006 — Lixeira e desfazer
@@ -1044,7 +1292,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003** concluiu apply (42/42), verificação aprovada e archive e está integrada pelo PR #3, merge **`d74e02d`** conferido no Git local em 2026-10-04. A **TFA-004** concluiu apply (**41/41**), verificação aprovada por decisão humana e **archive em 2026-10-04** (`openspec/changes/archive/2026-10-04-migrar-gerenciamento-de-tarefas-e-interface`, specs consolidadas 17 added/6 modified), na branch **`codex/tfa-004-migrar-gerenciamento-de-tarefas-e-interface`** (base `d74e02d`), com commit/push/PR autorizados pelo pedido do usuário; estado **DONE** registrado antes da integração por decisão explícita. **Pendência pós-archive documentada:** o orçamento D10 de 10.000 tarefas segue reprovado e retido no smoke (p95 521 ms > 500 ms; heartbeat 579 ms > 250 ms), exigindo revisão formal do orçamento de reordenação completa ou uma Change de janela de renderização — nada foi truncado/virtualizado nem o gate removido; a prova humana de acessibilidade (leitor de tela/DPI) fica para a TFA-012. A **TFA-005** está **READY_FOR_EXPLORE** e não deve ser iniciada sem pedido explícito. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
+A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003**, pelo PR #3 (`d74e02d`). A **TFA-004** concluiu apply (**41/41**), verificação aprovada e archive em 2026-10-04, e está integrada pelo **PR #4**, merge **`64fe7adc42b7eb0f4435c02970363f7d6b060e3f`**, conferido na `main` e referência local `origin/main` na exploração. **Pendência pós-archive documentada:** D10 de 10.000 segue reprovado, com melhora após as otimizações da TFA-005 (interações p95 661,6 ms > 500 ms; heartbeat 636,1 ms > 250 ms; histórico 521,5/578,9), gate retido, sem virtualização ou truncamento; a decisão dos números do orçamento (proposta p95/heartbeat ≤ 700 ms e fechamento ≤ 250 ms) ou uma Change de janela de renderização fica registrada para revisão própria. Prova humana de acessibilidade tem roteiro entregue e execução pendente (TFA-012 se não ocorrer agora). A **TFA-005** está **READY_FOR_MERGE**, arquivada em **2026-10-04** com **44/44 tasks**, verificação aprovada pelo usuário e specs consolidadas; branch **`codex/tfa-005-preservar-recorrencias-e-subtarefas`**, commit **`49eee44`**, push feito e **PR #5** aberto aguardando integração. A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 

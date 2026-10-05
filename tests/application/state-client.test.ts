@@ -62,13 +62,13 @@ class FakeMain {
 
   emitChanged(revision: bigint, subscriptionId = SUBSCRIPTION): void {
     for (const listener of this.listeners.get(STATE_CHANGED_EVENT) ?? []) {
-      listener({ version: 1, subscriptionId, revision: revision.toString() })
+      listener({ version: 2, subscriptionId, revision: revision.toString() })
     }
   }
 
   emitUnavailable(code: StateErrorCode): void {
     for (const listener of this.listeners.get(STATE_UNAVAILABLE_EVENT) ?? []) {
-      listener({ version: 1, subscriptionId: SUBSCRIPTION, code })
+      listener({ version: 2, subscriptionId: SUBSCRIPTION, code })
     }
   }
 
@@ -79,7 +79,7 @@ class FakeMain {
   #respond(channel: string, request: unknown): unknown {
     if (channel === STATE_UNSUBSCRIBE_CHANNEL) {
       this.subscribed = false
-      return { version: 1, status: 'ok' }
+      return { version: 2, status: 'ok' }
     }
 
     const cursor = (request as { cursor?: string }).cursor
@@ -98,7 +98,7 @@ class FakeMain {
         *records(collection: SnapshotCollection, afterId: string | undefined): Generator<SerializedRecord> {
           if (collection !== 'tasks') return
           for (const task of tasks) {
-            if (afterId === undefined || task.id > afterId) yield serializeTaskRecord({ task, contentRevision: 1n })
+            if (afterId === undefined || task.id > afterId) yield serializeTaskRecord({ task, contentRevision: 1n, editRevision: 1n })
           }
         },
       },
@@ -120,9 +120,9 @@ class FakeMain {
 
     if (channel === STATE_SUBSCRIBE_CHANNEL) {
       this.subscribed = true
-      return { version: 1, status: 'ok', subscriptionId: SUBSCRIPTION, page }
+      return { version: 2, status: 'ok', subscriptionId: SUBSCRIPTION, page }
     }
-    return { version: 1, status: 'ok', page }
+    return { version: 2, status: 'ok', page }
   }
 }
 
@@ -176,14 +176,16 @@ function snapshotRevisions(updates: StateUpdate[]): string[] {
 }
 
 describe('getStateSnapshot', () => {
-  it('reúne todas as páginas numa única revisão', async () => {
+  it('reúne todas as páginas numa única revisão, com as duas revisões em cada registro', async () => {
     const { main, client } = createHarness()
-    const result = await client.getStateSnapshot({ version: 1 })
+    const result = await client.getStateSnapshot({ version: 2 })
 
     if (result.status !== 'ok') throw new Error(result.code)
     expect(main.count(STATE_SNAPSHOT_CHANNEL)).toBeGreaterThan(1)
     expect(result.snapshot.revision).toBe('5')
     expect(result.snapshot.tasks.map((record) => record.task)).toEqual(main.tasks)
+    expect(result.snapshot.tasks.every((record) => record.contentRevision === '1' && record.editRevision === '1')).toBe(true)
+    expect(main.invocations.every((invocation) => (invocation.request as { version: number }).version === 2)).toBe(true)
   })
 
   it('commit entre páginas: descarta a montagem parcial e reconstrói, sem snapshot misto', async () => {
@@ -193,7 +195,7 @@ describe('getStateSnapshot', () => {
       if (count === 2 && (request as { cursor?: string }).cursor !== undefined) main.commit()
       return undefined
     }
-    const result = await client.getStateSnapshot({ version: 1 })
+    const result = await client.getStateSnapshot({ version: 2 })
 
     if (result.status !== 'ok') throw new Error(result.code)
     expect(result.snapshot.revision).toBe('6')
@@ -203,7 +205,7 @@ describe('getStateSnapshot', () => {
   it('escritas contínuas: após três reconstruções devolve BUSY e conserva o último snapshot completo', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    const subscribed = await client.subscribeState({ version: 1 }, harness.listener)
+    const subscribed = await client.subscribeState({ version: 2 }, harness.listener)
     if (subscribed.status !== 'ok') throw new Error(subscribed.code)
     const before = main.count(STATE_SNAPSHOT_CHANNEL)
 
@@ -211,9 +213,9 @@ describe('getStateSnapshot', () => {
       if ((request as { cursor?: string }).cursor !== undefined) main.commit()
       return undefined
     }
-    const busy = await client.getStateSnapshot({ version: 1 })
+    const busy = await client.getStateSnapshot({ version: 2 })
 
-    expect(busy).toEqual({ version: 1, status: 'error', code: 'BUSY' })
+    expect(busy).toEqual({ version: 2, status: 'error', code: 'BUSY' })
     // Três primeiras páginas e três continuações recusadas: sem loop.
     expect(main.count(STATE_SNAPSHOT_CHANNEL) - before).toBe(6)
     expect(harness.updates.at(-1)).toEqual({ type: 'stale', code: 'BUSY' })
@@ -221,19 +223,24 @@ describe('getStateSnapshot', () => {
 
     // Novo ciclo numa solicitação posterior, quando o churn para.
     main.intercept = undefined
-    const recovered = await client.getStateSnapshot({ version: 1 })
+    const recovered = await client.getStateSnapshot({ version: 2 })
     expect(recovered.status === 'ok' && recovered.snapshot.revision).toBe(main.revision.toString())
     expect(snapshotRevisions(harness.updates).at(-1)).toBe(main.revision.toString())
   })
 
-  it('request inválido é recusado sem usar o transporte', async () => {
+  it('request inválido (inclusive v1) é recusado sem usar o transporte', async () => {
     const { main, client } = createHarness()
-    for (const request of [{ version: 2 }, { version: 1, extra: true }, null, { version: 1, cursor: 'x'.repeat(32) }]) {
-      expect(await client.getStateSnapshot(request)).toEqual({ version: 1, status: 'error', code: 'INVALID_REQUEST' })
+    for (const request of [{ version: 1 }, { version: 3 }, { version: 2, extra: true }, null, { version: 2, cursor: 'x'.repeat(32) }]) {
+      expect(await client.getStateSnapshot(request)).toEqual({ version: 2, status: 'error', code: 'INVALID_REQUEST' })
     }
-    expect(await client.subscribeState({ version: 1 }, 'callback')).toEqual({ version: 1, status: 'error', code: 'INVALID_REQUEST' })
+    expect(await client.subscribeState({ version: 1 }, 'callback')).toEqual({ version: 2, status: 'error', code: 'INVALID_REQUEST' })
     expect(await client.unsubscribeState({ version: 1, subscriptionId: '../x' })).toEqual({
-      version: 1,
+      version: 2,
+      status: 'error',
+      code: 'INVALID_REQUEST',
+    })
+    expect(await client.unsubscribeState({ version: 2, subscriptionId: '../x' })).toEqual({
+      version: 2,
       status: 'error',
       code: 'INVALID_REQUEST',
     })
@@ -243,22 +250,23 @@ describe('getStateSnapshot', () => {
   it('erro do main e transporte rejeitado viram código seguro, nunca coleção vazia', async () => {
     const { main, client } = createHarness()
     main.intercept = () => stateFailure('CORRUPTED_DATA')
-    expect(await client.getStateSnapshot({ version: 1 })).toEqual({ version: 1, status: 'error', code: 'CORRUPTED_DATA' })
+    expect(await client.getStateSnapshot({ version: 2 })).toEqual({ version: 2, status: 'error', code: 'CORRUPTED_DATA' })
 
     main.intercept = () => {
       throw new Error('C:\\Users\\x\\taskflow.sqlite: SQLITE_IOERR')
     }
-    const rejected = await client.getStateSnapshot({ version: 1 })
-    expect(rejected).toEqual({ version: 1, status: 'error', code: 'STORAGE_UNAVAILABLE' })
+    const rejected = await client.getStateSnapshot({ version: 2 })
+    expect(rejected).toEqual({ version: 2, status: 'error', code: 'STORAGE_UNAVAILABLE' })
     expect(JSON.stringify(rejected)).not.toContain('sqlite')
   })
 
   it.each([
     ['resposta sem envelope', { tasks: [] }],
-    ['erro com stack', { version: 1, status: 'error', code: 'BUSY', stack: 'Error at C:\\x' }],
+    ['erro com stack', { version: 2, status: 'error', code: 'BUSY', stack: 'Error at C:\\x' }],
+    ['erro v1 antigo', { version: 1, status: 'error', code: 'BUSY' }],
     ['instância de Error', new Error('boom')],
-    ['página com tarefa inválida', {
-      version: 1,
+    ['página com tarefa sem editRevision', {
+      version: 2,
       status: 'ok',
       page: { revision: '5', fragments: [{ collection: 'tasks', data: '{"task":{"id":"a"},"contentRevision":"1"}', final: true }], complete: { tasks: 1, trash: 0 } },
     }],
@@ -266,7 +274,7 @@ describe('getStateSnapshot', () => {
   ])('saída malformada do main (%s) é recusada sem expor detalhes', async (_label, response) => {
     const { main, client } = createHarness()
     main.intercept = () => response ?? null
-    expect(await client.getStateSnapshot({ version: 1 })).toEqual({ version: 1, status: 'error', code: 'STORAGE_UNAVAILABLE' })
+    expect(await client.getStateSnapshot({ version: 2 })).toEqual({ version: 2, status: 'error', code: 'STORAGE_UNAVAILABLE' })
   })
 
   it('montagens do mesmo documento são serializadas', async () => {
@@ -279,9 +287,9 @@ describe('getStateSnapshot', () => {
       return undefined
     }
     const results = await Promise.all([
-      client.getStateSnapshot({ version: 1 }).finally(() => (active -= 1)),
-      client.getStateSnapshot({ version: 1 }).finally(() => (active -= 1)),
-      client.getStateSnapshot({ version: 1 }).finally(() => (active -= 1)),
+      client.getStateSnapshot({ version: 2 }).finally(() => (active -= 1)),
+      client.getStateSnapshot({ version: 2 }).finally(() => (active -= 1)),
+      client.getStateSnapshot({ version: 2 }).finally(() => (active -= 1)),
     ])
 
     expect(results.every((result) => result.status === 'ok')).toBe(true)
@@ -298,8 +306,8 @@ describe('subscribeState', () => {
     expect(main.listeners.get(STATE_CHANGED_EVENT)).toHaveLength(1)
     expect(main.listeners.get(STATE_UNAVAILABLE_EVENT)).toHaveLength(1)
 
-    const first = await client.subscribeState({ version: 1 }, harness.listener)
-    const second = await client.subscribeState({ version: 1 }, harness.listener)
+    const first = await client.subscribeState({ version: 2 }, harness.listener)
+    const second = await client.subscribeState({ version: 2 }, harness.listener)
     expect(first.status === 'ok' && second.status === 'ok' && first.subscriptionId === second.subscriptionId).toBe(true)
     expect(main.listeners.get(STATE_CHANGED_EVENT)).toHaveLength(1)
     expect(harness.timers).toBe(1)
@@ -312,9 +320,9 @@ describe('subscribeState', () => {
 
   it('o callback local nunca é enviado ao main', async () => {
     const harness = createHarness()
-    await harness.client.subscribeState({ version: 1 }, harness.listener)
+    await harness.client.subscribeState({ version: 2 }, harness.listener)
 
-    expect(harness.main.invocations[0]).toEqual({ channel: STATE_SUBSCRIBE_CHANNEL, request: { version: 1 } })
+    expect(harness.main.invocations[0]).toEqual({ channel: STATE_SUBSCRIBE_CHANNEL, request: { version: 2 } })
     for (const invocation of harness.main.invocations) {
       expect(JSON.stringify(invocation.request)).not.toContain('listener')
       expect(Object.values(invocation.request as object).some((value) => typeof value === 'function')).toBe(false)
@@ -327,14 +335,14 @@ describe('subscribeState', () => {
     main.intercept = (channel) => {
       if (channel === STATE_SUBSCRIBE_CHANNEL && main.revision === 5n) {
         // O evento do commit chega antes da resposta do subscribe.
-        const response = { version: 1, status: 'ok', subscriptionId: SUBSCRIPTION, page: { revision: '5', fragments: [], complete: { tasks: 0, trash: 0 } } }
+        const response = { version: 2, status: 'ok', subscriptionId: SUBSCRIPTION, page: { revision: '5', fragments: [], complete: { tasks: 0, trash: 0 } } }
         main.emitChanged(main.commit())
         return response
       }
       return undefined
     }
 
-    const subscribed = await client.subscribeState({ version: 1 }, harness.listener)
+    const subscribed = await client.subscribeState({ version: 2 }, harness.listener)
     await harness.settle()
 
     expect(subscribed.status === 'ok' && subscribed.snapshot.revision).toBe('5')
@@ -350,7 +358,7 @@ describe('subscribeState', () => {
       return undefined
     }
 
-    const subscribed = await client.subscribeState({ version: 1 }, harness.listener)
+    const subscribed = await client.subscribeState({ version: 2 }, harness.listener)
     await harness.settle()
 
     expect(subscribed.status === 'ok' && subscribed.snapshot.revision).toBe('6')
@@ -360,13 +368,13 @@ describe('subscribeState', () => {
   it('resposta antiga depois de evento não substitui o estado novo', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
     main.emitChanged(main.commit())
     await harness.settle()
 
     // Uma resposta atrasada, de revisão anterior, chega depois.
-    main.intercept = () => ({ version: 1, status: 'ok', page: { revision: '5', fragments: [], complete: { tasks: 0, trash: 0 } } })
-    const late = await client.getStateSnapshot({ version: 1 })
+    main.intercept = () => ({ version: 2, status: 'ok', page: { revision: '5', fragments: [], complete: { tasks: 0, trash: 0 } } })
+    const late = await client.getStateSnapshot({ version: 2 })
 
     expect(late.status === 'ok' && late.snapshot.revision).toBe('6')
     expect(late.status === 'ok' && late.snapshot.tasks).toHaveLength(6)
@@ -376,7 +384,7 @@ describe('subscribeState', () => {
   it('múltiplos commits coalescem: só a maior revisão orienta a ressincronização', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
     const before = main.count(STATE_SNAPSHOT_CHANNEL)
 
     main.emitChanged(main.commit())
@@ -389,10 +397,10 @@ describe('subscribeState', () => {
     expect(main.count(STATE_SNAPSHOT_CHANNEL) - before).toBeLessThanOrEqual(8)
   })
 
-  it('eventos antigos, repetidos, fora de ordem ou de outra inscrição não regridem nem disparam leitura', async () => {
+  it('eventos antigos, de versão errada, repetidos ou de outra inscrição não regridem nem disparam leitura', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
     main.emitChanged(main.commit())
     await harness.settle()
     const invocations = main.invocations.length
@@ -402,7 +410,9 @@ describe('subscribeState', () => {
     main.emitChanged(5n)
     main.emitChanged(99n, 'X'.repeat(32))
     for (const listener of main.listeners.get(STATE_CHANGED_EVENT) ?? []) {
-      listener({ version: 1, subscriptionId: SUBSCRIPTION, revision: '7', tasks: [{ id: 'patch' }] })
+      listener({ version: 1, subscriptionId: SUBSCRIPTION, revision: '7' })
+      listener({ version: 3, subscriptionId: SUBSCRIPTION, revision: '7' })
+      listener({ version: 2, subscriptionId: SUBSCRIPTION, revision: '7', tasks: [{ id: 'patch' }] })
       listener('state changed')
     }
     await harness.settle()
@@ -414,7 +424,7 @@ describe('subscribeState', () => {
   it('salto de revisão ressincroniza por snapshot, sem inferir patches', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
     main.commit()
     main.commit()
     main.commit()
@@ -427,7 +437,7 @@ describe('subscribeState', () => {
   it('evento perdido sem salto: reconciliação a cada 30 s e no foco obtém o snapshot atual', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
 
     main.commit()
     harness.tick()
@@ -448,7 +458,7 @@ describe('subscribeState', () => {
   it('indisponibilidade marca o último snapshot como stale e a volta ressincroniza', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
 
     main.emitUnavailable('STORAGE_UNAVAILABLE')
     expect(harness.updates.at(-1)).toEqual({ type: 'stale', code: 'STORAGE_UNAVAILABLE' })
@@ -463,7 +473,7 @@ describe('subscribeState', () => {
   it('erro durante a ressincronização conserva o último snapshot e reporta o código', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
 
     main.intercept = () => stateFailure('STORAGE_UNAVAILABLE')
     main.emitChanged(main.commit())
@@ -487,9 +497,9 @@ describe('subscribeState', () => {
       return undefined
     }
 
-    const result = await client.subscribeState({ version: 1 }, harness.listener)
+    const result = await client.subscribeState({ version: 2 }, harness.listener)
 
-    expect(result).toEqual({ version: 1, status: 'error', code: 'CORRUPTED_DATA' })
+    expect(result).toEqual({ version: 2, status: 'error', code: 'CORRUPTED_DATA' })
     expect(main.count(STATE_UNSUBSCRIBE_CHANNEL)).toBe(1)
     expect(main.subscribed).toBe(false)
     expect(harness.timers).toBe(0)
@@ -500,12 +510,12 @@ describe('unsubscribeState e limpeza', () => {
   it('cancelamento próprio é idempotente e encerra reconciliação e entregas', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    const subscribed = await client.subscribeState({ version: 1 }, harness.listener)
+    const subscribed = await client.subscribeState({ version: 2 }, harness.listener)
     if (subscribed.status !== 'ok') throw new Error(subscribed.code)
-    const request = { version: 1, subscriptionId: subscribed.subscriptionId }
+    const request = { version: 2, subscriptionId: subscribed.subscriptionId }
 
-    expect(await client.unsubscribeState(request)).toEqual({ version: 1, status: 'ok' })
-    expect(await client.unsubscribeState(request)).toEqual({ version: 1, status: 'ok' })
+    expect(await client.unsubscribeState(request)).toEqual({ version: 2, status: 'ok' })
+    expect(await client.unsubscribeState(request)).toEqual({ version: 2, status: 'ok' })
     expect(harness.timers).toBe(0)
 
     const invocations = main.invocations.length
@@ -520,11 +530,11 @@ describe('unsubscribeState e limpeza', () => {
   it('recusa do main (token de outra sessão) não encerra a inscrição própria', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
     main.intercept = (channel) => (channel === STATE_UNSUBSCRIBE_CHANNEL ? stateFailure('UNAUTHORIZED') : undefined)
 
-    expect(await client.unsubscribeState({ version: 1, subscriptionId: 'O'.repeat(32) })).toEqual({
-      version: 1,
+    expect(await client.unsubscribeState({ version: 2, subscriptionId: 'O'.repeat(32) })).toEqual({
+      version: 2,
       status: 'error',
       code: 'UNAUTHORIZED',
     })
@@ -537,7 +547,7 @@ describe('unsubscribeState e limpeza', () => {
   it('dispose remove os listeners fixos e ignora eventos posteriores', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
 
     client.dispose()
     expect(main.listeners.get(STATE_CHANGED_EVENT)).toHaveLength(0)
@@ -548,10 +558,10 @@ describe('unsubscribeState e limpeza', () => {
   it('falha de um callback local não afeta o estado nem os demais', async () => {
     const harness = createHarness()
     const { main, client } = harness
-    await client.subscribeState({ version: 1 }, () => {
+    await client.subscribeState({ version: 2 }, () => {
       throw new Error('fixture: callback failed')
     })
-    await client.subscribeState({ version: 1 }, harness.listener)
+    await client.subscribeState({ version: 2 }, harness.listener)
 
     main.emitChanged(main.commit())
     await harness.settle()

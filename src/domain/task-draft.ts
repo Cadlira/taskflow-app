@@ -1,10 +1,26 @@
 // Regras básicas revisadas de taskflow-extension@a763e7a src/domain/task-draft.ts (MIT, mesmo autor).
 // Mantidos: limites, trim de textos, tags distintas sem diferenciar caixa, defaults TODO/MEDIUM e
-// validação HTTP/HTTPS. Não entram lembretes, recorrência, subtarefas, IA nem o `updateTask`
-// integral da origem (que limpa `reminders`/`recurrence` omitidos).
-import { isTaskPriority, isTaskStatus, type Task, type TaskPriority, type TaskStatus } from './task.js'
+// validação HTTP/HTTPS. Ampliado na TFA-005 com regra de recorrência (até inclusivo contra
+// dueAt combinado, âncora preservada) e lista de subtarefas id/título, sem lembretes, IA ou
+// campos de autoridade.
+import { isTaskPriority, isTaskStatus, type IdGenerator, type Task, type TaskPriority, type TaskStatus } from './task.js'
 import { isRepresentableInstant } from './task-reminders.js'
+import {
+  isRecurrence,
+  isRecurrenceFrequency,
+  isSameRecurrence,
+  RECURRENCE_LIMITS,
+  type Recurrence,
+  type RecurrenceFrequency,
+} from './task-recurrence.js'
 import { applyStatus } from './task-status.js'
+import {
+  isSameSubtaskList,
+  resolveSubtaskDrafts,
+  type Subtask,
+  type SubtaskDraft,
+  type SubtaskListErrors,
+} from './task-subtasks.js'
 import { parseUrl } from './url.js'
 
 export const TASK_LIMITS = {
@@ -41,6 +57,45 @@ export const BASIC_FIELD_ERROR_CODES = [
 export type BasicFieldErrorCode = (typeof BASIC_FIELD_ERROR_CODES)[number]
 export type BasicFieldErrors = Partial<Record<BasicTaskField, BasicFieldErrorCode>>
 
+/** Códigos avançados acrescentados pela TFA-005; forma finita por campo/índice. */
+export const ADVANCED_FIELD_ERROR_CODES = [
+  'REQUIRED',
+  'INVALID_VALUE',
+  'TOO_LONG',
+  'TOO_MANY',
+  'DUPLICATE_ID',
+  'UNKNOWN_ID',
+  'DUE_REQUIRED',
+  'UNTIL_BEFORE_DUE',
+  'ABSOLUTE_REMINDER_INCOMPATIBLE',
+] as const
+
+export type AdvancedFieldErrorCode = (typeof ADVANCED_FIELD_ERROR_CODES)[number]
+export type TaskFieldErrorCode = BasicFieldErrorCode | AdvancedFieldErrorCode
+
+export const RECURRENCE_FIELDS = ['frequency', 'intervalDays', 'weekdays', 'dayOfMonth', 'until'] as const
+export type RecurrenceField = (typeof RECURRENCE_FIELDS)[number]
+export type RecurrenceFieldErrors = Partial<Record<RecurrenceField, AdvancedFieldErrorCode>>
+
+/**
+ * Erros de validação dos comandos: os nove campos básicos e, em forma finita, a regra de
+ * recorrência (`recurrence.frequency/…`) e a lista de subtarefas (`subtasks.list` e itens por
+ * índice/título/id). Nenhuma mensagem arbitrária ou chave recebida é refletida.
+ */
+export interface TaskFieldErrors {
+  title?: TaskFieldErrorCode
+  description?: TaskFieldErrorCode
+  requester?: TaskFieldErrorCode
+  assignee?: TaskFieldErrorCode
+  status?: TaskFieldErrorCode
+  priority?: TaskFieldErrorCode
+  dueAt?: TaskFieldErrorCode
+  tags?: TaskFieldErrorCode
+  sourceUrl?: TaskFieldErrorCode
+  recurrence?: RecurrenceFieldErrors
+  subtasks?: SubtaskListErrors
+}
+
 /** Entrada de criação tipada; o contrato de transporte já garantiu os tipos primitivos. */
 export interface BasicTaskDraft {
   title: string
@@ -68,6 +123,29 @@ export interface BasicTaskPatch {
   dueAt?: string | null
   tags?: readonly string[]
   sourceUrl?: string | null
+}
+
+/** Regra informada pelo formulário; a âncora e a série não são entradas do cliente. */
+export interface TaskRecurrenceDraft {
+  frequency: RecurrenceFrequency
+  intervalDays?: number
+  weekdays?: readonly number[]
+  dayOfMonth?: number
+  /** Limite ISO: omitido conserva existente (edição), `null` retira e string altera. */
+  until?: string | null
+}
+
+/** Draft de criação: básicos + regra opcional (sem âncora) + títulos ordenados. */
+export interface CreateTaskDraft extends BasicTaskDraft {
+  recurrence?: TaskRecurrenceDraft
+  /** Criação aceita somente título; IDs vêm da autoridade. */
+  subtasks?: readonly SubtaskDraft[]
+}
+
+/** Patch de edição: básicos + regra (`null` retira) + lista id/título (ausente conserva, [] limpa). */
+export interface EditTaskPatch extends BasicTaskPatch {
+  recurrence?: TaskRecurrenceDraft | null
+  subtasks?: readonly SubtaskDraft[]
 }
 
 export interface NormalizedBasicDraft {
@@ -374,4 +452,303 @@ export function planBasicPatch(current: Task, patch: BasicTaskPatch, now: Date):
   }
 
   return { ok: true, next: { ...edited, updatedAt: now.toISOString() } }
+}
+
+// ---- TFA-005: regra de recorrência e subtarefas na criação/edição ----
+
+function stripAnchor(rule: Recurrence): Recurrence {
+  if (rule.anchorAt === undefined) return rule
+  const until = rule.until === undefined ? {} : { until: rule.until }
+
+  if (rule.frequency === 'DAILY') return { ...until, frequency: 'DAILY', intervalDays: rule.intervalDays }
+  if (rule.frequency === 'WEEKLY') return { ...until, frequency: 'WEEKLY', weekdays: [...rule.weekdays] }
+  return { ...until, frequency: 'MONTHLY', dayOfMonth: rule.dayOfMonth }
+}
+
+/**
+ * Valida e normaliza a regra informada. O prazo combinado é obrigatório (`DUE_REQUIRED`), o
+ * limite precisa ser igual ou posterior a ele (`UNTIL_BEFORE_DUE`) e parâmetros de frequência
+ * alheia ou fora dos limites são recusados com erro no campo. `until` omitido conserva o limite
+ * anterior informado; `null` retira; string normaliza o ISO oferecido.
+ */
+function normalizeRecurrenceDraft(
+  draft: TaskRecurrenceDraft,
+  dueAt: string | undefined,
+  previousUntil: string | undefined,
+  hasPreviousRule: boolean,
+  fields: TaskFieldErrors,
+): Recurrence | undefined {
+  const recurrenceFields: RecurrenceFieldErrors = {}
+
+  let until: string | undefined
+  if ('until' in draft) {
+    const raw = draft.until
+    if (raw === null) {
+      // Criação não tem limite a retirar; ali o formulário omite a chave.
+      if (!hasPreviousRule) recurrenceFields.until = 'INVALID_VALUE'
+      until = undefined
+    } else if (typeof raw === 'string') {
+      const normalized = normalizeInstant(raw)
+      if (normalized === undefined) recurrenceFields.until = 'INVALID_VALUE'
+      else until = normalized
+    } else {
+      recurrenceFields.until = 'INVALID_VALUE'
+    }
+  } else {
+    until = previousUntil
+  }
+
+  const base = until === undefined ? {} : { until }
+  let rule: Recurrence | undefined
+
+  // Parâmetros de frequência alheia nunca moldam a regra: defensivamente, a presença de uma
+  // chave de outra frequência invalida a regra (o parser já recusa a forma antes de ler dados).
+  const alienParam =
+    isRecurrenceFrequency(draft.frequency) &&
+    Object.keys(draft).some(
+      (key) =>
+        key !== 'frequency' &&
+        key !== 'until' &&
+        !(draft.frequency === 'DAILY' && key === 'intervalDays') &&
+        !(draft.frequency === 'WEEKLY' && key === 'weekdays') &&
+        !(draft.frequency === 'MONTHLY' && key === 'dayOfMonth'),
+    )
+
+  if (!isRecurrenceFrequency(draft.frequency)) {
+    recurrenceFields.frequency = draft.frequency === undefined ? 'REQUIRED' : 'INVALID_VALUE'
+  } else if (alienParam) {
+    recurrenceFields.frequency = 'INVALID_VALUE'
+  } else if (draft.frequency === 'DAILY') {
+    const intervalDays = draft.intervalDays
+    if (intervalDays === undefined) {
+      recurrenceFields.intervalDays = 'REQUIRED'
+    } else if (
+      typeof intervalDays !== 'number' ||
+      !Number.isSafeInteger(intervalDays) ||
+      intervalDays < RECURRENCE_LIMITS.intervalDaysMin ||
+      intervalDays > RECURRENCE_LIMITS.intervalDaysMax
+    ) {
+      recurrenceFields.intervalDays = 'INVALID_VALUE'
+    } else {
+      rule = { ...base, frequency: 'DAILY', intervalDays }
+    }
+  } else if (draft.frequency === 'WEEKLY') {
+    const weekdays = draft.weekdays
+    if (weekdays === undefined) {
+      recurrenceFields.weekdays = 'REQUIRED'
+    } else if (
+      !Array.isArray(weekdays) ||
+      weekdays.length < RECURRENCE_LIMITS.weekdaysMin ||
+      weekdays.length > RECURRENCE_LIMITS.weekdaysMax
+    ) {
+      recurrenceFields.weekdays = 'INVALID_VALUE'
+    } else {
+      const seen = new Set<number>()
+      let valid = true
+      for (const weekday of weekdays) {
+        if (typeof weekday !== 'number' || !Number.isSafeInteger(weekday) || weekday < 0 || weekday > 6 || seen.has(weekday)) {
+          valid = false
+          break
+        }
+        seen.add(weekday)
+      }
+      if (!valid) recurrenceFields.weekdays = 'INVALID_VALUE'
+      else rule = { ...base, frequency: 'WEEKLY', weekdays: [...weekdays] }
+    }
+  } else {
+    const dayOfMonth = draft.dayOfMonth
+    if (dayOfMonth === undefined) {
+      recurrenceFields.dayOfMonth = 'REQUIRED'
+    } else if (
+      typeof dayOfMonth !== 'number' ||
+      !Number.isSafeInteger(dayOfMonth) ||
+      dayOfMonth < RECURRENCE_LIMITS.dayOfMonthMin ||
+      dayOfMonth > RECURRENCE_LIMITS.dayOfMonthMax
+    ) {
+      recurrenceFields.dayOfMonth = 'INVALID_VALUE'
+    } else {
+      rule = { ...base, frequency: 'MONTHLY', dayOfMonth }
+    }
+  }
+
+  if (dueAt === undefined) {
+    fields.dueAt = 'DUE_REQUIRED'
+    rule = undefined
+  } else if (until !== undefined && Date.parse(until) < Date.parse(dueAt)) {
+    recurrenceFields.until = 'UNTIL_BEFORE_DUE'
+    rule = undefined
+  }
+
+  if (Object.keys(recurrenceFields).length > 0) {
+    fields.recurrence = { ...(fields.recurrence ?? {}), ...recurrenceFields }
+  }
+
+  return rule !== undefined && isRecurrence(rule) ? rule : undefined
+}
+
+export interface CreateTaskContext {
+  now: Date
+  /** Identidade da tarefa alocada pelo proprietário. */
+  id: string
+  /** Identidade da série alocada pelo proprietário; obrigatória quando há regra. */
+  seriesId?: string
+  generateId: IdGenerator
+}
+
+export type CreateTaskPlan =
+  | { ok: true; task: Task }
+  | { ok: false; kind: 'validation'; fields: TaskFieldErrors }
+  | { ok: false; kind: 'identity' }
+
+/**
+ * Cria a tarefa a partir do draft validado: identidade/relógio do proprietário, regra sem âncora
+ * antiga (criação não tem anterior), série fornecida pelo proprietário e subtarefas com IDs novos
+ * desmarcados. Criação terminal com regra persiste sem gerar imediatamente.
+ */
+export function buildCreateTask(draft: CreateTaskDraft, context: CreateTaskContext): CreateTaskPlan {
+  const basic = validateBasicDraft(draft)
+  if (!basic.ok) return { ok: false, kind: 'validation', fields: basic.fields }
+
+  const fields: TaskFieldErrors = {}
+  let recurrence: Recurrence | undefined
+
+  if (draft.recurrence !== undefined) {
+    recurrence = normalizeRecurrenceDraft(draft.recurrence, basic.value.dueAt, undefined, false, fields)
+  }
+
+  let subtasks: Subtask[] = []
+  if (draft.subtasks !== undefined) {
+    const resolution = resolveSubtaskDrafts(draft.subtasks, [], context.generateId, 'create')
+    if (!resolution.ok) {
+      if (resolution.kind === 'identity') return { ok: false, kind: 'identity' }
+      fields.subtasks = resolution.errors
+    } else {
+      subtasks = resolution.subtasks
+    }
+  }
+
+  if (Object.keys(fields).length > 0) return { ok: false, kind: 'validation', fields }
+
+  if (recurrence !== undefined && (context.seriesId === undefined || context.seriesId === '')) {
+    return { ok: false, kind: 'identity' }
+  }
+
+  const created = createBasicTask(basic.value, { now: context.now, id: context.id })
+
+  return {
+    ok: true,
+    task: {
+      ...created,
+      subtasks,
+      ...(recurrence !== undefined && context.seriesId !== undefined && { seriesId: context.seriesId, recurrence }),
+    },
+  }
+}
+
+export interface UpdateTaskContext {
+  now: Date
+  generateId: IdGenerator
+  /** Série nova alocada pelo proprietário quando a regra é adicionada a tarefa sem série. */
+  newSeriesId?: string
+}
+
+export type TaskUpdatePlan =
+  | { ok: true; next: Task | undefined }
+  | { ok: false; kind: 'validation'; fields: TaskFieldErrors }
+  | { ok: false; kind: 'identity' }
+
+/**
+ * Planeja o patch completo sobre a tarefa atual (básicos + regra + subtarefas + status):
+ *
+ * - regra omitida conserva (inclusive âncora); `null` retira conservando status/seriesId; objeto
+ *   valida parâmetros e `until` contra o prazo combinado;
+ * - ao mudar prazo/regra de portadora existente, a âncora é a antiga `anchorAt ?? dueAt`,
+ *   permanecendo enquanto divergir do novo prazo e desaparecendo ao retornar ao mesmo ISO;
+ *   regra nova sem anterior não recebe âncora e série histórica é mantida;
+ * - subtarefas ausentes conservam; [] limpam; itens com ID existente preservam a marcação atual;
+ * - atributo absoluto (`AT`) da tarefa impede adicionar/alterar regra nela.
+ */
+export function planTaskUpdate(current: Task, patch: EditTaskPatch, context: UpdateTaskContext): TaskUpdatePlan {
+  const basic = planBasicPatch(current, patch, context.now)
+  if (!basic.ok) return { ok: false, kind: 'validation', fields: basic.fields }
+
+  let working = basic.next ?? current
+  let changed = basic.next !== undefined
+  const fields: TaskFieldErrors = {}
+  const hadRule = current.recurrence !== undefined
+
+  let rule = current.recurrence
+  let ruleSent = false
+
+  if ('recurrence' in patch) {
+    if (patch.recurrence === null) {
+      rule = undefined
+      ruleSent = true
+    } else if (patch.recurrence !== undefined) {
+      ruleSent = true
+      rule = normalizeRecurrenceDraft(
+        patch.recurrence,
+        working.dueAt,
+        current.recurrence?.until,
+        hadRule,
+        fields,
+      )
+      if (rule !== undefined && current.reminders.some((reminder) => reminder.type === 'AT')) {
+        fields.recurrence = { ...(fields.recurrence ?? {}), frequency: 'ABSOLUTE_REMINDER_INCOMPATIBLE' }
+      }
+    }
+  }
+
+  if (Object.keys(fields).length > 0) return { ok: false, kind: 'validation', fields }
+
+  if (rule !== undefined && working.dueAt === undefined) {
+    return { ok: false, kind: 'validation', fields: { dueAt: 'DUE_REQUIRED' } }
+  }
+
+  const dueChanged = working.dueAt !== current.dueAt
+  const ruleChanged = !isSameRecurrence(rule, current.recurrence)
+
+  if (rule !== undefined && hadRule && (dueChanged || ruleChanged)) {
+    const base = current.recurrence?.anchorAt ?? current.dueAt
+    if (base !== undefined && base !== working.dueAt) {
+      rule = { ...rule, anchorAt: base }
+    } else {
+      rule = stripAnchor(rule)
+    }
+  }
+
+  if (!isSameRecurrence(rule, current.recurrence)) changed = true
+
+  if (!isSameRecurrence(rule, current.recurrence) || ruleSent) {
+    if (rule !== undefined && current.seriesId === undefined) {
+      const seriesId = context.newSeriesId
+      if (seriesId === undefined || seriesId === '') return { ok: false, kind: 'identity' }
+      working = { ...working, seriesId }
+    }
+  }
+
+  if (rule === undefined) {
+    if (current.recurrence !== undefined) {
+      working = { ...working }
+      delete working.recurrence
+    }
+  } else {
+    working = { ...working, recurrence: rule }
+  }
+
+  if ('subtasks' in patch) {
+    const resolution = resolveSubtaskDrafts(patch.subtasks ?? [], current.subtasks, context.generateId, 'edit')
+    if (!resolution.ok) {
+      if (resolution.kind === 'identity') return { ok: false, kind: 'identity' }
+      return { ok: false, kind: 'validation', fields: { subtasks: resolution.errors } }
+    }
+    if (!isSameSubtaskList(resolution.subtasks, current.subtasks)) {
+      working = { ...working, subtasks: resolution.subtasks }
+      changed = true
+    }
+  }
+
+  if (!changed) return { ok: true, next: undefined }
+
+  return { ok: true, next: { ...working, updatedAt: context.now.toISOString() } }
 }

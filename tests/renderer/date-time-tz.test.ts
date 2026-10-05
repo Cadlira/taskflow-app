@@ -3,6 +3,7 @@ import {
   INVALID_DATE_INPUT,
   fromLocalDateTimeInput,
   needsTimeZoneReview,
+  needsUntilTimeZoneReview,
   toLocalDateTimeInput,
 } from '../../src/renderer/src/components/tasks/date-time.js'
 
@@ -42,6 +43,39 @@ describe.runIf(SAO_PAULO)('helper de datas sob fuso de São Paulo', () => {
     // Sem alterar o prazo, o ISO original permanece e não há bloqueio.
     expect(
       needsTimeZoneReview({ originalIso, capturedInput: captured, nextInput: captured, dirty: false }),
+    ).toBe(false)
+  })
+
+  it('revisão do limite da série sob São Paulo mantém o contrato do prazo', () => {
+    const untilIso = '2026-12-31T02:30:00.000Z'
+    const captured = toLocalDateTimeInput(untilIso)
+    expect(captured).toBe('2026-12-30T23:30')
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: untilIso,
+        capturedUntilInput: captured,
+        nextUntilInput: '2026-12-31T10:00',
+        dirty: true,
+      }),
+    ).toBe(false)
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: untilIso,
+        capturedUntilInput: captured,
+        nextUntilInput: '2026-12-31T10:00',
+        dirty: true,
+        convert: () => '2026-12-30T22:30',
+      }),
+    ).toBe(true)
+    // Sem limite original, um valor novo é interpretado no fuso corrente sem revisão.
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: undefined,
+        capturedUntilInput: '',
+        nextUntilInput: '2026-12-31T10:00',
+        dirty: true,
+        convert: () => '2026-12-30T22:30',
+      }),
     ).toBe(false)
   })
 })

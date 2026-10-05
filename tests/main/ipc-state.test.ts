@@ -6,6 +6,7 @@ import {
   STATE_CHANGED_EVENT,
   STATE_LIMITS,
   STATE_UNAVAILABLE_EVENT,
+  isOpaqueToken,
   parseSnapshotPageResult,
   parseStateChangedEvent,
   parseSubscribeWireResult,
@@ -102,7 +103,7 @@ function page(result: SnapshotPageResult | SubscribeWireResult): SnapshotPage {
 /** Percorre o snapshot como o preload faria, conferindo o orçamento de cada resposta. */
 async function assemble(fixture: Fixture, contents: FakeContents): Promise<{ snapshot: StateSnapshot; pages: number }> {
   const assembler = new SnapshotAssembler()
-  let request: { version: 1; cursor?: string } = { version: 1 }
+  let request: { version: 2; cursor?: string } = { version: 2 }
   for (let pages = 1; pages < 10_000; pages += 1) {
     const result = await fixture.service.handleSnapshot(invocation(contents), request)
     expect(parseSnapshotPageResult(result)).not.toBeNull()
@@ -110,7 +111,7 @@ async function assemble(fixture: Fixture, contents: FakeContents): Promise<{ sna
     const current = page(result)
     const snapshot = assembler.accept(current)
     if (snapshot !== undefined) return { snapshot, pages }
-    request = { version: 1, cursor: current.cursor ?? '' }
+    request = { version: 2, cursor: current.cursor ?? '' }
   }
   throw new Error('snapshot did not finish')
 }
@@ -120,7 +121,7 @@ describe('zero leitura antes do guard', () => {
     const fixture = createFixture()
     const contents = fixture.surface(1)
     const stale = fixture.surface(2)
-    await fixture.service.handleSubscribe(invocation(stale), { version: 1 })
+    await fixture.service.handleSubscribe(invocation(stale), { version: 2 })
     const readsBefore = fixture.reads()
 
     const unknown = fakeContents(50)
@@ -147,10 +148,10 @@ describe('zero leitura antes do guard', () => {
       invocation(removed),
     ]
     for (const event of events) {
-      expect(await fixture.service.handleSnapshot(event, { version: 1 })).toEqual({ version: 1, status: 'error', code: 'UNAUTHORIZED' })
-      expect(await fixture.service.handleSubscribe(event, { version: 1 })).toEqual({ version: 1, status: 'error', code: 'UNAUTHORIZED' })
-      expect(await fixture.service.handleUnsubscribe(event, { version: 1, subscriptionId: 'A'.repeat(32) })).toEqual({
-        version: 1,
+      expect(await fixture.service.handleSnapshot(event, { version: 2 })).toEqual({ version: 2, status: 'error', code: 'UNAUTHORIZED' })
+      expect(await fixture.service.handleSubscribe(event, { version: 2 })).toEqual({ version: 2, status: 'error', code: 'UNAUTHORIZED' })
+      expect(await fixture.service.handleUnsubscribe(event, { version: 2, subscriptionId: 'A'.repeat(32) })).toEqual({
+        version: 2,
         status: 'error',
         code: 'UNAUTHORIZED',
       })
@@ -164,37 +165,44 @@ describe('zero leitura antes do guard', () => {
     const fixture = createFixture()
     const contents = fixture.surface(1)
     const malformed: unknown[] = [
-      { version: 2 },
-      { version: 1, extra: true },
-      { version: 1, path: 'C:\\dados\\taskflow.sqlite' },
-      { version: 1, sql: 'DELETE FROM tasks' },
-      { version: 1, cursor: 'short' },
-      { version: 1, cursor: 42 },
-      { version: 1, pad: 'x'.repeat(2048) },
+      { version: 1 },
+      { version: 3 },
+      { version: '2' },
+      { version: 2, extra: true },
+      { version: 2, path: 'C:\\dados\\taskflow.sqlite' },
+      { version: 2, sql: 'DELETE FROM tasks' },
+      { version: 2, cursor: 'short' },
+      { version: 2, cursor: 42 },
+      { version: 2, pad: 'x'.repeat(2048) },
       null,
       undefined,
-      'version=1',
+      'version=2',
       [],
       () => undefined,
     ]
 
     for (const request of malformed) {
       expect(await fixture.service.handleSnapshot(invocation(contents), request)).toEqual({
-        version: 1,
+        version: 2,
         status: 'error',
         code: 'INVALID_REQUEST',
       })
     }
-    for (const request of [{ version: 1, cursor: 'A'.repeat(32) }, { version: 2 }, null]) {
+    for (const request of [{ version: 2, cursor: 'A'.repeat(32) }, { version: 1 }, { version: 3 }, null]) {
       expect(await fixture.service.handleSubscribe(invocation(contents), request)).toEqual({
-        version: 1,
+        version: 2,
         status: 'error',
         code: 'INVALID_REQUEST',
       })
     }
-    for (const request of [{ version: 1 }, { version: 1, subscriptionId: '../x' }, { version: 1, subscriptionId: 'A'.repeat(200) }]) {
+    for (const request of [
+      { version: 2 },
+      { version: 2, subscriptionId: '../x' },
+      { version: 2, subscriptionId: 'A'.repeat(200) },
+      { version: 1, subscriptionId: 'A'.repeat(32) },
+    ]) {
       expect(await fixture.service.handleUnsubscribe(invocation(contents), request)).toEqual({
-        version: 1,
+        version: 2,
         status: 'error',
         code: 'INVALID_REQUEST',
       })
@@ -207,28 +215,29 @@ describe('zero leitura antes do guard', () => {
     await seed(fixture, buildFictitiousTasks(400))
     const own = fixture.surface(1)
     const other = fixture.surface(2)
-    const ownCursor = page(await fixture.service.handleSnapshot(invocation(own), { version: 1 })).cursor ?? ''
-    const otherCursor = page(await fixture.service.handleSnapshot(invocation(other), { version: 1 })).cursor ?? ''
+    const ownCursor = page(await fixture.service.handleSnapshot(invocation(own), { version: 2 })).cursor ?? ''
+    const otherCursor = page(await fixture.service.handleSnapshot(invocation(other), { version: 2 })).cursor ?? ''
     const reads = fixture.reads()
-    const stale = { version: 1, status: 'error', code: 'SNAPSHOT_STALE' }
+    const stale = { version: 2, status: 'error', code: 'SNAPSHOT_STALE' }
 
     expect(ownCursor).not.toBe('')
-    expect(await fixture.service.handleSnapshot(invocation(own), { version: 1, cursor: otherCursor })).toEqual(stale)
-    expect(await fixture.service.handleSnapshot(invocation(own), { version: 1, cursor: 'Z'.repeat(32) })).toEqual(stale)
+    expect(isOpaqueToken(ownCursor)).toBe(true)
+    expect(await fixture.service.handleSnapshot(invocation(own), { version: 2, cursor: otherCursor })).toEqual(stale)
+    expect(await fixture.service.handleSnapshot(invocation(own), { version: 2, cursor: 'Z'.repeat(32) })).toEqual(stale)
     expect(fixture.reads()).toBe(reads)
 
     // A recusa não afetou a outra sessão: o cursor dela segue válido e é renovado a cada página.
     fixture.setNow(1_000 + STATE_LIMITS.cursorTtlMs - 1)
-    const next = page(await fixture.service.handleSnapshot(invocation(other), { version: 1, cursor: otherCursor }))
+    const next = page(await fixture.service.handleSnapshot(invocation(other), { version: 2, cursor: otherCursor }))
     expect(next.revision).toBe('1')
     const readsAfterPage = fixture.reads()
 
     // 30 s sem uso: o cursor próprio expira; o renovado da outra sessão ainda vale.
     fixture.setNow(1_000 + STATE_LIMITS.cursorTtlMs + 1)
-    expect(await fixture.service.handleSnapshot(invocation(own), { version: 1, cursor: ownCursor })).toEqual(stale)
+    expect(await fixture.service.handleSnapshot(invocation(own), { version: 2, cursor: ownCursor })).toEqual(stale)
     expect(fixture.reads()).toBe(readsAfterPage)
     expect(STATE_LIMITS.cursorTtlMs).toBe(30_000)
-    expect((await fixture.service.handleSnapshot(invocation(other), { version: 1, cursor: next.cursor ?? '' })).status).toBe('ok')
+    expect((await fixture.service.handleSnapshot(invocation(other), { version: 2, cursor: next.cursor ?? '' })).status).toBe('ok')
   })
 })
 
@@ -246,8 +255,8 @@ describe('snapshot paginado de uma revisão', () => {
     expect(pages).toBeGreaterThan(3)
     expect(snapshot.revision).toBe('2')
     expect(snapshot.tasks.map((record) => record.task)).toEqual(tasks.slice(1))
-    expect(snapshot.tasks.every((record) => record.contentRevision === '1')).toBe(true)
-    expect(snapshot.trash).toEqual([{ task: first, deletedAt: '2020-01-01T00:00:00.000Z', contentRevision: '1' }])
+    expect(snapshot.tasks.every((record) => record.contentRevision === '1' && record.editRevision === '1')).toBe(true)
+    expect(snapshot.trash).toEqual([{ task: first, deletedAt: '2020-01-01T00:00:00.000Z', contentRevision: '1', editRevision: '1' }])
     expect(fixture.service.activeCursors).toBe(0)
   })
 
@@ -267,14 +276,14 @@ describe('snapshot paginado de uma revisão', () => {
     const fixture = createFixture()
     await seed(fixture, buildFictitiousTasks(400))
     const contents = fixture.surface(1)
-    const first = page(await fixture.service.handleSnapshot(invocation(contents), { version: 1 }))
+    const first = page(await fixture.service.handleSnapshot(invocation(contents), { version: 2 }))
 
     expectOk(await fixture.coordinator.run((unit) => unit.saveTask(buildFictitiousTask(9_000))))
-    const continuation = await fixture.service.handleSnapshot(invocation(contents), { version: 1, cursor: first.cursor ?? '' })
-    const retry = await fixture.service.handleSnapshot(invocation(contents), { version: 1, cursor: first.cursor ?? '' })
+    const continuation = await fixture.service.handleSnapshot(invocation(contents), { version: 2, cursor: first.cursor ?? '' })
+    const retry = await fixture.service.handleSnapshot(invocation(contents), { version: 2, cursor: first.cursor ?? '' })
 
-    expect(continuation).toEqual({ version: 1, status: 'error', code: 'SNAPSHOT_STALE' })
-    expect(retry).toEqual({ version: 1, status: 'error', code: 'SNAPSHOT_STALE' })
+    expect(continuation).toEqual({ version: 2, status: 'error', code: 'SNAPSHOT_STALE' })
+    expect(retry).toEqual({ version: 2, status: 'error', code: 'SNAPSHOT_STALE' })
     expect(fixture.service.activeCursors).toBe(0)
     expect((await assemble(fixture, contents)).snapshot.revision).toBe('2')
   })
@@ -283,18 +292,18 @@ describe('snapshot paginado de uma revisão', () => {
     const fixture = createFixture()
     await seed(fixture, buildFictitiousTasks(400))
     const contents = fixture.surface(1)
-    const first = page(await fixture.service.handleSnapshot(invocation(contents), { version: 1 }))
-    const second = page(await fixture.service.handleSnapshot(invocation(contents), { version: 1 }))
+    const first = page(await fixture.service.handleSnapshot(invocation(contents), { version: 2 }))
+    const second = page(await fixture.service.handleSnapshot(invocation(contents), { version: 2 }))
 
     expect(fixture.service.activeCursors).toBe(1)
-    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 1, cursor: first.cursor ?? '' })).toMatchObject({
+    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 2, cursor: first.cursor ?? '' })).toMatchObject({
       code: 'SNAPSHOT_STALE',
     })
     // A recusa do token antigo não derruba o cursor corrente.
-    const next = await fixture.service.handleSnapshot(invocation(contents), { version: 1, cursor: second.cursor ?? '' })
+    const next = await fixture.service.handleSnapshot(invocation(contents), { version: 2, cursor: second.cursor ?? '' })
     expect(next.status).toBe('ok')
     // Token de página já usada não é reutilizável.
-    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 1, cursor: second.cursor ?? '' })).toMatchObject({
+    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 2, cursor: second.cursor ?? '' })).toMatchObject({
       code: 'SNAPSHOT_STALE',
     })
   })
@@ -304,7 +313,7 @@ describe('snapshot paginado de uma revisão', () => {
     await seed(fixture, buildFictitiousTasks(3))
     expectOk(await fixture.coordinator.run((unit) => unit.moveToTrash(buildFictitiousTask(1).id, '2001-01-01T00:00:00.000Z')))
     const contents = fixture.surface(1)
-    await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
     contents.mainFrame.sent.length = 0
 
     const first = await assemble(fixture, contents)
@@ -325,13 +334,13 @@ describe('snapshot paginado de uma revisão', () => {
     raw.close()
     const contents = fixture.surface(1)
 
-    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 1 })).toEqual({
-      version: 1,
+    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 2 })).toEqual({
+      version: 2,
       status: 'error',
       code: 'INCOMPATIBLE_DATA',
     })
-    expect(await fixture.service.handleSubscribe(invocation(contents), { version: 1 })).toEqual({
-      version: 1,
+    expect(await fixture.service.handleSubscribe(invocation(contents), { version: 2 })).toEqual({
+      version: 2,
       status: 'error',
       code: 'INCOMPATIBLE_DATA',
     })
@@ -360,8 +369,8 @@ describe('snapshot paginado de uma revisão', () => {
       },
     })
 
-    expect(await service.handleSnapshot(invocation(contents), { version: 1 })).toEqual({
-      version: 1,
+    expect(await service.handleSnapshot(invocation(contents), { version: 2 })).toEqual({
+      version: 2,
       status: 'error',
       code: 'RESOURCE_LIMIT',
     })
@@ -382,8 +391,8 @@ describe('snapshot paginado de uma revisão', () => {
       },
     })
 
-    const result = await service.handleSnapshot(invocation(contents), { version: 1 })
-    expect(result).toEqual({ version: 1, status: 'error', code: 'STORAGE_UNAVAILABLE' })
+    const result = await service.handleSnapshot(invocation(contents), { version: 2 })
+    expect(result).toEqual({ version: 2, status: 'error', code: 'STORAGE_UNAVAILABLE' })
     expect(Object.keys(result).sort()).toEqual(['code', 'status', 'version'])
   })
 
@@ -406,10 +415,13 @@ describe('inscrição e invalidações', () => {
     await seed(fixture, buildFictitiousTasks(3))
     const contents = fixture.surface(1)
 
-    const result = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    const result = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
 
     expect(parseSubscribeWireResult(result)).not.toBeNull()
     expect(page(result)).toMatchObject({ revision: '1', complete: { tasks: 3, trash: 0 } })
+    // Tokens do main são opacos: a inscrição não é um ID previsível nem um caminho.
+    expect(result.status === 'ok' && isOpaqueToken(result.subscriptionId)).toBe(true)
+    expect(JSON.stringify(result)).toContain('"version":2')
     expect(fixture.reads()).toBe(1)
     expect(fixture.service.activeSubscriptions).toBe(1)
   })
@@ -417,8 +429,8 @@ describe('inscrição e invalidações', () => {
   it('subscribe repetido é idempotente: uma inscrição corrente por documento', async () => {
     const fixture = createFixture()
     const contents = fixture.surface(1)
-    const first = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
-    const second = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    const first = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
+    const second = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
 
     expect(first.status === 'ok' && second.status === 'ok' && first.subscriptionId === second.subscriptionId).toBe(true)
     expect(fixture.service.activeSubscriptions).toBe(1)
@@ -431,14 +443,14 @@ describe('inscrição e invalidações', () => {
   it('evento sai só depois do commit, com inscrição e revisão exata, sem payload de tarefas', async () => {
     const fixture = createFixture()
     const contents = fixture.surface(1)
-    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
     if (subscribed.status !== 'ok') throw new Error(subscribed.code)
 
     expectOk(await fixture.coordinator.run((unit) => unit.saveTask(buildFictitiousTask(1))))
     fixture.flush()
 
     expect(contents.mainFrame.sent).toEqual([
-      { channel: STATE_CHANGED_EVENT, payload: { version: 1, subscriptionId: subscribed.subscriptionId, revision: '1' } },
+      { channel: STATE_CHANGED_EVENT, payload: { version: 2, subscriptionId: subscribed.subscriptionId, revision: '1' } },
     ])
     const payload = contents.mainFrame.sent[0]?.payload
     expect(parseStateChangedEvent(payload)).not.toBeNull()
@@ -450,7 +462,7 @@ describe('inscrição e invalidações', () => {
     const fixture = createFixture()
     await seed(fixture, [buildFictitiousTask(1)])
     const contents = fixture.surface(1)
-    await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
 
     await fixture.coordinator.run((unit) => unit.saveTask(buildFictitiousTask(1)))
     await fixture.coordinator.run((unit) => unit.updateTaskConditionally(buildFictitiousTask(1).id, 99n, (task) => ({ ...task, title: 'x' })))
@@ -468,7 +480,7 @@ describe('inscrição e invalidações', () => {
   it('vários commits coalescem na maior revisão por inscrição', async () => {
     const fixture = createFixture()
     const contents = fixture.surface(1)
-    await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
 
     for (let index = 1; index <= 5; index += 1) {
       expectOk(await fixture.coordinator.run((unit) => unit.saveTask(buildFictitiousTask(index))))
@@ -484,8 +496,8 @@ describe('inscrição e invalidações', () => {
     const fixture = createFixture()
     const left = fixture.surface(1)
     const right = fixture.surface(2)
-    await fixture.service.handleSubscribe(invocation(left), { version: 1 })
-    await fixture.service.handleSubscribe(invocation(right), { version: 1 })
+    await fixture.service.handleSubscribe(invocation(left), { version: 2 })
+    await fixture.service.handleSubscribe(invocation(right), { version: 2 })
 
     expectOk(await fixture.coordinator.run((unit) => unit.saveTasks(buildFictitiousTasks(4))))
     fixture.flush()
@@ -499,18 +511,18 @@ describe('inscrição e invalidações', () => {
     const fixture = createFixture()
     await seed(fixture, buildFictitiousTasks(2))
     const contents = fixture.surface(1)
-    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
     if (subscribed.status !== 'ok') throw new Error(subscribed.code)
 
     const raw = new DatabaseSync(fixture.file)
     raw.exec("UPDATE tasks SET payload_json = '{'")
     raw.close()
-    await fixture.service.handleSnapshot(invocation(contents), { version: 1 })
+    await fixture.service.handleSnapshot(invocation(contents), { version: 2 })
 
     expect(contents.mainFrame.sent).toEqual([
       {
         channel: STATE_UNAVAILABLE_EVENT,
-        payload: { version: 1, subscriptionId: subscribed.subscriptionId, code: 'INCOMPATIBLE_DATA' },
+        payload: { version: 2, subscriptionId: subscribed.subscriptionId, code: 'INCOMPATIBLE_DATA' },
       },
     ])
   })
@@ -521,21 +533,21 @@ describe('tokens e listeners pertencem ao documento', () => {
     const fixture = createFixture()
     const own = fixture.surface(1)
     const other = fixture.surface(2)
-    const mine = await fixture.service.handleSubscribe(invocation(own), { version: 1 })
-    const theirs = await fixture.service.handleSubscribe(invocation(other), { version: 1 })
+    const mine = await fixture.service.handleSubscribe(invocation(own), { version: 2 })
+    const theirs = await fixture.service.handleSubscribe(invocation(other), { version: 2 })
     if (mine.status !== 'ok' || theirs.status !== 'ok') throw new Error('subscribe failed')
     const reads = fixture.reads()
 
-    expect(await fixture.service.handleUnsubscribe(invocation(own), { version: 1, subscriptionId: theirs.subscriptionId })).toEqual({
-      version: 1,
+    expect(await fixture.service.handleUnsubscribe(invocation(own), { version: 2, subscriptionId: theirs.subscriptionId })).toEqual({
+      version: 2,
       status: 'error',
       code: 'UNAUTHORIZED',
     })
     expect(fixture.service.activeSubscriptions).toBe(2)
 
-    const request = { version: 1, subscriptionId: mine.subscriptionId }
-    expect(await fixture.service.handleUnsubscribe(invocation(own), request)).toEqual({ version: 1, status: 'ok' })
-    expect(await fixture.service.handleUnsubscribe(invocation(own), request)).toEqual({ version: 1, status: 'ok' })
+    const request = { version: 2, subscriptionId: mine.subscriptionId }
+    expect(await fixture.service.handleUnsubscribe(invocation(own), request)).toEqual({ version: 2, status: 'ok' })
+    expect(await fixture.service.handleUnsubscribe(invocation(own), request)).toEqual({ version: 2, status: 'ok' })
     expect(fixture.service.activeSubscriptions).toBe(1)
     expect(fixture.reads()).toBe(reads)
 
@@ -549,7 +561,7 @@ describe('tokens e listeners pertencem ao documento', () => {
     const fixture = createFixture()
     await seed(fixture, buildFictitiousTasks(400))
     const contents = fixture.surface(1)
-    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
     if (subscribed.status !== 'ok') throw new Error(subscribed.code)
     const cursor = subscribed.page.cursor ?? ''
 
@@ -563,14 +575,14 @@ describe('tokens e listeners pertencem ao documento', () => {
     expectOk(await fixture.coordinator.run((unit) => unit.saveTask(buildFictitiousTask(9_000))))
     fixture.flush()
     expect(contents.mainFrame.sent).toEqual([])
-    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 1, cursor })).toMatchObject({
+    expect(await fixture.service.handleSnapshot(invocation(contents), { version: 2, cursor })).toMatchObject({
       code: 'SNAPSHOT_STALE',
     })
-    expect(await fixture.service.handleUnsubscribe(invocation(contents), { version: 1, subscriptionId: subscribed.subscriptionId })).toMatchObject({
+    expect(await fixture.service.handleUnsubscribe(invocation(contents), { version: 2, subscriptionId: subscribed.subscriptionId })).toMatchObject({
       code: 'UNAUTHORIZED',
     })
 
-    const fresh = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    const fresh = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
     expect(fresh.status === 'ok' && fresh.subscriptionId !== subscribed.subscriptionId).toBe(true)
   })
 
@@ -584,13 +596,13 @@ describe('tokens e listeners pertencem ao documento', () => {
     let dataReads = 0
     fixture.coordinator.onUnitMeasured(() => (dataReads += 1))
 
-    const pending = fixture.service.handleSnapshot(invocation(contents), { version: 1 })
+    const pending = fixture.service.handleSnapshot(invocation(contents), { version: 2 })
     expect(fixture.coordinator.pending).toBe(1)
     // Navegação depois da autorização e antes da execução.
     fixture.sessions.invalidate(contents.id)
     while (queued.length > 0) queued.shift()?.()
 
-    expect(await pending).toEqual({ version: 1, status: 'error', code: 'SESSION_CLOSED' })
+    expect(await pending).toEqual({ version: 2, status: 'error', code: 'SESSION_CLOSED' })
     expect(fixture.coordinator.pending).toBe(0)
     expect(dataReads).toBe(0)
   })
@@ -602,11 +614,11 @@ describe('tokens e listeners pertencem ao documento', () => {
     // A leitura executa; o documento navega antes de a resposta ser enviada.
     fixture.afterRead.hook = () => fixture.sessions.invalidate(contents.id)
 
-    const snapshot = await fixture.service.handleSnapshot(invocation(contents), { version: 1 })
-    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    const snapshot = await fixture.service.handleSnapshot(invocation(contents), { version: 2 })
+    const subscribed = await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
 
-    expect(snapshot).toEqual({ version: 1, status: 'error', code: 'SESSION_CLOSED' })
-    expect(subscribed).toEqual({ version: 1, status: 'error', code: 'SESSION_CLOSED' })
+    expect(snapshot).toEqual({ version: 2, status: 'error', code: 'SESSION_CLOSED' })
+    expect(subscribed).toEqual({ version: 2, status: 'error', code: 'SESSION_CLOSED' })
     expect(JSON.stringify([snapshot, subscribed])).not.toContain('fict-')
     expect(fixture.service.activeSubscriptions).toBe(0)
   })
@@ -614,7 +626,7 @@ describe('tokens e listeners pertencem ao documento', () => {
   it('crash ou fechamento antes do envio do evento: nada é entregue e o estado é limpo', async () => {
     const fixture = createFixture()
     const contents = fixture.surface(1)
-    await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
+    await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
 
     expectOk(await fixture.coordinator.run((unit) => unit.saveTask(buildFictitiousTask(1))))
     // O frame morre entre o commit e a entrega coalescida.
@@ -632,14 +644,14 @@ describe('tokens e listeners pertencem ao documento', () => {
 
     for (const contents of surfaces) {
       for (let repeat = 0; repeat < 3; repeat += 1) {
-        await fixture.service.handleSubscribe(invocation(contents), { version: 1 })
-        await fixture.service.handleSnapshot(invocation(contents), { version: 1 })
+        await fixture.service.handleSubscribe(invocation(contents), { version: 2 })
+        await fixture.service.handleSnapshot(invocation(contents), { version: 2 })
       }
     }
     const ninth = fakeContents(9)
 
     expect(fixture.sessions.register(ninth)).toBe(false)
-    expect(await fixture.service.handleSubscribe(invocation(ninth), { version: 1 })).toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(await fixture.service.handleSubscribe(invocation(ninth), { version: 2 })).toMatchObject({ code: 'UNAUTHORIZED' })
     expect(fixture.service.trackedDocuments).toBe(8)
     expect(fixture.service.activeSubscriptions).toBe(8)
     expect(fixture.service.activeCursors).toBe(8)
@@ -653,11 +665,11 @@ describe('tokens e listeners pertencem ao documento', () => {
     const fixture = createFixture({ schedule: (callback) => queued.push(callback) })
     const contents = fixture.surface(1)
 
-    const admitted = Array.from({ length: 8 }, () => fixture.service.handleSnapshot(invocation(contents), { version: 1 }))
-    const excess = await fixture.service.handleSnapshot(invocation(contents), { version: 1 })
+    const admitted = Array.from({ length: 8 }, () => fixture.service.handleSnapshot(invocation(contents), { version: 2 }))
+    const excess = await fixture.service.handleSnapshot(invocation(contents), { version: 2 })
     while (queued.length > 0) queued.shift()?.()
 
-    expect(excess).toEqual({ version: 1, status: 'error', code: 'BUSY' })
+    expect(excess).toEqual({ version: 2, status: 'error', code: 'BUSY' })
     expect((await Promise.all(admitted)).every((result) => result.status === 'ok')).toBe(true)
     expect(fixture.service.activeCursors).toBe(0)
   })

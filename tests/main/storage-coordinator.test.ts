@@ -342,7 +342,7 @@ describe('primitives de tarefas', () => {
     const stale = expectOk(
       await coordinator.run((unit) => unit.updateTaskConditionally(task.id, 1n, (current) => ({ ...current, title: 'Stale' }))),
     )
-    expect(stale.value).toEqual({ status: 'CONFLICT', currentRevision: 3n })
+    expect(stale.value).toEqual({ status: 'CONFLICT', currentContentRevision: 3n, currentEditRevision: 3n })
     expect(stale.committed).toBe(false)
   })
 })
@@ -357,12 +357,12 @@ describe('primitives da lixeira', () => {
     const trashed = expectOk(await coordinator.read((reader) => ({ item: reader.getTrashItem(task.id), active: reader.getTask(task.id) })))
     expect(moved.value).toEqual(task)
     expect(moved.revision).toBe(2n)
-    expect(trashed.value).toEqual({ item: { task, deletedAt: DELETED_AT, contentRevision: 1n }, active: undefined })
+    expect(trashed.value).toEqual({ item: { task, deletedAt: DELETED_AT, contentRevision: 1n, editRevision: 1n }, active: undefined })
 
     const restored = expectOk(
       await coordinator.run((unit) => unit.restoreFromTrash(task.id, (current) => ({ ...current, updatedAt: '2026-09-13T00:00:00.000Z' }))),
     )
-    expect(restored.value).toMatchObject({ status: 'RESTORED', contentRevision: 3n })
+    expect(restored.value).toMatchObject({ status: 'RESTORED', contentRevision: 3n, editRevision: 3n })
     const state = await readState(coordinator)
     expect(state.trash).toEqual([])
     expect(state.tasks).toEqual([{ ...task, updatedAt: '2026-09-13T00:00:00.000Z' }])
@@ -491,8 +491,8 @@ describe('edição e reversão condicionais', () => {
       coordinator.run((unit) => unit.updateTaskConditionally(task.id, 1n, (current) => ({ ...current, assignee: 'Segunda' }))),
     ])
 
-    expect(expectOk(first).value).toMatchObject({ status: 'UPDATED', contentRevision: 2n })
-    expect(expectOk(second).value).toEqual({ status: 'CONFLICT', currentRevision: 2n })
+    expect(expectOk(first).value).toMatchObject({ status: 'UPDATED', contentRevision: 2n, editRevision: 2n })
+    expect(expectOk(second).value).toEqual({ status: 'CONFLICT', currentContentRevision: 2n, currentEditRevision: 2n })
     expect(expectOk(second).committed).toBe(false)
     const stored = (await readState(coordinator)).tasks[0]
     expect(stored).toEqual({ ...task, title: 'Primeira' })

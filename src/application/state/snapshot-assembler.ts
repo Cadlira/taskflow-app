@@ -39,9 +39,17 @@ function validateTask(value: unknown): Task {
   return decoded
 }
 
-function validateContentRevision(value: unknown): string {
+function validateRevision(value: unknown): string {
   if (!isRevisionText(value) || value === '0') throw new MalformedSnapshotError()
   return value
+}
+
+/** Par conteúdo/edição de um registro: ambas válidas e `edit <= content`. */
+function validateRevisionPair(content: unknown, edit: unknown): { contentRevision: string; editRevision: string } {
+  const contentRevision = validateRevision(content)
+  const editRevision = validateRevision(edit)
+  if (BigInt(editRevision) > BigInt(contentRevision)) throw new MalformedSnapshotError()
+  return { contentRevision, editRevision }
 }
 
 /**
@@ -103,19 +111,21 @@ export class SnapshotAssembler {
     }
 
     if (this.#collection === 'tasks') {
-      if (!hasExactKeys(parsed, ['task', 'contentRevision'])) throw new MalformedSnapshotError()
+      if (!hasExactKeys(parsed, ['task', 'contentRevision', 'editRevision'])) throw new MalformedSnapshotError()
       const task = validateTask(parsed['task'])
       this.#remember('tasks', task.id)
-      this.#tasks.push({ task, contentRevision: validateContentRevision(parsed['contentRevision']) })
+      this.#tasks.push({ task, ...validateRevisionPair(parsed['contentRevision'], parsed['editRevision']) })
       return
     }
 
-    if (!hasExactKeys(parsed, ['task', 'deletedAt', 'contentRevision'])) throw new MalformedSnapshotError()
+    if (!hasExactKeys(parsed, ['task', 'deletedAt', 'contentRevision', 'editRevision'])) {
+      throw new MalformedSnapshotError()
+    }
     const task = validateTask(parsed['task'])
     const deletedAt = parsed['deletedAt']
     if (!isStoredDeletedAt(deletedAt)) throw new MalformedSnapshotError()
     this.#remember('trash', task.id)
-    this.#trash.push({ task, deletedAt, contentRevision: validateContentRevision(parsed['contentRevision']) })
+    this.#trash.push({ task, deletedAt, ...validateRevisionPair(parsed['contentRevision'], parsed['editRevision']) })
   }
 
   #remember(collection: SnapshotCollection, id: string): void {

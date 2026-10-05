@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import { TaskCommandTransportError } from '../../../application/tasks/task-client.js'
 import type { StateErrorCode, StateSnapshot, StateUpdate, TaskRecord } from '../../../contracts/state.js'
-import type { TaskCommandErrorCode, TaskCommandFailure, TaskMutationResult } from '../../../contracts/tasks.js'
-import type { BasicFieldErrors, BasicTaskDraft, BasicTaskPatch } from '../../../domain/task-draft.js'
+import type { TaskCancellation, TaskCommandErrorCode, TaskMutationFailure, TaskMutationResult } from '../../../contracts/tasks.js'
+import type { CreateTaskDraft, EditTaskPatch, TaskFieldErrors } from '../../../domain/task-draft.js'
 import {
   EMPTY_TASK_FILTERS,
   filterTasks,
@@ -18,12 +18,19 @@ import type { Task, TaskStatus } from '../../../domain/task.js'
 /** Estados de apresentação explícitos; erro nunca vira coleção vazia. */
 export type TasksPresentation = 'loading' | 'ready' | 'empty' | 'stale' | 'blocked'
 
+export type TaskCommandKind = 'create' | 'update' | 'status' | 'subtask'
+
 export type TaskCommandStoreResult =
-  | { status: 'accepted'; kind: 'create' | 'update' | 'status'; taskId?: string }
-  | { status: 'validation'; fields: BasicFieldErrors }
-  | { status: 'conflict'; currentContentRevision?: string }
+  | { status: 'accepted'; kind: TaskCommandKind; taskId?: string }
+  | { status: 'validation'; fields: TaskFieldErrors }
+  | { status: 'conflict'; currentContentRevision?: string; currentEditRevision?: string }
   | { status: 'not-found' }
+  | { status: 'subtask-not-found' }
   | { status: 'restricted' }
+  | { status: 'choice-required' }
+  | { status: 'series-conflict' }
+  | { status: 'identity-conflict' }
+  | { status: 'recurrence-out-of-range' }
   | { status: 'blocked'; code: TaskCommandErrorCode }
   | { status: 'uncertain' }
 
@@ -40,18 +47,26 @@ export type OpenSourceStoreResult =
 const CLOCK_REFRESH_MS = 60_000
 
 interface PendingAck {
-  kind: 'create' | 'update' | 'status'
+  kind: TaskCommandKind
   taskId?: string
   revision: bigint
   contentRevision: string
+  editRevision: string
 }
 
 export interface TaskConfirmation {
-  kind: 'create' | 'update' | 'status'
+  kind: TaskCommandKind
   taskId?: string
   revision: string
   contentRevision: string
+  editRevision: string
   sequence: number
+}
+
+export interface TaskConflictState {
+  taskId: string
+  currentContentRevision?: string
+  currentEditRevision?: string
 }
 
 export const useTasksStore = defineStore('tasks', () => {
@@ -69,9 +84,9 @@ export const useTasksStore = defineStore('tasks', () => {
   const awaitingConfirmation = ref(false)
   /** Ack confirmado, mas o snapshot de revisão >= ack ainda não chegou. */
   const updatePending = ref(false)
-  const conflict = ref<{ taskId: string; currentContentRevision?: string } | null>(null)
+  const conflict = ref<TaskConflictState | null>(null)
   const notFound = ref<{ taskId: string } | null>(null)
-  const outcomeUnknown = ref<{ kind: 'create' | 'update' | 'status'; taskId?: string } | null>(null)
+  const outcomeUnknown = ref<{ kind: TaskCommandKind; taskId?: string } | null>(null)
   const resyncError = ref<StateErrorCode | null>(null)
   const lastConfirmed = shallowRef<TaskConfirmation | null>(null)
 
@@ -144,6 +159,7 @@ export const useTasksStore = defineStore('tasks', () => {
       ...(pendingAck.taskId !== undefined && { taskId: pendingAck.taskId }),
       revision: revision.value ?? '0',
       contentRevision: pendingAck.contentRevision,
+      editRevision: pendingAck.editRevision,
       sequence: confirmationSequence,
     }
     pendingAck = undefined
@@ -185,7 +201,7 @@ export const useTasksStore = defineStore('tasks', () => {
     if (subscriptionId !== undefined) return
     startClock()
 
-    const result = await window.taskflowDesktop.subscribeState({ version: 1 }, handleUpdate)
+    const result = await window.taskflowDesktop.subscribeState({ version: 2 }, handleUpdate)
     if (result.status !== 'ok') {
       initialError.value = result.code
       return
@@ -198,12 +214,12 @@ export const useTasksStore = defineStore('tasks', () => {
     stopClock()
     const id = subscriptionId
     subscriptionId = undefined
-    if (id !== undefined) await window.taskflowDesktop.unsubscribeState({ version: 1, subscriptionId: id })
+    if (id !== undefined) await window.taskflowDesktop.unsubscribeState({ version: 2, subscriptionId: id })
   }
 
   /** Ressincronização por snapshot; nunca regride nem converte erro em lista vazia. */
   async function refresh(): Promise<boolean> {
-    const result = await window.taskflowDesktop.getStateSnapshot({ version: 1 })
+    const result = await window.taskflowDesktop.getStateSnapshot({ version: 2 })
     if (result.status !== 'ok') {
       resyncError.value = result.code
       return false
@@ -213,7 +229,7 @@ export const useTasksStore = defineStore('tasks', () => {
     return true
   }
 
-  function mapFailure(failure: TaskCommandFailure, taskId: string | undefined): TaskCommandStoreResult {
+  function mapFailure(failure: TaskMutationFailure, taskId: string | undefined): TaskCommandStoreResult {
     switch (failure.code) {
       case 'VALIDATION_FAILED':
         return { status: 'validation', fields: failure.fields ?? {} }
@@ -221,23 +237,45 @@ export const useTasksStore = defineStore('tasks', () => {
         conflict.value = {
           taskId: taskId ?? '',
           ...(failure.currentContentRevision !== undefined && { currentContentRevision: failure.currentContentRevision }),
+          ...(failure.currentEditRevision !== undefined && { currentEditRevision: failure.currentEditRevision }),
         }
         return {
           status: 'conflict',
           ...(failure.currentContentRevision !== undefined && { currentContentRevision: failure.currentContentRevision }),
+          ...(failure.currentEditRevision !== undefined && { currentEditRevision: failure.currentEditRevision }),
         }
       case 'NOT_FOUND':
         notFound.value = { taskId: taskId ?? '' }
         return { status: 'not-found' }
+      case 'SUBTASK_NOT_FOUND':
+        return { status: 'subtask-not-found' }
       case 'ADVANCED_TASK_RESTRICTED':
         return { status: 'restricted' }
+      case 'RECURRENCE_CHOICE_REQUIRED':
+        return { status: 'choice-required' }
+      case 'SERIES_CONFLICT':
+        return { status: 'series-conflict' }
+      case 'IDENTITY_CONFLICT':
+        return { status: 'identity-conflict' }
+      case 'RECURRENCE_OUT_OF_RANGE':
+        return { status: 'recurrence-out-of-range' }
       default:
         return { status: 'blocked', code: failure.code }
     }
   }
 
-  function acceptAck(kind: PendingAck['kind'], taskId: string | undefined, ackRevision: string, contentRevision: string): void {
-    pendingAck = { kind, ...(taskId !== undefined && { taskId }), revision: BigInt(ackRevision), contentRevision }
+  function acceptAck(
+    kind: TaskCommandKind,
+    taskId: string | undefined,
+    ack: { revision: string; contentRevision: string; editRevision: string },
+  ): void {
+    pendingAck = {
+      kind,
+      ...(taskId !== undefined && { taskId }),
+      revision: BigInt(ack.revision),
+      contentRevision: ack.contentRevision,
+      editRevision: ack.editRevision,
+    }
     awaitingConfirmation.value = true
     updatePending.value = false
     // No-op ou snapshot já corrente: resolve sem esperar evento novo.
@@ -258,20 +296,23 @@ export const useTasksStore = defineStore('tasks', () => {
         ...(conflict.value.currentContentRevision !== undefined && {
           currentContentRevision: conflict.value.currentContentRevision,
         }),
+        ...(conflict.value.currentEditRevision !== undefined && {
+          currentEditRevision: conflict.value.currentEditRevision,
+        }),
       }
     }
     return null
   }
 
-  async function runCreate(draft: BasicTaskDraft): Promise<TaskCommandStoreResult> {
+  async function runCreate(draft: CreateTaskDraft): Promise<TaskCommandStoreResult> {
     const blocked = gateBeforeWrite(undefined)
     if (blocked !== null) return blocked
 
     submitting.value = true
     try {
-      const response = await window.taskflowDesktop.createTask({ version: 1, draft: { ...draft } })
+      const response = await window.taskflowDesktop.createTask({ version: 2, draft: { ...draft } })
       if (response.status === 'error') return mapFailure(response, undefined)
-      acceptAck('create', response.taskId, response.revision, response.contentRevision)
+      acceptAck('create', response.taskId, response)
       return { status: 'accepted', kind: 'create', taskId: response.taskId }
     } catch (error) {
       if (error instanceof TaskCommandTransportError) {
@@ -285,7 +326,7 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function runMutation(
-    kind: 'update' | 'status',
+    kind: Exclude<TaskCommandKind, 'create'>,
     taskId: string,
     operation: () => Promise<TaskMutationResult>,
   ): Promise<TaskCommandStoreResult> {
@@ -296,7 +337,7 @@ export const useTasksStore = defineStore('tasks', () => {
     try {
       const response = await operation()
       if (response.status === 'error') return mapFailure(response, taskId)
-      acceptAck(kind, taskId, response.revision, response.contentRevision)
+      acceptAck(kind, taskId, response)
       return { status: 'accepted', kind }
     } catch (error) {
       if (error instanceof TaskCommandTransportError) {
@@ -309,19 +350,53 @@ export const useTasksStore = defineStore('tasks', () => {
     }
   }
 
-  function create(draft: BasicTaskDraft): Promise<TaskCommandStoreResult> {
+  function create(draft: CreateTaskDraft): Promise<TaskCommandStoreResult> {
     return runCreate(draft)
   }
 
-  function update(taskId: string, expectedContentRevision: string, patch: BasicTaskPatch): Promise<TaskCommandStoreResult> {
+  function update(
+    taskId: string,
+    expectedEditRevision: string,
+    patch: EditTaskPatch,
+    cancellation?: TaskCancellation,
+  ): Promise<TaskCommandStoreResult> {
     return runMutation('update', taskId, () =>
-      window.taskflowDesktop.updateTask({ version: 1, taskId, expectedContentRevision, patch }),
+      window.taskflowDesktop.updateTask({
+        version: 2,
+        taskId,
+        expectedEditRevision,
+        patch,
+        ...(cancellation !== undefined && { cancellation }),
+      }),
     )
   }
 
-  function changeStatus(taskId: string, expectedContentRevision: string, status: TaskStatus): Promise<TaskCommandStoreResult> {
+  function changeStatus(
+    taskId: string,
+    expectedEditRevision: string,
+    status: TaskStatus,
+    cancellation?: TaskCancellation,
+  ): Promise<TaskCommandStoreResult> {
     return runMutation('status', taskId, () =>
-      window.taskflowDesktop.changeTaskStatus({ version: 1, taskId, expectedContentRevision, status }),
+      window.taskflowDesktop.changeTaskStatus({
+        version: 2,
+        taskId,
+        expectedEditRevision,
+        status,
+        ...(cancellation !== undefined && { cancellation }),
+      }),
+    )
+  }
+
+  /** Marca/desmarca por intenção um item da lista atual, sem fechar nem gerar ocorrência. */
+  function setSubtaskDone(
+    taskId: string,
+    expectedEditRevision: string,
+    subtaskId: string,
+    done: boolean,
+  ): Promise<TaskCommandStoreResult> {
+    return runMutation('subtask', taskId, () =>
+      window.taskflowDesktop.setSubtaskDone({ version: 2, taskId, expectedEditRevision, subtaskId, done }),
     )
   }
 
@@ -443,6 +518,7 @@ export const useTasksStore = defineStore('tasks', () => {
     create,
     update,
     changeStatus,
+    setSubtaskDone,
     openSource,
     inspectCurrent,
     reviewAfterUncertain,

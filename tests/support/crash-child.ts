@@ -7,7 +7,7 @@ import { buildFictitiousTasks } from '../../src/main/harness/fixtures.js'
 import { StorageCoordinator } from '../../src/main/storage/coordinator.js'
 import { ProductDatabase, type StorageFaultPoint, type StorageFaults } from '../../src/main/storage/product-database.js'
 import { PRODUCT_STORAGE_DEFINITION } from '../../src/main/storage/product-schema.js'
-import { CRASH_CLAIM, crashMigrationDefinition } from './crash-fixture.js'
+import { CRASH_CLAIM } from './crash-fixture.js'
 
 async function main(): Promise<void> {
   const [file, point, unit, barrierFile, processedFor] = process.argv.slice(2)
@@ -25,7 +25,8 @@ async function main(): Promise<void> {
   }
 
   if (unit === 'migrate') {
-    const result = ProductDatabase.open(file, crashMigrationDefinition(), faults)
+    // Migração real do produto 1→2 sobre o perfil fictício semeado em SQL 1.
+    const result = ProductDatabase.open(file, PRODUCT_STORAGE_DEFINITION, faults)
     if (result.ok) result.database.close()
   } else {
     const coordinator = new StorageCoordinator({

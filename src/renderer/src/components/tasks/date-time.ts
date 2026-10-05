@@ -1,6 +1,7 @@
 // Cópia revisada e ampliada de taskflow-extension@a763e7a src/components/tasks/date-time.ts
 // (MIT, mesmo autor). Mantém a conversão local com comparação das partes e a exibição pt-BR;
-// acrescenta preservação do ISO intacto e detecção explícita de mudança de fuso.
+// acrescenta preservação do ISO intacto e detecção explícita de mudança de fuso para o prazo e
+// para o limite de série (`until`), sem reconverter campos não editados.
 const LOCAL_INPUT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/
 
 /** Valor reconhecido como entrada impossível; o main recusa com INVALID_DATE. */
@@ -71,14 +72,61 @@ export interface TimeZoneReviewInput {
   convert?: (iso: string) => string
 }
 
+interface FieldReviewInput {
+  originalIso: string | undefined
+  capturedInput: string | undefined
+  nextInput: string | undefined
+  dirty: boolean
+  convert: ((iso: string) => string) | undefined
+}
+
 /**
- * Mudança de fuso com prazo alterado: o texto capturado ao abrir deixa de corresponder ao ISO
- * salvo no fuso corrente. Exige revisão explícita antes do save; sem alteração de prazo ou com o
- * prazo removido, o ISO original é conservado e nada é bloqueado.
+ * Mudança de fuso com um campo alterado: o texto capturado ao abrir deixa de corresponder ao ISO
+ * salvo no fuso corrente. Exige revisão explícita antes do save; sem alteração do campo ou com o
+ * valor removido, o ISO original é conservado e nada é bloqueado. A conversão local preserva a
+ * escolha da hora repetida e recusa gaps; o ISO salvo nunca é reconvertido por aqui.
  */
-export function needsTimeZoneReview(input: TimeZoneReviewInput): boolean {
+function fieldNeedsTimeZoneReview(input: FieldReviewInput): boolean {
   if (!input.dirty || input.originalIso === undefined || input.capturedInput === undefined) return false
   if (input.nextInput === undefined || input.nextInput.trim() === '') return false
   const convert = input.convert ?? toLocalDateTimeInput
   return convert(input.originalIso) !== input.capturedInput
+}
+
+export function needsTimeZoneReview(input: TimeZoneReviewInput): boolean {
+  return fieldNeedsTimeZoneReview({
+    originalIso: input.originalIso,
+    capturedInput: input.capturedInput,
+    nextInput: input.nextInput,
+    dirty: input.dirty,
+    convert: input.convert,
+  })
+}
+
+export interface UntilTimeZoneReviewInput {
+  /** ISO original do limite da série (`until`), se houver. */
+  originalUntilIso: string | undefined
+  /** Texto exibido no campo de limite quando o formulário abriu. */
+  capturedUntilInput: string | undefined
+  /** Texto atual do campo de limite; vazio significa limite removido. */
+  nextUntilInput: string | undefined
+  /** O usuário alterou o limite nesta edição? */
+  dirty: boolean
+  /** Conversão atual (fuso corrente); injetável em teste. */
+  convert?: (iso: string) => string
+}
+
+/**
+ * Revisão de fuso do limite de série editado. Mesmo contrato do prazo: sem alteração ou sem
+ * limite original, o ISO salvo é conservado; com o campo editado e o fuso divergente, o save é
+ * bloqueado até confirmação ou restauração.
+ */
+export function needsUntilTimeZoneReview(input: UntilTimeZoneReviewInput): boolean {
+  return fieldNeedsTimeZoneReview({
+    originalIso: input.originalUntilIso,
+    capturedInput: input.capturedUntilInput,
+    nextInput: input.nextUntilInput,
+    dirty: input.dirty,
+    convert: input.convert,
+  })
 }

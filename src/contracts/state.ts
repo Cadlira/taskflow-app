@@ -1,12 +1,13 @@
 import type { Task } from '../domain/task.js'
 import { asExactRecord, serializedBytes } from './record.js'
 
-// Catálogo fechado de estado v1. Separado de `foundation:verify:v1`.
-export const STATE_SNAPSHOT_CHANNEL = 'state:snapshot:v1'
-export const STATE_SUBSCRIBE_CHANNEL = 'state:subscribe:v1'
-export const STATE_UNSUBSCRIBE_CHANNEL = 'state:unsubscribe:v1'
-export const STATE_CHANGED_EVENT = 'state:changed:v1'
-export const STATE_UNAVAILABLE_EVENT = 'state:unavailable:v1'
+// Catálogo fechado de estado v2. Separado de `foundation:verify:v1`. Cada registro carrega as
+// revisões pública de conteúdo completo e de edição, em forma decimal canônica.
+export const STATE_SNAPSHOT_CHANNEL = 'state:snapshot:v2'
+export const STATE_SUBSCRIBE_CHANNEL = 'state:subscribe:v2'
+export const STATE_UNSUBSCRIBE_CHANNEL = 'state:unsubscribe:v2'
+export const STATE_CHANGED_EVENT = 'state:changed:v2'
+export const STATE_UNAVAILABLE_EVENT = 'state:unavailable:v2'
 
 export const STATE_LIMITS = {
   /** Request de estado/diagnóstico e eventos: 1 KiB UTF-8 serializado. */
@@ -39,26 +40,31 @@ export const STATE_ERROR_CODES = [
 
 export type StateErrorCode = (typeof STATE_ERROR_CODES)[number]
 
-export type StateFailure = Readonly<{ version: 1; status: 'error'; code: StateErrorCode }>
+export type StateFailure = Readonly<{ version: 2; status: 'error'; code: StateErrorCode }>
 
 // ---- Superfície pública do renderer (wrappers do preload) ----
 
-export type StateRequest = Readonly<{ version: 1 }>
-export type UnsubscribeStateRequest = Readonly<{ version: 1; subscriptionId: string }>
+export type StateRequest = Readonly<{ version: 2 }>
+export type UnsubscribeStateRequest = Readonly<{ version: 2; subscriptionId: string }>
 
-export type TaskRecord = Readonly<{ task: Task; contentRevision: string }>
-export type TrashRecord = Readonly<{ task: Task; deletedAt: string; contentRevision: string }>
+export type TaskRecord = Readonly<{ task: Task; contentRevision: string; editRevision: string }>
+export type TrashRecord = Readonly<{
+  task: Task
+  deletedAt: string
+  contentRevision: string
+  editRevision: string
+}>
 
 /** Snapshot completo de uma única revisão global (string decimal canônica). */
 export type StateSnapshot = Readonly<{ revision: string; tasks: TaskRecord[]; trash: TrashRecord[] }>
 
-export type StateSnapshotResult = Readonly<{ version: 1; status: 'ok'; snapshot: StateSnapshot }> | StateFailure
+export type StateSnapshotResult = Readonly<{ version: 2; status: 'ok'; snapshot: StateSnapshot }> | StateFailure
 
 export type SubscribeStateResult =
-  | Readonly<{ version: 1; status: 'ok'; subscriptionId: string; snapshot: StateSnapshot }>
+  | Readonly<{ version: 2; status: 'ok'; subscriptionId: string; snapshot: StateSnapshot }>
   | StateFailure
 
-export type UnsubscribeStateResult = Readonly<{ version: 1; status: 'ok' }> | StateFailure
+export type UnsubscribeStateResult = Readonly<{ version: 2; status: 'ok' }> | StateFailure
 
 /**
  * Atualização local entregue ao callback do renderer. `stale` conserva o último snapshot
@@ -72,7 +78,7 @@ export type StateListener = (update: StateUpdate) => void
 
 // ---- Protocolo de transporte entre preload e main ----
 
-export type SnapshotPageRequest = Readonly<{ version: 1; cursor?: string }>
+export type SnapshotPageRequest = Readonly<{ version: 2; cursor?: string }>
 
 export type SnapshotCollection = 'tasks' | 'trash'
 
@@ -93,14 +99,14 @@ export type SnapshotPage = Readonly<{
   complete?: SnapshotCounts
 }>
 
-export type SnapshotPageResult = Readonly<{ version: 1; status: 'ok'; page: SnapshotPage }> | StateFailure
+export type SnapshotPageResult = Readonly<{ version: 2; status: 'ok'; page: SnapshotPage }> | StateFailure
 
 export type SubscribeWireResult =
-  | Readonly<{ version: 1; status: 'ok'; subscriptionId: string; page: SnapshotPage }>
+  | Readonly<{ version: 2; status: 'ok'; subscriptionId: string; page: SnapshotPage }>
   | StateFailure
 
-export type StateChangedEvent = Readonly<{ version: 1; subscriptionId: string; revision: string }>
-export type StateUnavailableEvent = Readonly<{ version: 1; subscriptionId: string; code: StateErrorCode }>
+export type StateChangedEvent = Readonly<{ version: 2; subscriptionId: string; revision: string }>
+export type StateUnavailableEvent = Readonly<{ version: 2; subscriptionId: string; code: StateErrorCode }>
 
 // ---- Validação em runtime (tipos TS não autorizam request nem resposta) ----
 
@@ -109,7 +115,7 @@ const REVISION_PATTERN = /^(?:0|[1-9][0-9]{0,18})$/
 const MAX_REVISION_TEXT = '9223372036854775807'
 
 export function stateFailure(code: StateErrorCode): StateFailure {
-  return { version: 1, status: 'error', code }
+  return { version: 2, status: 'error', code }
 }
 
 export function isStateErrorCode(value: unknown): value is StateErrorCode {
@@ -130,31 +136,31 @@ function fitsRequestBudget(value: unknown): boolean {
   return bytes !== null && bytes <= STATE_LIMITS.requestBytes
 }
 
-/** `{ version: 1 }` exato, até 1 KiB. */
+/** `{ version: 2 }` exato, até 1 KiB. */
 export function parseStateRequest(value: unknown): StateRequest | null {
   const record = asExactRecord(value, ['version'])
-  if (record === null || record['version'] !== 1 || !fitsRequestBudget(value)) return null
-  return { version: 1 }
+  if (record === null || record['version'] !== 2 || !fitsRequestBudget(value)) return null
+  return { version: 2 }
 }
 
-/** `{ version: 1 }` ou `{ version: 1, cursor }` exatos, até 1 KiB. */
+/** `{ version: 2 }` ou `{ version: 2, cursor }` exatos, até 1 KiB. */
 export function parseSnapshotPageRequest(value: unknown): SnapshotPageRequest | null {
   const record = asExactRecord(value, ['version'], ['cursor'])
-  if (record === null || record['version'] !== 1 || !fitsRequestBudget(value)) return null
-  if (!('cursor' in record)) return { version: 1 }
-  return isOpaqueToken(record['cursor']) ? { version: 1, cursor: record['cursor'] } : null
+  if (record === null || record['version'] !== 2 || !fitsRequestBudget(value)) return null
+  if (!('cursor' in record)) return { version: 2 }
+  return isOpaqueToken(record['cursor']) ? { version: 2, cursor: record['cursor'] } : null
 }
 
-/** `{ version: 1, subscriptionId }` exato, até 1 KiB. */
+/** `{ version: 2, subscriptionId }` exato, até 1 KiB. */
 export function parseUnsubscribeRequest(value: unknown): UnsubscribeStateRequest | null {
   const record = asExactRecord(value, ['version', 'subscriptionId'])
-  if (record === null || record['version'] !== 1 || !fitsRequestBudget(value)) return null
-  return isOpaqueToken(record['subscriptionId']) ? { version: 1, subscriptionId: record['subscriptionId'] } : null
+  if (record === null || record['version'] !== 2 || !fitsRequestBudget(value)) return null
+  return isOpaqueToken(record['subscriptionId']) ? { version: 2, subscriptionId: record['subscriptionId'] } : null
 }
 
 function parseFailure(value: unknown): StateFailure | null {
   const record = asExactRecord(value, ['version', 'status', 'code'])
-  if (record === null || record['version'] !== 1 || record['status'] !== 'error') return null
+  if (record === null || record['version'] !== 2 || record['status'] !== 'error') return null
   return isStateErrorCode(record['code']) ? stateFailure(record['code']) : null
 }
 
@@ -204,26 +210,26 @@ export function parseSnapshotPageResult(value: unknown): SnapshotPageResult | nu
   const failure = parseFailure(value)
   if (failure !== null) return failure
   const record = asExactRecord(value, ['version', 'status', 'page'])
-  if (record === null || record['version'] !== 1 || record['status'] !== 'ok' || !fitsPageBudget(value)) return null
+  if (record === null || record['version'] !== 2 || record['status'] !== 'ok' || !fitsPageBudget(value)) return null
   const page = parseSnapshotPage(record['page'])
-  return page === null ? null : { version: 1, status: 'ok', page }
+  return page === null ? null : { version: 2, status: 'ok', page }
 }
 
 export function parseSubscribeWireResult(value: unknown): SubscribeWireResult | null {
   const failure = parseFailure(value)
   if (failure !== null) return failure
   const record = asExactRecord(value, ['version', 'status', 'subscriptionId', 'page'])
-  if (record === null || record['version'] !== 1 || record['status'] !== 'ok' || !fitsPageBudget(value)) return null
+  if (record === null || record['version'] !== 2 || record['status'] !== 'ok' || !fitsPageBudget(value)) return null
   if (!isOpaqueToken(record['subscriptionId'])) return null
   const page = parseSnapshotPage(record['page'])
-  return page === null ? null : { version: 1, status: 'ok', subscriptionId: record['subscriptionId'], page }
+  return page === null ? null : { version: 2, status: 'ok', subscriptionId: record['subscriptionId'], page }
 }
 
 export function parseUnsubscribeResult(value: unknown): UnsubscribeStateResult | null {
   const failure = parseFailure(value)
   if (failure !== null) return failure
   const record = asExactRecord(value, ['version', 'status'])
-  return record !== null && record['version'] === 1 && record['status'] === 'ok' ? { version: 1, status: 'ok' } : null
+  return record !== null && record['version'] === 2 && record['status'] === 'ok' ? { version: 2, status: 'ok' } : null
 }
 
 function fitsEventBudget(value: unknown): boolean {
@@ -233,14 +239,14 @@ function fitsEventBudget(value: unknown): boolean {
 
 export function parseStateChangedEvent(value: unknown): StateChangedEvent | null {
   const record = asExactRecord(value, ['version', 'subscriptionId', 'revision'])
-  if (record === null || record['version'] !== 1 || !fitsEventBudget(value)) return null
+  if (record === null || record['version'] !== 2 || !fitsEventBudget(value)) return null
   if (!isOpaqueToken(record['subscriptionId']) || !isRevisionText(record['revision'])) return null
-  return { version: 1, subscriptionId: record['subscriptionId'], revision: record['revision'] }
+  return { version: 2, subscriptionId: record['subscriptionId'], revision: record['revision'] }
 }
 
 export function parseStateUnavailableEvent(value: unknown): StateUnavailableEvent | null {
   const record = asExactRecord(value, ['version', 'subscriptionId', 'code'])
-  if (record === null || record['version'] !== 1 || !fitsEventBudget(value)) return null
+  if (record === null || record['version'] !== 2 || !fitsEventBudget(value)) return null
   if (!isOpaqueToken(record['subscriptionId']) || !isStateErrorCode(record['code'])) return null
-  return { version: 1, subscriptionId: record['subscriptionId'], code: record['code'] }
+  return { version: 2, subscriptionId: record['subscriptionId'], code: record['code'] }
 }

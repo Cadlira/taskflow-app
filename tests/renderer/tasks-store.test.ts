@@ -7,8 +7,8 @@ import type { Task } from '../../src/domain/task.js'
 import { useTasksStore } from '../../src/renderer/src/stores/tasks.js'
 import { buildTask } from '../support/task-fixtures.js'
 
-function record(task: Task, contentRevision = '1'): TaskRecord {
-  return { task, contentRevision }
+function record(task: Task, contentRevision = '1', editRevision = contentRevision): TaskRecord {
+  return { task, contentRevision, editRevision }
 }
 
 function snapshot(revision: string, tasks: TaskRecord[]): StateSnapshot {
@@ -24,6 +24,7 @@ interface Harness {
     createTask: ReturnType<typeof vi.fn>
     updateTask: ReturnType<typeof vi.fn>
     changeTaskStatus: ReturnType<typeof vi.fn>
+    setSubtaskDone: ReturnType<typeof vi.fn>
     openTaskSource: ReturnType<typeof vi.fn>
   }
   emit(update: StateUpdate): void
@@ -41,20 +42,21 @@ function setupStore(): Harness {
     verifyFoundation: vi.fn(),
     getStateSnapshot: vi.fn(async () =>
       subscribeFailure === null
-        ? { version: 1 as const, status: 'ok' as const, snapshot: current }
-        : { version: 1 as const, status: 'error' as const, code: 'STORAGE_UNAVAILABLE' as const },
+        ? { version: 2 as const, status: 'ok' as const, snapshot: current }
+        : { version: 2 as const, status: 'error' as const, code: 'STORAGE_UNAVAILABLE' as const },
     ),
     subscribeState: vi.fn(async (_request: unknown, next?: (update: StateUpdate) => void) => {
       if (subscribeFailure !== null) {
-        return { version: 1 as const, status: 'error' as const, code: subscribeFailure as 'STORAGE_UNAVAILABLE' }
+        return { version: 2 as const, status: 'error' as const, code: subscribeFailure as 'STORAGE_UNAVAILABLE' }
       }
       listener = next
-      return { version: 1 as const, status: 'ok' as const, subscriptionId, snapshot: current }
+      return { version: 2 as const, status: 'ok' as const, subscriptionId, snapshot: current }
     }),
-    unsubscribeState: vi.fn(async () => ({ version: 1 as const, status: 'ok' as const })),
+    unsubscribeState: vi.fn(async () => ({ version: 2 as const, status: 'ok' as const })),
     createTask: vi.fn(),
     updateTask: vi.fn(),
     changeTaskStatus: vi.fn(),
+    setSubtaskDone: vi.fn(),
     openTaskSource: vi.fn(),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api as unknown as TaskFlowDesktopApi })
@@ -84,7 +86,7 @@ afterEach(() => {
 })
 
 describe('store de tarefas: inscrição e estados', () => {
-  it('conecta uma única vez, adota o snapshot e desconecta a inscrição', async () => {
+  it('conecta uma única vez com v2, adota o snapshot e desconecta a inscrição', async () => {
     const harness = setupStore()
     const store = useTasksStore()
 
@@ -93,11 +95,13 @@ describe('store de tarefas: inscrição e estados', () => {
     await store.connect()
 
     expect(harness.api.subscribeState).toHaveBeenCalledTimes(1)
+    expect(harness.api.subscribeState.mock.calls[0]?.[0]).toEqual({ version: 2 })
     expect(store.presentation).toBe('empty')
     expect(store.revision).toBe('1')
 
     await store.disconnect()
     expect(harness.api.unsubscribeState).toHaveBeenCalledTimes(1)
+    expect(harness.api.unsubscribeState.mock.calls[0]?.[0]).toEqual({ version: 2, subscriptionId: 'sub'.padEnd(24, 'S') })
   })
 
   it('erro inicial vira blocked, nunca coleção vazia; stale conserva o snapshot', async () => {
@@ -179,57 +183,93 @@ describe('store de tarefas: inscrição e estados', () => {
 })
 
 describe('store de tarefas: comandos, ack e snapshot', () => {
-  it('cria: só anuncia depois do ack; aguarda snapshot >= revisão e encerra sincronização', async () => {
+  it('cria: envia v2, só anuncia depois do ack e confirma com conteúdo e edição', async () => {
     const harness = setupStore()
     const store = useTasksStore()
     await store.connect()
     harness.api.createTask.mockResolvedValue({
-      version: 1,
+      version: 2,
       status: 'ok',
       taskId: 'novo',
       revision: '5',
       contentRevision: '5',
+      editRevision: '5',
     })
 
-    const result = await store.create({ title: 'Tarefa' })
+    const result = await store.create({ title: 'Tarefa', subtasks: [{ title: 'Passo' }] })
     expect(result).toMatchObject({ status: 'accepted', kind: 'create', taskId: 'novo' })
+    expect(harness.api.createTask.mock.calls[0]?.[0]).toMatchObject({
+      version: 2,
+      draft: { title: 'Tarefa', subtasks: [{ title: 'Passo' }] },
+    })
     expect(store.awaitingConfirmation).toBe(true)
     expect(store.lastConfirmed).toBeNull()
 
-    harness.emit({ type: 'snapshot', snapshot: snapshot('5', [record(buildTask({ id: 'novo' }), '5')]) })
+    harness.emit({ type: 'snapshot', snapshot: snapshot('5', [record(buildTask({ id: 'novo' }), '5', '5')]) })
     expect(store.awaitingConfirmation).toBe(false)
-    expect(store.lastConfirmed).toMatchObject({ kind: 'create', taskId: 'novo', revision: '5' })
+    expect(store.lastConfirmed).toMatchObject({
+      kind: 'create',
+      taskId: 'novo',
+      revision: '5',
+      contentRevision: '5',
+      editRevision: '5',
+    })
   })
 
-  it('no-op resolve imediatamente com o snapshot já corrente', async () => {
+  it('no-op devolve revisões atuais e resolve sem evento novo', async () => {
     const harness = setupStore()
     const store = useTasksStore()
     await store.connect()
-    harness.api.changeTaskStatus.mockResolvedValue({ version: 1, status: 'ok', revision: '1', contentRevision: '1' })
+    harness.api.changeTaskStatus.mockResolvedValue({
+      version: 2,
+      status: 'ok',
+      revision: '1',
+      contentRevision: '1',
+      editRevision: '1',
+    })
 
     const result = await store.changeStatus('a', '1', 'TODO')
-    expect(result).toMatchObject({ status: 'accepted' })
+    expect(result).toMatchObject({ status: 'accepted', kind: 'status' })
+    expect(harness.api.changeTaskStatus.mock.calls[0]?.[0]).toEqual({
+      version: 2,
+      taskId: 'a',
+      expectedEditRevision: '1',
+      status: 'TODO',
+    })
     expect(store.awaitingConfirmation).toBe(false)
     expect(store.lastConfirmed?.kind).toBe('status')
   })
 
-  it('ack com ressync falhado informa atualização pendente sem anunciar rollback', async () => {
+  it('update usa expectedEditRevision e ack com ressync falhado informa atualização pendente', async () => {
     const harness = setupStore()
     const store = useTasksStore()
     await store.connect()
-    harness.api.updateTask.mockResolvedValue({ version: 1, status: 'ok', revision: '9', contentRevision: '9' })
+    harness.api.updateTask.mockResolvedValue({
+      version: 2,
+      status: 'ok',
+      revision: '9',
+      contentRevision: '9',
+      editRevision: '7',
+    })
 
-    const result = await store.update('a', '1', { title: 'Nova' })
-    expect(result).toMatchObject({ status: 'accepted' })
+    const result = await store.update('a', '6', { title: 'Nova' })
+    expect(result).toMatchObject({ status: 'accepted', kind: 'update' })
+    expect(harness.api.updateTask.mock.calls[0]?.[0]).toEqual({
+      version: 2,
+      taskId: 'a',
+      expectedEditRevision: '6',
+      patch: { title: 'Nova' },
+    })
     expect(store.awaitingConfirmation).toBe(true)
 
     harness.emit({ type: 'stale', code: 'BUSY' })
     expect(store.updatePending).toBe(true)
     expect(store.lastConfirmed).toBeNull()
 
-    harness.emit({ type: 'snapshot', snapshot: snapshot('9', [record(buildTask({ id: 'a' }), '9')]) })
+    harness.emit({ type: 'snapshot', snapshot: snapshot('9', [record(buildTask({ id: 'a' }), '9', '7')]) })
     expect(store.updatePending).toBe(false)
     expect(store.lastConfirmed?.contentRevision).toBe('9')
+    expect(store.lastConfirmed?.editRevision).toBe('7')
   })
 
   it('duplo envio na mesma interação é bloqueado; segundo comando não sai', async () => {
@@ -241,7 +281,8 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     harness.api.createTask.mockImplementation(
       () =>
         new Promise((resolve) => {
-          release = () => resolve({ version: 1, status: 'ok', taskId: 'x', revision: '2', contentRevision: '2' })
+          release = () =>
+            resolve({ version: 2, status: 'ok', taskId: 'x', revision: '2', contentRevision: '2', editRevision: '2' })
         }),
     )
 
@@ -266,24 +307,25 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     expect(store.filters.search).toBe('a')
   })
 
-  it('conflito preserva base: resultado, gate do mesmo item e recarga explícita', async () => {
+  it('conflito preserva base e expõe as revisões atuais sem trocá-la', async () => {
     const harness = setupStore()
     const store = useTasksStore()
     await store.connect()
     harness.emit({
       type: 'snapshot',
-      snapshot: snapshot('4', [record(buildTask({ id: 'a', title: 'Atual' }), '4')]),
+      snapshot: snapshot('4', [record(buildTask({ id: 'a', title: 'Atual' }), '4', '4')]),
     })
     harness.api.updateTask.mockResolvedValue({
-      version: 1,
+      version: 2,
       status: 'error',
       code: 'CONFLICT',
       currentContentRevision: '7',
+      currentEditRevision: '9',
     })
 
     const conflict = await store.update('a', '2', { title: 'Meu draft' })
-    expect(conflict).toEqual({ status: 'conflict', currentContentRevision: '7' })
-    expect(store.conflict).toMatchObject({ taskId: 'a', currentContentRevision: '7' })
+    expect(conflict).toEqual({ status: 'conflict', currentContentRevision: '7', currentEditRevision: '9' })
+    expect(store.conflict).toMatchObject({ taskId: 'a', currentContentRevision: '7', currentEditRevision: '9' })
 
     // Enquanto o conflito não for resolvido, o mesmo item não reenvia.
     const retry = await store.update('a', '2', { title: 'Meu draft' })
@@ -297,7 +339,7 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     // Recarregar é explícito e libera o gate.
     harness.emit({
       type: 'snapshot',
-      snapshot: snapshot('8', [record(buildTask({ id: 'a', title: 'Mais nova' }), '6')]),
+      snapshot: snapshot('8', [record(buildTask({ id: 'a', title: 'Mais nova' }), '6', '11')]),
     })
     const reloaded = await store.reloadBase('a')
     expect(reloaded?.task.title).toBe('Mais nova')
@@ -308,7 +350,7 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     const harness = setupStore()
     const store = useTasksStore()
     await store.connect()
-    harness.api.updateTask.mockResolvedValue({ version: 1, status: 'error', code: 'NOT_FOUND' })
+    harness.api.updateTask.mockResolvedValue({ version: 2, status: 'error', code: 'NOT_FOUND' })
 
     const result = await store.update('ausente', '1', { title: 'x' })
     expect(result).toEqual({ status: 'not-found' })
@@ -334,33 +376,161 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     expect(store.outcomeUnknown).toBeNull()
 
     harness.api.createTask.mockResolvedValueOnce({
-      version: 1,
+      version: 2,
       status: 'ok',
       taskId: 'nova',
       revision: '2',
       contentRevision: '2',
+      editRevision: '2',
     })
     const again = await store.create({ title: 'Decisão explícita' })
     expect(again).toMatchObject({ status: 'accepted' })
   })
 
-  it('validação e restrição são estados finitos sem alterar a lista', async () => {
+  it('validação posicional e restrição D8 são estados finitos sem alterar a lista', async () => {
     const harness = setupStore()
     const store = useTasksStore()
     await store.connect()
     harness.api.updateTask.mockResolvedValueOnce({
-      version: 1,
+      version: 2,
       status: 'error',
       code: 'VALIDATION_FAILED',
-      fields: { title: 'REQUIRED' },
+      fields: {
+        dueAt: 'DUE_REQUIRED',
+        recurrence: { frequency: 'INVALID_VALUE' },
+        subtasks: { items: [{ index: 1, title: 'TOO_LONG' }] },
+      },
     })
     expect(await store.update('a', '1', { title: '' })).toEqual({
       status: 'validation',
-      fields: { title: 'REQUIRED' },
+      fields: {
+        dueAt: 'DUE_REQUIRED',
+        recurrence: { frequency: 'INVALID_VALUE' },
+        subtasks: { items: [{ index: 1, title: 'TOO_LONG' }] },
+      },
     })
 
-    harness.api.updateTask.mockResolvedValueOnce({ version: 1, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
+    harness.api.updateTask.mockResolvedValueOnce({ version: 2, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
     expect(await store.update('a', '1', { title: 'x' })).toEqual({ status: 'restricted' })
+  })
+
+  it('mapeia os códigos de série, identidade, escolha, limite e item ausente', async () => {
+    const harness = setupStore()
+    const store = useTasksStore()
+    await store.connect()
+
+    harness.api.updateTask.mockResolvedValueOnce({ version: 2, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
+    expect(await store.update('a', '1', { status: 'CANCELLED' })).toEqual({ status: 'choice-required' })
+
+    harness.api.updateTask.mockResolvedValueOnce({ version: 2, status: 'error', code: 'SERIES_CONFLICT' })
+    expect(await store.update('a', '1', { title: 'x' })).toEqual({ status: 'series-conflict' })
+
+    harness.api.updateTask.mockResolvedValueOnce({ version: 2, status: 'error', code: 'IDENTITY_CONFLICT' })
+    expect(await store.update('a', '1', { title: 'x' })).toEqual({ status: 'identity-conflict' })
+
+    harness.api.updateTask.mockResolvedValueOnce({ version: 2, status: 'error', code: 'RECURRENCE_OUT_OF_RANGE' })
+    expect(await store.update('a', '1', { title: 'x' })).toEqual({ status: 'recurrence-out-of-range' })
+
+    harness.api.setSubtaskDone.mockResolvedValueOnce({ version: 2, status: 'error', code: 'SUBTASK_NOT_FOUND' })
+    expect(await store.setSubtaskDone('a', '1', 'sumiu', true)).toEqual({ status: 'subtask-not-found' })
+  })
+
+  it('marcação por intenção usa expectedEditRevision e conserva a edição no ack', async () => {
+    const harness = setupStore()
+    const store = useTasksStore()
+    await store.connect()
+    harness.emit({
+      type: 'snapshot',
+      snapshot: snapshot('5', [
+        record(
+          buildTask({
+            id: 'a',
+            subtasks: [
+              { id: 's1', title: 'Passo um', done: false },
+              { id: 's2', title: 'Passo dois', done: false },
+            ],
+          }),
+          '5',
+          '5',
+        ),
+      ]),
+    })
+    harness.api.setSubtaskDone.mockResolvedValue({
+      version: 2,
+      status: 'ok',
+      revision: '6',
+      contentRevision: '6',
+      editRevision: '5',
+    })
+
+    const result = await store.setSubtaskDone('a', '5', 's1', true)
+    expect(result).toMatchObject({ status: 'accepted', kind: 'subtask' })
+    expect(harness.api.setSubtaskDone.mock.calls[0]?.[0]).toEqual({
+      version: 2,
+      taskId: 'a',
+      expectedEditRevision: '5',
+      subtaskId: 's1',
+      done: true,
+    })
+
+    harness.emit({
+      type: 'snapshot',
+      snapshot: snapshot('6', [
+        record(
+          buildTask({
+            id: 'a',
+            subtasks: [
+              { id: 's1', title: 'Passo um', done: true },
+              { id: 's2', title: 'Passo dois', done: false },
+            ],
+          }),
+          '6',
+          '5',
+        ),
+      ]),
+    })
+    expect(store.lastConfirmed).toMatchObject({ kind: 'subtask', contentRevision: '6', editRevision: '5' })
+
+    // Save depois de checks: a mesma revisão de edição continua aplicável e o snapshot é a fonte.
+    harness.api.updateTask.mockResolvedValueOnce({
+      version: 2,
+      status: 'ok',
+      revision: '7',
+      contentRevision: '7',
+      editRevision: '7',
+    })
+    const saved = await store.update('a', '5', { title: 'Renomeada' })
+    expect(saved).toMatchObject({ status: 'accepted', kind: 'update' })
+    expect(harness.api.updateTask.mock.calls[0]?.[0]).toMatchObject({ expectedEditRevision: '5' })
+  })
+
+  it('marcação com conflito ou incerto conserva a base e bloqueia nova decisão', async () => {
+    const harness = setupStore()
+    const store = useTasksStore()
+    await store.connect()
+    harness.emit({
+      type: 'snapshot',
+      snapshot: snapshot('5', [record(buildTask({ id: 'a', subtasks: [{ id: 's1', title: 'Passo', done: false }] }), '5', '5')]),
+    })
+    harness.api.setSubtaskDone.mockResolvedValueOnce({
+      version: 2,
+      status: 'error',
+      code: 'CONFLICT',
+      currentContentRevision: '6',
+      currentEditRevision: '6',
+    })
+    expect(await store.setSubtaskDone('a', '4', 's1', true)).toEqual({
+      status: 'conflict',
+      currentContentRevision: '6',
+      currentEditRevision: '6',
+    })
+    expect(store.conflict).toMatchObject({ taskId: 'a', currentEditRevision: '6' })
+
+    // Decisão explícita de descartar o aviso libera nova tentativa; o incerto exige ressync.
+    store.clearConflict()
+    harness.api.setSubtaskDone.mockRejectedValueOnce(new TaskCommandTransportError())
+    expect(await store.setSubtaskDone('a', '5', 's1', true)).toEqual({ status: 'uncertain' })
+    expect(store.outcomeUnknown).toEqual({ kind: 'subtask', taskId: 'a' })
   })
 
   it('abrir origem mapeia os resultados sem repetir automaticamente', async () => {

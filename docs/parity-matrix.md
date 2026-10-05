@@ -92,6 +92,34 @@ A TFA-004 (apply concluído e Change arquivada em 2026-10-04) transporta por có
   - **P07 — lembretes:** dados e `processedFor` são preservados, mas mudança **efetiva** de prazo ou status com lembretes presentes é recusada (`ADVANCED_TASK_RESTRICTED`) até a TFA-008, porque a origem liquida/reconcilia ocorrências nessas ações. Edição independente continua válida.
 - **Nota das substituições:** a pesquisa não inclui `sourceUrl`, não remove acentos e não tokeniza palavras — igual à origem; o armazenamento continua sem aplicar limites de formulário a dados históricos.
 
+## TFA-005 — recorrências, subtarefas e fluxo de edição (apply em andamento)
+
+A TFA-005 habilita, no renderer, os fluxos que a TFA-004 mantinha somente leitura. O comportamento
+abaixo está implementado no apply com testes de renderer próprios; verificação formal, pacote e
+medição de volume pertencem aos grupos 7/8 e ainda não foram declarados como resultados. O domínio
+puro está em [domain-recurrence-and-subtasks.md](domain-recurrence-and-subtasks.md) e a interface em
+[task-form-and-cards.md](task-form-and-cards.md).
+
+- **P01 (edição):** o formulário continua conservando campos e valores históricos intactos; marcar
+  subtarefas não invalida a edição: save após checks envia `{id, title}` sem `done` e conserva as
+  marcações atuais lidas no main, condicionado à revisão de edição. Alteração estrutural/de campo
+  concorrente continua conflitando com draft e base preservados, sem merge ou rebase automático.
+- **P02 (interface):** regra DAILY/WEEKLY/MONTHLY com parâmetro exato e limite opcional, retirada
+  explícita (`recurrence: null`) e resumo no cartão; CANCELLED recorrente por Enter/ponteiro/save
+  passa pelo diálogo SKIP/END e por focusout restaura a seleção sem comando (exceção documentada).
+  Cálculo, âncora, fechamento atômico e próxima ocorrência continuam no main/domínio.
+- **P03 (interface):** até 20 subtarefas ordenadas com adicionar/remover/mover por teclado, erros
+  por índice, checkbox por intenção `done` em qualquer status, busy focável e progresso derivado do
+  snapshot; expansão do cartão é transitória e não persistida.
+- **P07 (limite temporário):** a guarda D8 continua: com lembretes, mudar efetivamente prazo/status
+  ou fechar/gerar ocorrência é recusado com motivo acessível, enquanto edições independentes e a
+  retirada isolada da regra seguem permitidas. Nenhum scheduler/notificação é entregue.
+- **P04/P05/P06/P08–P14** permanecem fora desta entrega: não há excluir/lixeira funcional, desfazer,
+  backup/restauração, lembretes editáveis, notificações, captura, atalhos ou IA na interface.
+- **Ainda não declarado:** meta de volume/p95 do D10 herdado (histórico reprovado), execução no
+  Electron empacotado e a matriz de verificação da Change; nada disso é comprovado pelos testes de
+  componente descritos acima.
+
 ## Riscos e gates futuros
 
 | Risco | Tratamento e destino |

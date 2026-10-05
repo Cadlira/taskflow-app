@@ -55,23 +55,35 @@ function paginate(records: SnapshotRecordSource, budget: number): { snapshot: St
 }
 
 function stored(count: number, descriptionLength = 600): StoredTask[] {
-  return buildFictitiousTasks(count, { descriptionLength }).map((task, index) => ({ task, contentRevision: BigInt(index + 1) }))
+  return buildFictitiousTasks(count, { descriptionLength }).map((task, index) => ({
+    task,
+    contentRevision: BigInt(index + 1),
+    editRevision: BigInt(index + 1),
+  }))
 }
 
 describe('paginação de snapshot', () => {
-  it('uma coleção pequena cabe numa página com conclusão e contagens', () => {
-    const tasks = stored(3)
+  it('uma coleção pequena cabe numa página com conclusão e contagens, preservando as duas revisões', () => {
+    const tasks = stored(3).map((item, index) => (index === 1 ? { ...item, editRevision: 1n } : item))
     const trash: StoredTrashItem[] = [
-      { task: buildMinimalFictitiousTask('lixo'), deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: 2n },
+      { task: buildMinimalFictitiousTask('lixo'), deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: 2n, editRevision: 2n },
     ]
     const { snapshot, pages } = paginate(source(tasks, trash), 256 * 1024)
 
     expect(pages).toHaveLength(1)
     expect(pages[0]?.complete).toEqual({ tasks: 3, trash: 1 })
     expect(snapshot.revision).toBe('5')
-    expect(snapshot.tasks).toEqual(tasks.map((item) => ({ task: item.task, contentRevision: String(item.contentRevision) })))
+    expect(snapshot.tasks).toEqual(
+      tasks.map((item) => ({
+        task: item.task,
+        contentRevision: String(item.contentRevision),
+        editRevision: String(item.editRevision),
+      })),
+    )
+    // O par pode divergir: edição menor que conteúdo é válida e não é inventada.
+    expect(snapshot.tasks[1]).toMatchObject({ contentRevision: '2', editRevision: '1' })
     expect(snapshot.trash).toEqual([
-      { task: buildMinimalFictitiousTask('lixo'), deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: '2' },
+      { task: buildMinimalFictitiousTask('lixo'), deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: '2', editRevision: '2' },
     ])
   })
 
@@ -83,12 +95,14 @@ describe('paginação de snapshot', () => {
     expect(pages.length).toBeGreaterThan(10)
     for (const page of pages) expect(fragmentBytes(page.fragments)).toBeLessThanOrEqual(budget)
     expect(snapshot.tasks.map((record) => record.task)).toEqual(tasks.map((item) => item.task))
+    expect(snapshot.tasks.every((record) => record.editRevision === record.contentRevision)).toBe(true)
   })
 
   it('registro maior que a página é fragmentado e reunido byte a byte, com Unicode e escaping', () => {
     const big: StoredTask = {
       task: { ...buildFictitiousTask(1), description: fictitiousText(400_000, 1) },
       contentRevision: 9_007_199_254_740_993n,
+      editRevision: 3n,
     }
     const budget = 256 * 1024 - 512
     const { snapshot, pages } = paginate(source([big, ...stored(4).slice(1)], []), budget)
@@ -97,12 +111,12 @@ describe('paginação de snapshot', () => {
     expect(pages.length).toBeGreaterThan(2)
     for (const page of pages) expect(fragmentBytes(page.fragments)).toBeLessThanOrEqual(budget)
     expect(pages.some((page) => page.fragments.some((fragment) => !fragment.final))).toBe(true)
-    expect(snapshot.tasks[0]).toEqual({ task: big.task, contentRevision: '9007199254740993' })
+    expect(snapshot.tasks[0]).toEqual({ task: big.task, contentRevision: '9007199254740993', editRevision: '3' })
     expect(snapshot.tasks).toHaveLength(4)
   })
 
   it('fragmentação com orçamento mínimo nunca divide um par surrogate', () => {
-    const emoji: StoredTask = { task: { ...buildMinimalFictitiousTask('emoji'), title: '🚀'.repeat(200) }, contentRevision: 1n }
+    const emoji: StoredTask = { task: { ...buildMinimalFictitiousTask('emoji'), title: '🚀'.repeat(200) }, contentRevision: 1n, editRevision: 1n }
     const { snapshot, pages } = paginate(source([emoji], []), 80)
 
     expect(pages.length).toBeGreaterThan(10)
@@ -129,8 +143,13 @@ describe('paginação de snapshot', () => {
 })
 
 describe('montagem validada no cliente', () => {
-  const record = JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '1' })
-  const trashRecord = JSON.stringify({ task: buildMinimalFictitiousTask('a'), deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: '1' })
+  const record = JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '1', editRevision: '1' })
+  const trashRecord = JSON.stringify({
+    task: buildMinimalFictitiousTask('a'),
+    deletedAt: '2026-09-12T08:00:00.000Z',
+    contentRevision: '1',
+    editRevision: '1',
+  })
   const cursor = 'A'.repeat(32)
 
   function accept(pages: SnapshotPage[]): StateSnapshot | undefined {
@@ -144,18 +163,18 @@ describe('montagem validada no cliente', () => {
     return [{ revision: '1', fragments: [{ collection, data, final: true }], complete: counts }]
   }
 
-  it('não publica nada antes da conclusão', () => {
+  it('não publica nada antes da conclusão e devolve as duas revisões do registro', () => {
     const assembler = new SnapshotAssembler()
     expect(
       assembler.accept({ revision: '1', fragments: [{ collection: 'tasks', data: record.slice(0, 10), final: false }], cursor }),
     ).toBeUndefined()
-    expect(
-      assembler.accept({
-        revision: '1',
-        fragments: [{ collection: 'tasks', data: record.slice(10), final: true }],
-        complete: { tasks: 1, trash: 0 },
-      }),
-    ).toMatchObject({ revision: '1' })
+    const snapshot = assembler.accept({
+      revision: '1',
+      fragments: [{ collection: 'tasks', data: record.slice(10), final: true }],
+      complete: { tasks: 1, trash: 0 },
+    })
+    expect(snapshot).toMatchObject({ revision: '1' })
+    expect(snapshot?.tasks[0]).toMatchObject({ contentRevision: '1', editRevision: '1' })
   })
 
   it.each<[string, SnapshotPage[]]>([
@@ -172,22 +191,46 @@ describe('montagem validada no cliente', () => {
     ],
     ['contagem que não confere', single('tasks', record, { tasks: 2, trash: 0 })],
     ['JSON inválido', single('tasks', '{"task":', { tasks: 1, trash: 0 })],
-    ['tarefa inválida', single('tasks', JSON.stringify({ task: { id: 'a' }, contentRevision: '1' }), { tasks: 1, trash: 0 })],
+    ['tarefa inválida', single('tasks', JSON.stringify({ task: { id: 'a' }, contentRevision: '1', editRevision: '1' }), { tasks: 1, trash: 0 })],
     [
       'propriedade desconhecida na tarefa',
       single(
         'tasks',
-        JSON.stringify({ task: { ...buildMinimalFictitiousTask('a'), path: 'C:\\x' }, contentRevision: '1' }),
+        JSON.stringify({ task: { ...buildMinimalFictitiousTask('a'), path: 'C:\\x' }, contentRevision: '1', editRevision: '1' }),
         { tasks: 1, trash: 0 },
       ),
     ],
     [
       'campo extra no registro',
-      single('tasks', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '1', sql: 'x' }), { tasks: 1, trash: 0 }),
+      single('tasks', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '1', editRevision: '1', sql: 'x' }), {
+        tasks: 1,
+        trash: 0,
+      }),
+    ],
+    [
+      'registro sem editRevision',
+      single('tasks', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '1' }), { tasks: 1, trash: 0 }),
+    ],
+    [
+      'edição maior que o conteúdo',
+      single('tasks', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '5', editRevision: '6' }), {
+        tasks: 1,
+        trash: 0,
+      }),
+    ],
+    [
+      'revisão de edição zero',
+      single('tasks', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '5', editRevision: '0' }), {
+        tasks: 1,
+        trash: 0,
+      }),
     ],
     [
       'revisão de conteúdo zero',
-      single('tasks', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '0' }), { tasks: 1, trash: 0 }),
+      single('tasks', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '0', editRevision: '1' }), {
+        tasks: 1,
+        trash: 0,
+      }),
     ],
     [
       'ID repetido na coleção',
@@ -215,7 +258,8 @@ describe('montagem validada no cliente', () => {
         },
       ],
     ],
-    ['lixeira sem deletedAt', single('trash', record, { tasks: 0, trash: 1 })],
+    ['lixeira sem deletedAt', single('trash', JSON.stringify({ task: buildMinimalFictitiousTask('a'), contentRevision: '1', editRevision: '1' }), { tasks: 0, trash: 1 })],
+    ['lixeira sem editRevision', single('trash', JSON.stringify({ task: buildMinimalFictitiousTask('a'), deletedAt: '2026-09-12T08:00:00.000Z', contentRevision: '1' }), { tasks: 0, trash: 1 })],
     [
       'troca de coleção no meio de um registro',
       [
@@ -233,7 +277,7 @@ describe('montagem validada no cliente', () => {
     expect(() => accept(pages)).toThrowError(MalformedSnapshotError)
   })
 
-  it('o mesmo ID pode aparecer em tarefas e na lixeira', () => {
+  it('o mesmo ID pode aparecer em tarefas e na lixeira, cada um com seu par de revisões', () => {
     const snapshot = accept([
       {
         revision: '3',
@@ -244,6 +288,8 @@ describe('montagem validada no cliente', () => {
         complete: { tasks: 1, trash: 1 },
       },
     ])
+    expect(snapshot?.tasks[0]).toMatchObject({ contentRevision: '1', editRevision: '1' })
+    expect(snapshot?.trash[0]).toMatchObject({ contentRevision: '1', editRevision: '1' })
     expect(snapshot?.tasks[0]?.task.id).toBe('a')
     expect(snapshot?.trash[0]?.task.id).toBe('a')
   })

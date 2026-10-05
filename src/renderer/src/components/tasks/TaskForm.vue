@@ -1,22 +1,50 @@
 <script setup lang="ts">
-// Adaptação básica revisada de taskflow-extension@a763e7a src/components/tasks/TaskForm.vue (MIT,
-// mesmo autor). Preserva campos básicos, rótulos, aria, foco inicial/primeiro erro e estilos.
-// Não monta subtarefas editáveis, recorrência, lembretes, IA, captura ou confirmação de série.
+// Adaptação revisada de taskflow-extension@a763e7a src/components/tasks/TaskForm.vue (MIT, mesmo
+// autor). Preserva campos básicos, rótulos, aria, foco inicial/primeiro erro e estilos. Habilita
+// regra de recorrência com retirada explícita e lista ordenada de subtarefas com controles de
+// teclado; não monta lembretes, IA, captura ou confirmação de série (o diálogo fica no gerente).
 import { computed, nextTick, onMounted, reactive, ref, useId } from 'vue'
-import type { BasicFieldErrors, BasicTaskDraft, BasicTaskPatch } from '../../../../domain/task-draft.js'
+import type {
+  CreateTaskDraft,
+  EditTaskPatch,
+  RecurrenceField,
+  TaskFieldErrors,
+  TaskRecurrenceDraft,
+} from '../../../../domain/task-draft.js'
 import { normalizeTags, TASK_LIMITS } from '../../../../domain/task-draft.js'
+import { RECURRENCE_LIMITS, type RecurrenceFrequency } from '../../../../domain/task-recurrence.js'
+import { MAX_SUBTASKS, SUBTASK_TITLE_LIMIT, type SubtaskDraft } from '../../../../domain/task-subtasks.js'
 import { TASK_PRIORITIES, TASK_STATUSES, type Task, type TaskStatus } from '../../../../domain/task.js'
-import { countSubtaskProgress } from '../../../../domain/task-subtasks.js'
-import { formatInstant, fromLocalDateTimeInput, INVALID_DATE_INPUT, needsTimeZoneReview, toLocalDateTimeInput } from './date-time.js'
-import { fieldErrorMessage, PRIORITY_LABELS, RECURRENCE_READONLY_LABEL, REMINDERS_RESTRICTED_HINT, STATUS_LABELS, SUBTASKS_READONLY_LABEL, subtaskProgressLabel } from './task-labels.js'
+import {
+  formatInstant,
+  fromLocalDateTimeInput,
+  INVALID_DATE_INPUT,
+  needsTimeZoneReview,
+  needsUntilTimeZoneReview,
+  toLocalDateTimeInput,
+} from './date-time.js'
+import {
+  fieldErrorMessage,
+  PRIORITY_LABELS,
+  RECURRENCE_FREQUENCY_LABELS,
+  recurrenceErrorMessage,
+  recurrenceSummaryLabel,
+  REMINDERS_RESTRICTED_HINT,
+  REMOVE_RECURRENCE_LABEL,
+  RECURRENCE_REMOVAL_HINT,
+  STATUS_LABELS,
+  subtaskItemErrorMessage,
+  WEEKDAYS,
+  WEEKDAY_LABELS,
+} from './task-labels.js'
 
-export type TaskFormSubmission = { kind: 'create'; draft: BasicTaskDraft } | { kind: 'edit'; patch: BasicTaskPatch }
+export type TaskFormSubmission = { kind: 'create'; draft: CreateTaskDraft } | { kind: 'edit'; patch: EditTaskPatch }
 
 const props = withDefaults(
   defineProps<{
     /** Tarefa em edição; ausente para criação. */
     task?: Task | null
-    errors?: BasicFieldErrors
+    errors?: TaskFieldErrors
     saving?: boolean
     /** Conversão do prazo usada na detecção de mudança de fuso; injetável em teste. */
     timeZoneConvert?: (iso: string) => string
@@ -32,15 +60,15 @@ const emit = defineEmits<{
 }>()
 
 type BasicField = 'title' | 'description' | 'requester' | 'assignee' | 'status' | 'priority' | 'dueAt' | 'tags' | 'sourceUrl'
+type RecurrenceMode = 'NONE' | RecurrenceFrequency
 
 const idPrefix = useId()
 const titleInput = ref<HTMLInputElement | null>(null)
 const formElement = ref<HTMLFormElement | null>(null)
 const reviewPanel = ref<HTMLElement | null>(null)
+const submitButton = ref<HTMLButtonElement | null>(null)
 
 const isEditing = computed(() => props.task !== null && props.task !== undefined)
-const isRecurring = computed(() => props.task?.recurrence !== undefined)
-const readOnly = computed(() => isRecurring.value)
 const heading = computed(() => (isEditing.value ? 'Editar tarefa' : 'Nova tarefa'))
 
 const form = reactive({
@@ -55,17 +83,42 @@ const form = reactive({
   sourceUrl: props.task?.sourceUrl ?? '',
 })
 
+interface FormSubtask {
+  key: number
+  id?: string
+  title: string
+}
+
+let nextSubtaskKey = 1
+const subtaskRows = ref<FormSubtask[]>(
+  (props.task?.subtasks ?? []).map((subtask) => ({ key: nextSubtaskKey++, id: subtask.id, title: subtask.title })),
+)
+
+const recurrence = reactive({
+  mode: (props.task?.recurrence?.frequency ?? 'NONE') as RecurrenceMode,
+  intervalDays: props.task?.recurrence?.frequency === 'DAILY' ? String(props.task.recurrence.intervalDays) : '1',
+  weekdays:
+    props.task?.recurrence?.frequency === 'WEEKLY' ? [...props.task.recurrence.weekdays] : ([] as number[]),
+  dayOfMonth: props.task?.recurrence?.frequency === 'MONTHLY' ? String(props.task.recurrence.dayOfMonth) : '1',
+  until: toLocalDateTimeInput(props.task?.recurrence?.until),
+})
+
+/** Retirada explícita da regra; preserva status/prazo e não é enviada até o save. */
+const recurrenceRemoved = ref(false)
+const hasBaseRule = computed(() => props.task?.recurrence !== undefined)
+const baseRuleSummary = computed(() =>
+  props.task?.recurrence === undefined ? '' : recurrenceSummaryLabel(props.task.recurrence),
+)
+
 /** Texto do prazo capturado ao abrir: base da detecção de mudança de fuso. */
 let capturedDueInput = toLocalDateTimeInput(props.task?.dueAt)
 const dueAtDirty = ref(false)
+/** Texto do limite de série capturado ao abrir; mesmo contrato do prazo. */
+let capturedUntilInput = toLocalDateTimeInput(props.task?.recurrence?.until)
+const untilDirty = ref(false)
 const timeZoneReview = ref(false)
 const hasReminders = computed(() => (props.task?.reminders.length ?? 0) > 0)
-const subtaskProgress = computed(() => {
-  const subtasks = props.task?.subtasks ?? []
-  if (subtasks.length === 0) return ''
-  const { done, total } = countSubtaskProgress(subtasks)
-  return subtaskProgressLabel(done, total)
-})
+const subtaskLimitReached = computed(() => subtaskRows.value.length >= MAX_SUBTASKS)
 
 function fieldId(field: BasicField): string {
   return `${idPrefix}-${field}`
@@ -84,6 +137,32 @@ function errorMessage(field: BasicField): string | undefined {
   return code === undefined ? undefined : fieldErrorMessage(field, code)
 }
 
+function recurrenceFieldId(field: RecurrenceField): string {
+  return `${idPrefix}-recurrence-${field}`
+}
+
+function recurrenceErrorId(field: RecurrenceField): string {
+  return `${recurrenceFieldId(field)}-error`
+}
+
+function recurrenceDescribedBy(field: RecurrenceField): string | undefined {
+  return props.errors.recurrence?.[field] === undefined ? undefined : recurrenceErrorId(field)
+}
+
+function recurrenceError(field: RecurrenceField): string | undefined {
+  const code = props.errors.recurrence?.[field]
+  return code === undefined ? undefined : recurrenceErrorMessage(field, code)
+}
+
+function subtaskInputId(index: number): string {
+  return `${idPrefix}-subtask-${index}`
+}
+
+function subtaskError(index: number): string | undefined {
+  const item = props.errors.subtasks?.items?.find((candidate) => candidate.index === index)
+  return item === undefined ? undefined : subtaskItemErrorMessage(item)
+}
+
 function optionalValue(value: string): string | undefined {
   const trimmed = value.trim()
   return trimmed ? trimmed : undefined
@@ -93,9 +172,97 @@ function sameTags(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((tag, index) => tag === right[index])
 }
 
-function buildCreateDraft(): BasicTaskDraft {
+function newInstant(input: string): string | undefined {
+  const converted = fromLocalDateTimeInput(input)
+  return converted !== undefined && converted !== INVALID_DATE_INPUT ? converted : undefined
+}
+
+// ---- Recorrência: intenção construída só quando difere da regra atual ----
+
+type RecurrenceIntent = { type: 'omit' } | { type: 'remove' } | { type: 'rule'; rule: TaskRecurrenceDraft }
+
+function sortedWeekdays(days: readonly number[]): number[] {
+  return [...days].sort((left, right) => left - right)
+}
+
+function sameWeekdays(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) return false
+  const set = new Set(left)
+  return right.every((day) => set.has(day))
+}
+
+function ruleOf(mode: RecurrenceFrequency, until: string | null | undefined): TaskRecurrenceDraft {
+  const untilPart = until === undefined ? {} : { until }
+  if (mode === 'DAILY') {
+    const parsed = Number(recurrence.intervalDays)
+    return { ...untilPart, frequency: 'DAILY', intervalDays: Number.isFinite(parsed) ? parsed : 0 }
+  }
+  if (mode === 'WEEKLY') {
+    return { ...untilPart, frequency: 'WEEKLY', weekdays: sortedWeekdays(recurrence.weekdays) }
+  }
+  const parsed = Number(recurrence.dayOfMonth)
+  return { ...untilPart, frequency: 'MONTHLY', dayOfMonth: Number.isFinite(parsed) ? parsed : 0 }
+}
+
+function baseRuleMatches(mode: RecurrenceFrequency, untilIntent: string | null | undefined): boolean {
+  const base = props.task?.recurrence
+  if (base === undefined || base.frequency !== mode) return false
+
+  if (mode === 'DAILY' && base.frequency === 'DAILY') {
+    const parsed = Number(recurrence.intervalDays)
+    if (!Number.isFinite(parsed) || parsed !== base.intervalDays) return false
+  }
+  if (mode === 'WEEKLY' && base.frequency === 'WEEKLY') {
+    if (!sameWeekdays(sortedWeekdays(recurrence.weekdays), base.weekdays)) return false
+  }
+  if (mode === 'MONTHLY' && base.frequency === 'MONTHLY') {
+    const parsed = Number(recurrence.dayOfMonth)
+    if (!Number.isFinite(parsed) || parsed !== base.dayOfMonth) return false
+  }
+  if (untilIntent !== undefined) {
+    const baseUntil = base.until ?? null
+    if (untilIntent !== baseUntil) return false
+  }
+  return true
+}
+
+function buildRecurrenceIntent(): RecurrenceIntent {
+  if (hasBaseRule.value && recurrenceRemoved.value) return { type: 'remove' }
+  if (recurrence.mode === 'NONE') return { type: 'omit' }
+
+  const mode = recurrence.mode
+  const untilIntent: string | null | undefined = untilDirty.value
+    ? recurrence.until.trim()
+      ? fromLocalDateTimeInput(recurrence.until) ?? null
+      : null
+    : undefined
+
+  if (baseRuleMatches(mode, untilIntent)) return { type: 'omit' }
+  return { type: 'rule', rule: ruleOf(mode, untilIntent) }
+}
+
+// ---- Subtarefas: lista ausente conserva, [] limpa, itens novos sem ID e sem done ----
+
+function buildSubtasksIntent(): readonly SubtaskDraft[] | undefined {
+  const base = props.task?.subtasks ?? []
+  const rows = subtaskRows.value
+
+  if (!isEditing.value) {
+    return rows.length === 0 ? undefined : rows.map((row) => ({ title: row.title }))
+  }
+
+  const changed =
+    rows.length !== base.length ||
+    rows.some((row, index) => row.id !== base[index]?.id || row.title !== base[index]?.title)
+  if (!changed) return undefined
+  return rows.map((row) => (row.id === undefined ? { title: row.title } : { id: row.id, title: row.title }))
+}
+
+// ---- Construção do draft/patch ----
+
+function buildCreateDraft(): CreateTaskDraft {
   const dueAt = fromLocalDateTimeInput(form.dueAt)
-  return {
+  const draft: CreateTaskDraft = {
     title: form.title,
     description: form.description,
     requester: form.requester,
@@ -106,13 +273,21 @@ function buildCreateDraft(): BasicTaskDraft {
     tags: form.tags.split(','),
     sourceUrl: form.sourceUrl,
   }
+
+  const recurrenceIntent = buildRecurrenceIntent()
+  if (recurrenceIntent.type === 'rule') draft.recurrence = recurrenceIntent.rule
+
+  const subtasks = buildSubtasksIntent()
+  if (subtasks !== undefined) draft.subtasks = subtasks
+
+  return draft
 }
 
-function buildPatch(): BasicTaskPatch {
+function buildPatch(): EditTaskPatch {
   const base = props.task
   if (base === null || base === undefined) return {}
 
-  const patch: BasicTaskPatch = {}
+  const patch: EditTaskPatch = {}
   if (optionalValue(form.title) !== base.title) patch.title = form.title
 
   const textFields = ['description', 'requester', 'assignee'] as const
@@ -135,10 +310,65 @@ function buildPatch(): BasicTaskPatch {
   const sourceUrl = optionalValue(form.sourceUrl)
   if (sourceUrl !== base.sourceUrl) patch.sourceUrl = sourceUrl ?? null
 
+  const recurrenceIntent = buildRecurrenceIntent()
+  if (recurrenceIntent.type === 'remove') patch.recurrence = null
+  else if (recurrenceIntent.type === 'rule') patch.recurrence = recurrenceIntent.rule
+
+  const subtasks = buildSubtasksIntent()
+  if (subtasks !== undefined) patch.subtasks = subtasks
+
   return patch
 }
 
-/** Foca o primeiro campo inválido em ordem de documento. */
+// ---- Ações da lista de subtarefas (acessíveis por teclado) ----
+
+function focusSubtaskInput(index: number): void {
+  formElement.value?.querySelector<HTMLInputElement>(`[data-subtask-row="${index}"] input`)?.focus()
+}
+
+function subtaskActionButton(index: number, action: string): HTMLButtonElement | null {
+  return (
+    formElement.value?.querySelector<HTMLButtonElement>(`[data-subtask-row="${index}"] [data-action="${action}"]`) ??
+    null
+  )
+}
+
+function addSubtask(): void {
+  if (subtaskLimitReached.value) return
+  subtaskRows.value.push({ key: nextSubtaskKey++, title: '' })
+  void nextTick(() => focusSubtaskInput(subtaskRows.value.length - 1))
+}
+
+function removeSubtask(index: number): void {
+  if (index < 0 || index >= subtaskRows.value.length) return
+  const wasLast = index === subtaskRows.value.length - 1
+  subtaskRows.value.splice(index, 1)
+  void nextTick(() => {
+    if (subtaskRows.value.length === 0) {
+      formElement.value?.querySelector<HTMLButtonElement>('[data-action="add-subtask"]')?.focus()
+      return
+    }
+    if (wasLast) focusSubtaskInput(subtaskRows.value.length - 1)
+    else focusSubtaskInput(index)
+  })
+}
+
+function moveSubtask(index: number, delta: -1 | 1): void {
+  const target = index + delta
+  if (index < 0 || index >= subtaskRows.value.length || target < 0 || target >= subtaskRows.value.length) return
+  const rows = subtaskRows.value
+  const current = rows[index]
+  const other = rows[target]
+  if (current === undefined || other === undefined) return
+  rows[index] = other
+  rows[target] = current
+  const action = delta === -1 ? 'move-up' : 'move-down'
+  void nextTick(() => subtaskActionButton(target, action)?.focus())
+}
+
+// ---- Foco e save ----
+
+/** Foca o primeiro campo inválido em ordem de documento (básicos, regra e subtarefas). */
 function focusFirstInvalid(): boolean {
   const invalid = formElement.value?.querySelector<HTMLElement>('[aria-invalid="true"]')
   if (!invalid) return false
@@ -146,12 +376,16 @@ function focusFirstInvalid(): boolean {
   return true
 }
 
-defineExpose({ focusFirstInvalid })
+function focusSubmit(): void {
+  submitButton.value?.focus()
+}
+
+defineExpose({ focusFirstInvalid, focusSubmit })
 
 function handleSubmit(): void {
-  if (readOnly.value || props.saving === true) return
+  if (props.saving === true) return
 
-  if (
+  const dueReview =
     isEditing.value &&
     dueAtDirty.value &&
     needsTimeZoneReview({
@@ -161,7 +395,20 @@ function handleSubmit(): void {
       dirty: dueAtDirty.value,
       ...(props.timeZoneConvert !== undefined && { convert: props.timeZoneConvert }),
     })
-  ) {
+
+  const untilReview =
+    isEditing.value &&
+    !recurrenceRemoved.value &&
+    untilDirty.value &&
+    needsUntilTimeZoneReview({
+      originalUntilIso: props.task?.recurrence?.until,
+      capturedUntilInput,
+      nextUntilInput: recurrence.until,
+      dirty: untilDirty.value,
+      ...(props.timeZoneConvert !== undefined && { convert: props.timeZoneConvert }),
+    })
+
+  if (dueReview || untilReview) {
     timeZoneReview.value = true
     void nextTick(() => reviewPanel.value?.focus())
     return
@@ -174,18 +421,36 @@ function handleSubmit(): void {
 function confirmTimeZone(): void {
   const convert = props.timeZoneConvert ?? toLocalDateTimeInput
   capturedDueInput = props.task?.dueAt ? convert(props.task.dueAt) : ''
+  capturedUntilInput = props.task?.recurrence?.until ? convert(props.task.recurrence.until) : ''
   timeZoneReview.value = false
 }
 
-/** Restaura o prazo salvo e abandona a alteração pendente. */
+/** Restaura os valores salvos e abandona as alterações pendentes de prazo/limite. */
 function restoreSavedDue(): void {
   form.dueAt = capturedDueInput
   dueAtDirty.value = false
+  if (untilDirty.value) {
+    recurrence.until = capturedUntilInput
+    untilDirty.value = false
+  }
   timeZoneReview.value = false
 }
 
 function handleDueInput(): void {
   dueAtDirty.value = true
+}
+
+function handleUntilInput(): void {
+  untilDirty.value = true
+}
+
+function removeRecurrence(): void {
+  recurrenceRemoved.value = true
+  timeZoneReview.value = false
+}
+
+function undoRemoveRecurrence(): void {
+  recurrenceRemoved.value = false
 }
 
 onMounted(() => {
@@ -205,14 +470,6 @@ onMounted(() => {
       {{ heading }}
     </h2>
 
-    <p
-      v-if="readOnly"
-      class="form-notice"
-      data-test="recurrence-notice"
-    >
-      {{ RECURRENCE_READONLY_LABEL }}
-    </p>
-
     <div class="field">
       <label :for="fieldId('title')">Título <span aria-hidden="true">*</span></label>
       <input
@@ -222,7 +479,6 @@ onMounted(() => {
         name="title"
         type="text"
         required
-        :readonly="readOnly"
         :maxlength="TASK_LIMITS.title"
         :aria-invalid="Boolean(errors.title)"
         :aria-describedby="describedBy('title')"
@@ -243,7 +499,6 @@ onMounted(() => {
         v-model="form.description"
         name="description"
         rows="3"
-        :readonly="readOnly"
         :maxlength="TASK_LIMITS.description"
         :aria-invalid="Boolean(errors.description)"
         :aria-describedby="describedBy('description')"
@@ -265,7 +520,6 @@ onMounted(() => {
           v-model="form.requester"
           name="requester"
           type="text"
-          :readonly="readOnly"
           :maxlength="TASK_LIMITS.person"
           :aria-invalid="Boolean(errors.requester)"
           :aria-describedby="describedBy('requester')"
@@ -286,7 +540,6 @@ onMounted(() => {
           v-model="form.assignee"
           name="assignee"
           type="text"
-          :readonly="readOnly"
           :maxlength="TASK_LIMITS.person"
           :aria-invalid="Boolean(errors.assignee)"
           :aria-describedby="describedBy('assignee')"
@@ -308,7 +561,6 @@ onMounted(() => {
           :id="fieldId('status')"
           v-model="form.status"
           name="status"
-          :disabled="readOnly"
           :aria-invalid="Boolean(errors.status)"
           :aria-describedby="describedBy('status')"
         >
@@ -335,7 +587,6 @@ onMounted(() => {
           :id="fieldId('priority')"
           v-model="form.priority"
           name="priority"
-          :disabled="readOnly"
           :aria-invalid="Boolean(errors.priority)"
           :aria-describedby="describedBy('priority')"
         >
@@ -364,7 +615,6 @@ onMounted(() => {
         v-model="form.dueAt"
         name="dueAt"
         type="datetime-local"
-        :readonly="readOnly"
         :aria-invalid="Boolean(errors.dueAt)"
         :aria-describedby="describedBy('dueAt')"
         @input="handleDueInput"
@@ -391,13 +641,24 @@ onMounted(() => {
         O fuso horário do sistema mudou
       </h3>
       <p>
-        O prazo foi alterado enquanto o fuso do sistema mudou. Revise o horário antes de salvar.
-        Instante atual no fuso corrente:
-        <strong>{{ props.task?.dueAt ? formatInstant(props.task.dueAt) : '' }}</strong>
-        <template v-if="fromLocalDateTimeInput(form.dueAt) && fromLocalDateTimeInput(form.dueAt) !== INVALID_DATE_INPUT">
-          · novo prazo: <strong>{{ formatInstant(fromLocalDateTimeInput(form.dueAt) as string) }}</strong>
-        </template>
+        O prazo ou o limite da série foi alterado enquanto o fuso do sistema mudou. Revise os
+        horários antes de salvar.
       </p>
+      <ul class="time-zone-values">
+        <li v-if="dueAtDirty">
+          Prazo salvo: <strong>{{ props.task?.dueAt ? formatInstant(props.task.dueAt) : 'sem valor' }}</strong>
+          <template v-if="newInstant(form.dueAt)">
+            · novo prazo: <strong>{{ formatInstant(newInstant(form.dueAt) as string) }}</strong>
+          </template>
+        </li>
+        <li v-if="untilDirty && !recurrenceRemoved">
+          Limite salvo:
+          <strong>{{ props.task?.recurrence?.until ? formatInstant(props.task.recurrence.until) : 'sem valor' }}</strong>
+          <template v-if="newInstant(recurrence.until)">
+            · novo limite: <strong>{{ formatInstant(newInstant(recurrence.until) as string) }}</strong>
+          </template>
+        </li>
+      </ul>
       <div class="form-actions">
         <button
           type="button"
@@ -410,7 +671,7 @@ onMounted(() => {
           class="button-secondary"
           @click="restoreSavedDue"
         >
-          Restaurar prazo salvo
+          Restaurar valores salvos
         </button>
       </div>
     </section>
@@ -424,27 +685,272 @@ onMounted(() => {
     </div>
 
     <section
-      v-if="(props.task?.subtasks.length ?? 0) > 0"
-      class="field subtasks-readonly"
+      class="field recurrence"
+      :aria-labelledby="`${idPrefix}-recurrence-title`"
+    >
+      <h3 :id="`${idPrefix}-recurrence-title`">
+        Recorrência
+      </h3>
+      <p
+        v-if="hasBaseRule"
+        class="field-hint"
+        data-test="base-recurrence-summary"
+      >
+        Regra atual: {{ baseRuleSummary }}
+      </p>
+
+      <template v-if="!recurrenceRemoved">
+        <div class="field">
+          <label :for="recurrenceFieldId('frequency')">Frequência</label>
+          <select
+            :id="recurrenceFieldId('frequency')"
+            v-model="recurrence.mode"
+            name="recurrenceFrequency"
+            :aria-invalid="Boolean(errors.recurrence?.frequency)"
+            :aria-describedby="recurrenceDescribedBy('frequency')"
+          >
+            <option
+              v-if="!hasBaseRule"
+              value="NONE"
+            >
+              Não se repete
+            </option>
+            <option
+              v-for="frequency in (['DAILY', 'WEEKLY', 'MONTHLY'] as const)"
+              :key="frequency"
+              :value="frequency"
+            >
+              {{ RECURRENCE_FREQUENCY_LABELS[frequency] }}
+            </option>
+          </select>
+          <p
+            v-if="recurrenceError('frequency')"
+            :id="recurrenceErrorId('frequency')"
+            class="field-error"
+          >
+            {{ recurrenceError('frequency') }}
+          </p>
+        </div>
+
+        <div
+          v-if="recurrence.mode === 'DAILY'"
+          class="field"
+        >
+          <label :for="recurrenceFieldId('intervalDays')">A cada quantos dias (1–365)</label>
+          <input
+            :id="recurrenceFieldId('intervalDays')"
+            v-model="recurrence.intervalDays"
+            name="recurrenceIntervalDays"
+            type="number"
+            :min="RECURRENCE_LIMITS.intervalDaysMin"
+            :max="RECURRENCE_LIMITS.intervalDaysMax"
+            step="1"
+            :aria-invalid="Boolean(errors.recurrence?.intervalDays)"
+            :aria-describedby="recurrenceDescribedBy('intervalDays')"
+          >
+          <p
+            v-if="recurrenceError('intervalDays')"
+            :id="recurrenceErrorId('intervalDays')"
+            class="field-error"
+          >
+            {{ recurrenceError('intervalDays') }}
+          </p>
+        </div>
+
+        <fieldset
+          v-if="recurrence.mode === 'WEEKLY'"
+          class="field weekday-fieldset"
+        >
+          <legend>Dias da semana</legend>
+          <div class="weekday-options">
+            <label
+              v-for="day in WEEKDAYS"
+              :key="day"
+              class="weekday-option"
+            >
+              <input
+                v-model="recurrence.weekdays"
+                type="checkbox"
+                name="recurrenceWeekdays"
+                :value="day"
+              >
+              {{ WEEKDAY_LABELS[day] }}
+            </label>
+          </div>
+          <p
+            v-if="recurrenceError('weekdays')"
+            :id="recurrenceErrorId('weekdays')"
+            class="field-error"
+          >
+            {{ recurrenceError('weekdays') }}
+          </p>
+        </fieldset>
+
+        <div
+          v-if="recurrence.mode === 'MONTHLY'"
+          class="field"
+        >
+          <label :for="recurrenceFieldId('dayOfMonth')">Dia do mês (1–31)</label>
+          <input
+            :id="recurrenceFieldId('dayOfMonth')"
+            v-model="recurrence.dayOfMonth"
+            name="recurrenceDayOfMonth"
+            type="number"
+            :min="RECURRENCE_LIMITS.dayOfMonthMin"
+            :max="RECURRENCE_LIMITS.dayOfMonthMax"
+            step="1"
+            :aria-invalid="Boolean(errors.recurrence?.dayOfMonth)"
+            :aria-describedby="recurrenceDescribedBy('dayOfMonth')"
+          >
+          <p
+            v-if="recurrenceError('dayOfMonth')"
+            :id="recurrenceErrorId('dayOfMonth')"
+            class="field-error"
+          >
+            {{ recurrenceError('dayOfMonth') }}
+          </p>
+        </div>
+
+        <div class="field">
+          <label :for="recurrenceFieldId('until')">Limite da série (opcional)</label>
+          <input
+            :id="recurrenceFieldId('until')"
+            v-model="recurrence.until"
+            name="recurrenceUntil"
+            type="datetime-local"
+            :aria-invalid="Boolean(errors.recurrence?.until)"
+            :aria-describedby="recurrenceDescribedBy('until')"
+            @input="handleUntilInput"
+          >
+          <p class="field-hint">
+            Depois do limite, novas ocorrências deixam de ser geradas.
+          </p>
+          <p
+            v-if="recurrenceError('until')"
+            :id="recurrenceErrorId('until')"
+            class="field-error"
+          >
+            {{ recurrenceError('until') }}
+          </p>
+        </div>
+      </template>
+
+      <template v-else>
+        <p
+          class="form-notice"
+          data-test="recurrence-removal"
+        >
+          {{ RECURRENCE_REMOVAL_HINT }}
+        </p>
+        <button
+          type="button"
+          class="button-secondary"
+          data-action="undo-remove-recurrence"
+          @click="undoRemoveRecurrence"
+        >
+          Manter recorrência
+        </button>
+      </template>
+
+      <button
+        v-if="hasBaseRule && !recurrenceRemoved"
+        type="button"
+        class="button-secondary"
+        data-action="remove-recurrence"
+        @click="removeRecurrence"
+      >
+        {{ REMOVE_RECURRENCE_LABEL }}
+      </button>
+    </section>
+
+    <section
+      class="field subtasks-edit"
       :aria-labelledby="`${idPrefix}-subtasks-title`"
     >
       <h3 :id="`${idPrefix}-subtasks-title`">
-        {{ SUBTASKS_READONLY_LABEL }}
+        Subtarefas
       </h3>
-      <p class="field-hint">
-        Progresso: {{ subtaskProgress }}
+      <p
+        class="field-hint"
+        data-test="subtask-limit"
+      >
+        {{ subtaskRows.length }} de {{ MAX_SUBTASKS }} subtarefas. Cada título aceita até {{ SUBTASK_TITLE_LIMIT }} caracteres.
       </p>
-      <ul class="subtask-list">
+
+      <ol
+        v-if="subtaskRows.length > 0"
+        class="subtask-edit-list"
+      >
         <li
-          v-for="subtask in props.task?.subtasks ?? []"
-          :key="subtask.id"
-          class="subtask-item"
-          :class="{ 'subtask-done': subtask.done }"
+          v-for="(row, index) in subtaskRows"
+          :key="row.key"
+          class="subtask-edit-item"
+          :data-subtask-row="index"
         >
-          <span class="subtask-state">{{ subtask.done ? 'Feita' : 'Pendente' }}:</span>
-          <span>{{ subtask.title }}</span>
+          <span
+            class="subtask-position"
+            aria-hidden="true"
+          >{{ index + 1 }}.</span>
+          <label
+            class="visually-hidden"
+            :for="subtaskInputId(index)"
+          >Título da subtarefa {{ index + 1 }}</label>
+          <input
+            :id="subtaskInputId(index)"
+            v-model="row.title"
+            class="subtask-title-input"
+            type="text"
+            :maxlength="SUBTASK_TITLE_LIMIT"
+            :aria-invalid="Boolean(subtaskError(index))"
+            :aria-describedby="subtaskError(index) ? `${subtaskInputId(index)}-error` : undefined"
+          >
+          <div class="subtask-actions">
+            <button
+              type="button"
+              class="button-small button-secondary"
+              data-action="move-up"
+              :aria-disabled="index === 0 ? 'true' : undefined"
+              @click="moveSubtask(index, -1)"
+            >
+              Mover para cima<span class="visually-hidden">: subtarefa {{ index + 1 }}</span>
+            </button>
+            <button
+              type="button"
+              class="button-small button-secondary"
+              data-action="move-down"
+              :aria-disabled="index === subtaskRows.length - 1 ? 'true' : undefined"
+              @click="moveSubtask(index, 1)"
+            >
+              Mover para baixo<span class="visually-hidden">: subtarefa {{ index + 1 }}</span>
+            </button>
+            <button
+              type="button"
+              class="button-small button-secondary"
+              data-action="remove-subtask"
+              @click="removeSubtask(index)"
+            >
+              Remover<span class="visually-hidden"> a subtarefa {{ index + 1 }}</span>
+            </button>
+          </div>
+          <p
+            v-if="subtaskError(index)"
+            :id="`${subtaskInputId(index)}-error`"
+            class="field-error"
+          >
+            {{ subtaskError(index) }}
+          </p>
         </li>
-      </ul>
+      </ol>
+
+      <button
+        type="button"
+        class="button-secondary"
+        data-action="add-subtask"
+        :aria-disabled="subtaskLimitReached ? 'true' : undefined"
+        @click="addSubtask"
+      >
+        Adicionar subtarefa
+      </button>
     </section>
 
     <div class="field">
@@ -454,7 +960,6 @@ onMounted(() => {
         v-model="form.tags"
         name="tags"
         type="text"
-        :readonly="readOnly"
         :aria-invalid="Boolean(errors.tags)"
         :aria-describedby="describedBy('tags')"
       >
@@ -479,7 +984,6 @@ onMounted(() => {
         type="url"
         inputmode="url"
         placeholder="https://"
-        :readonly="readOnly"
         :aria-invalid="Boolean(errors.sourceUrl)"
         :aria-describedby="describedBy('sourceUrl')"
       >
@@ -510,7 +1014,7 @@ onMounted(() => {
 
     <div class="form-actions">
       <button
-        v-if="!readOnly"
+        ref="submitButton"
         type="submit"
         :aria-disabled="saving ? 'true' : undefined"
       >
@@ -522,7 +1026,7 @@ onMounted(() => {
         :aria-disabled="saving ? 'true' : undefined"
         @click="emit('cancel')"
       >
-        {{ readOnly ? 'Fechar' : 'Cancelar' }}
+        Cancelar
       </button>
     </div>
   </form>
@@ -570,42 +1074,81 @@ onMounted(() => {
   line-height: 1.45;
 }
 
-.subtasks-readonly {
+.time-zone-values {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.recurrence,
+.subtasks-edit {
+  display: grid;
+  gap: 0.6rem;
   margin: 0;
   padding: 0.75rem;
   border: 1px dashed var(--color-border-strong);
   border-radius: 0.8rem;
 }
 
-.subtasks-readonly h3 {
-  margin: 0 0 0.35rem;
+.recurrence h3,
+.subtasks-edit h3 {
+  margin: 0;
   font-size: 0.9rem;
 }
 
-.subtask-list {
-  display: grid;
+.weekday-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weekday-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+}
+
+.weekday-option {
+  display: inline-flex;
+  align-items: center;
   gap: 0.3rem;
-  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+}
+
+.subtask-edit-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.subtask-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
+.subtask-edit-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.35rem 0.5rem;
+  align-items: center;
+}
+
+.subtask-edit-item .subtask-title-input {
+  min-width: 0;
+}
+
+.subtask-position {
   font-size: 0.85rem;
-  overflow-wrap: anywhere;
-}
-
-.subtask-done span {
   color: var(--color-muted);
-  text-decoration: line-through;
 }
 
-.subtask-state {
-  flex: none;
-  font-weight: 600;
+.subtask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  grid-column: 1 / -1;
+}
+
+.subtask-edit-item .field-error {
+  grid-column: 1 / -1;
 }
 
 .open-source {

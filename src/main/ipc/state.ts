@@ -159,7 +159,7 @@ export class StateIpcService {
 
       const outcome = await this.#page(ticket, parsed.cursor, false)
       if (outcome.kind === 'error') return stateFailure(outcome.code)
-      return this.#withinBudget(ticket, { version: 1, status: 'ok', page: outcome.page })
+      return this.#withinBudget(ticket, { version: 2, status: 'ok', page: outcome.page })
     } catch {
       return stateFailure('STORAGE_UNAVAILABLE')
     }
@@ -175,7 +175,7 @@ export class StateIpcService {
       if (outcome.kind === 'error') return stateFailure(outcome.code)
       if (outcome.subscriptionId === undefined) return stateFailure('STORAGE_UNAVAILABLE')
       return this.#withinBudget(ticket, {
-        version: 1,
+        version: 2,
         status: 'ok',
         subscriptionId: outcome.subscriptionId,
         page: outcome.page,
@@ -197,11 +197,11 @@ export class StateIpcService {
         document.subscriptionId = undefined
         document.pendingRevision = undefined
         document.retired = [...document.retired, parsed.subscriptionId].slice(-RETIRED_SUBSCRIPTIONS)
-        return Promise.resolve({ version: 1, status: 'ok' })
+        return Promise.resolve({ version: 2, status: 'ok' })
       }
       // Repetição do próprio cancelamento é segura; token de outra sessão é recusado.
       if (document?.retired.includes(parsed.subscriptionId) === true) {
-        return Promise.resolve({ version: 1, status: 'ok' })
+        return Promise.resolve({ version: 2, status: 'ok' })
       }
       return Promise.resolve(stateFailure('UNAUTHORIZED'))
     } catch {
@@ -333,7 +333,7 @@ export class StateIpcService {
       const { subscriptionId, pendingRevision } = document
       document.pendingRevision = undefined
       if (subscriptionId === undefined || pendingRevision === undefined) continue
-      const event: StateChangedEvent = { version: 1, subscriptionId, revision: formatRevision(pendingRevision) }
+      const event: StateChangedEvent = { version: 2, subscriptionId, revision: formatRevision(pendingRevision) }
       this.#send(document, STATE_CHANGED_EVENT, event)
     }
   }
@@ -342,7 +342,7 @@ export class StateIpcService {
     for (const document of [...this.#documents.values()]) {
       if (document.subscriptionId === undefined) continue
       const event: StateUnavailableEvent = {
-        version: 1,
+        version: 2,
         subscriptionId: document.subscriptionId,
         code: stateErrorCodeFor(reason),
       }

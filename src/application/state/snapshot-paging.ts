@@ -41,7 +41,11 @@ export function initialSnapshotPosition(): SnapshotPosition {
 export function serializeTaskRecord(stored: StoredTask): SerializedRecord {
   return {
     id: stored.task.id,
-    json: JSON.stringify({ task: stored.task, contentRevision: formatRevision(stored.contentRevision) }),
+    json: JSON.stringify({
+      task: stored.task,
+      contentRevision: formatRevision(stored.contentRevision),
+      editRevision: formatRevision(stored.editRevision),
+    }),
   }
 }
 
@@ -52,6 +56,7 @@ export function serializeTrashRecord(stored: StoredTrashItem): SerializedRecord 
       task: stored.task,
       deletedAt: stored.deletedAt,
       contentRevision: formatRevision(stored.contentRevision),
+      editRevision: formatRevision(stored.editRevision),
     }),
   }
 }

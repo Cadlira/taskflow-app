@@ -232,6 +232,76 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     return marker
   }
 
+  // P0 — TFA-005: migração real SQL1→2 no pacote, com kill nas barreiras e leitura da origem.
+  evidence.migration = []
+  const seedSql1 = async () => {
+    rmSync(productDatabase, { force: true })
+    rmSync(`${productDatabase}-journal`, { force: true })
+    const { child, marker } = await runScenario('seed-sql1')
+    const exit = await waitForExit(child, 20_000)
+    assert(!exit.timedOut && marker.ok === true, `seed-sql1 falhou: ${JSON.stringify(marker)}`)
+    return marker
+  }
+  const inspectSql1 = async () => {
+    const { child, marker } = await runScenario('inspect-sql1')
+    const exit = await waitForExit(child, 20_000)
+    assert(!exit.timedOut, 'inspect-sql1 não encerrou')
+    return marker
+  }
+  const migrateKill = async (point) => {
+    const seeded = await seedSql1()
+    rmSync(barrierFile, { force: true })
+    const child = launch(exe, ['--foundation-test', `--product-harness=crash|${point}|migrate`], cwd, environment)
+    const armed = await waitForMarker(child, launchTimeoutMs, productMarkerPrefix, (marker) => marker.armed === true)
+    assert(armed.reason === 'marker', `${point}: harness não armou a barreira (${armed.reason})`)
+    const deadline = Date.now() + launchTimeoutMs
+    while (!existsSync(barrierFile)) {
+      assert(child.exitCode === null, `${point}: processo saiu antes da barreira`)
+      assert(Date.now() < deadline, `${point}: barreira não alcançada`)
+      await sleep(50)
+    }
+    const barrier = JSON.parse(readFileSync(barrierFile, 'utf8'))
+    assert(barrier.pid === child.pid && barrier.pid === armed.marker.pid, `${point}: PID da barreira não confere`)
+    killTree(child.pid)
+    await waitForExit(child, 10_000)
+
+    const inspect = await inspectSql1()
+    const reopened = await reopen()
+    assert(
+      reopened.summary.revision === (BigInt(seeded.revision) + 1n).toString(),
+      `${point}: revisão após migração divergente (${reopened.summary.revision})`,
+    )
+    assert(reopened.summary.tasks === 12 && reopened.summary.trash === 1, `${point}: dados não preservados`)
+    assert(Number(reopened.runtime.storage.schemaVersion) === 2, `${point}: destino não é SQL2`)
+    evidence.migration.push({ point, seeded: seeded.revision, inspect, reopened: reopened.summary })
+    return inspect
+  }
+
+  const duringInspect = await migrateKill('migrate:in-transaction')
+  assert(duringInspect.ok === true && duringInspect.tasks === 12 && duringInspect.trash === 1, 'kill durante a migração não deixou SQL1 inteiro')
+  record('produto: kill durante a migração deixa SQL1 inteiro e migra depois', true, `revisão ${duringInspect.revision}`)
+  const beforeCommitInspect = await migrateKill('migrate:before-commit')
+  assert(beforeCommitInspect.ok === true && beforeCommitInspect.tasks === 12, 'kill antes do commit não deixou SQL1 inteiro')
+  record('produto: kill antes do commit da migração deixa SQL1 inteiro', true)
+  const afterCommitInspect = await migrateKill('migrate:after-commit')
+  assert(afterCommitInspect.ok === false && afterCommitInspect.code === 'INCOMPATIBLE_DATA', 'pós-commit deveria recusar o leitor SQL1')
+  record('produto: kill depois do commit deixa SQL2 inteiro e recusa o leitor antigo', true)
+
+  // Migração normal (sem kill): perfil SQL1 novo migra uma única vez ao abrir.
+  const seeded = await seedSql1()
+  const migrated = await reopen()
+  assert(
+    migrated.summary.revision === (BigInt(seeded.revision) + 1n).toString(),
+    'migração normal não avançou exatamente uma revisão',
+  )
+  assert(Number(migrated.runtime.storage.schemaVersion) === 2, 'migração normal não fechou em SQL2')
+  assert(migrated.summary.tasks === 12 && migrated.summary.trash === 1, 'migração normal não preservou os dados')
+  record('produto: migração 1→2 normal preserva dados e avança a global uma vez', true, `revisão ${migrated.summary.revision}`)
+
+  // O fluxo P1 nasce limpo em SQL2: o perfil fictício da migração é descartado.
+  rmSync(productDatabase, { force: true })
+  rmSync(`${productDatabase}-journal`, { force: true })
+
   // P1 — bridge real: catálogo, round-trip, duas superfícies, negativas, sessões e isolamento
   const bridge = await runScenario('bridge')
   evidence.bridge = bridge.marker
@@ -254,7 +324,7 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
       runtime.storage.synchronous === 3 &&
       runtime.storage.foreignKeys === 1 &&
       runtime.storage.busyTimeoutMs === 100 &&
-      runtime.storage.schemaVersion === 1,
+      runtime.storage.schemaVersion === 2,
     `PRAGMAs efetivos divergentes: ${JSON.stringify(runtime.storage)}`,
   )
   record('produto: PRAGMAs efetivos DELETE/EXTRA/foreign_keys/100 ms no pacote', true, JSON.stringify(runtime.storage))
@@ -379,6 +449,13 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
       true,
       `mutação p95 ${large.mutation.p95Ms} ms, página p95 ${large.page.p95Ms} ms, preflight ${large.preflight.ms} ms, saveMany ${large.saveManyMs} ms`,
     )
+    const series = large.series ?? {}
+    out(`SERIES ${JSON.stringify(series)}`)
+    record(
+      'produto: fechamento, edição de portadora e limite de 32.768 passos medidos',
+      true,
+      `closure ${series.closureMs} ms, due ${series.dueUpdateMs} ms, título ${series.titleUpdateMs} ms, limite ${series.limitMs} ms (${series.limitStatus})`,
+    )
     assert((await reopen()).ok === true, 'banco do benchmark não reabriu')
     record('produto: banco do benchmark reabre validado', true)
   }
@@ -393,6 +470,28 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
   assert(tasks.marker.ok === true, `UI real de tarefas reprovou: ${failedTasks.join(', ') || 'sem resultado'}`)
   assert(!tasksExit.timedOut && tasksExit.code === 0, `fechamento da janela principal não encerrou com saída 0 (${tasksExit.code})`)
   record('produto: UI real, negativas, foco, reload e fechamento da janela', true)
+
+  // P7b — TFA-005: recorrência e subtarefas no pacote (UI+preload+main+SQLite, duas superfícies).
+  const recurrence = await runScenario('recurrence', 180_000)
+  evidence.recurrence = recurrence.marker
+  const recurrenceExit = await waitForExit(recurrence.child, 30_000)
+  const failedRecurrence = Object.entries(recurrence.marker.checks ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  out(`RECURRENCE ${JSON.stringify(recurrence.marker)}`)
+  assert(
+    recurrence.marker.ok === true,
+    `recorrência/subtarefas reprovou: ${failedRecurrence.join(', ') || 'sem resultado'}`,
+  )
+  assert(
+    !recurrenceExit.timedOut && recurrenceExit.code === 0,
+    `cenário recurrence não encerrou com saída 0 (${recurrenceExit.code})`,
+  )
+  record(
+    'produto: recorrência/subtarefas por UI/preload/main/SQLite com duas superfícies',
+    true,
+    `${Object.keys(recurrence.marker.checks).length} verificações`,
+  )
 
   // P8 — acessibilidade/zoom/strings longas e abertura controlada (shell real na referência;
   // opener falso no runner hospedado, onde não há navegador padrão garantido).
@@ -428,7 +527,7 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
   record(
     'produto: UI real 1.000/10.000 contra D10',
     uiBench.marker.ok === true,
-    `montagem ${smallData.mountMs}/${largeData.mountMs} ms, p95 consultas ${smallData.interactions?.p95Ms}/${largeData.interactions?.p95Ms} ms, heartbeat ${smallData.heartbeatMaxMs}/${largeData.heartbeatMaxMs} ms, cards ${smallData.cards}/${largeData.cards}` +
+    `montagem ${smallData.mountMs}/${largeData.mountMs} ms, p95 consultas ${smallData.interactions?.p95Ms}/${largeData.interactions?.p95Ms} ms, subtarefas p95 ${smallData.subtaskControls?.p95Ms}/${largeData.subtaskControls?.p95Ms} ms, heartbeat ${smallData.heartbeatMaxMs}/${largeData.heartbeatMaxMs} ms, cards ${smallData.cards}/${largeData.cards}` +
       (failedUiGates.length > 0 ? `; gates reprovados: ${failedUiGates.join(', ')}` : '') +
       (ciRunner && failedUiGates.length > 0 ? ' [orçamento D10 pendente de revisão: reportado, não bloqueia o runner]' : ''),
     { pending: ciRunner && uiBench.marker.ok !== true },

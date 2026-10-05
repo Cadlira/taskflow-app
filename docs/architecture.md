@@ -270,3 +270,24 @@ Esta seção registra o que **existe no branch da TFA-004** para os comandos de 
 | Assinatura/canal manual, retenção de uninstall e ambiente corporativo de validação | TFA-011/012. |
 
 Esses gates não impedem a conclusão documental da TFA-001. A aprovação desta documentação não implementa os contratos nem inicia TFA-002.
+
+## TFA-005 — recorrência e subtarefas no núcleo
+
+**Estado:** apply em 2026-10-04. Regras de cálculo/validação/subtarefas vivem no domínio portável
+(`src/domain`) e são aplicadas pelos comandos coordenados no main; a bridge expõe mutações v2
+(quatro) e a abertura da origem v1, em um catálogo fechado de nove operações.
+
+| Área | Dono da decisão e contrato |
+| --- | --- |
+| Relógio, IDs, âncora, série | main (`randomUUID`/`Date` na composição), dentro da unidade; renderer nunca envia `anchorAt`/`seriesId`/`done`/auditoria. |
+| Cálculo da próxima | função pura, no máximo 32.768 passos, resultado finito (`NEXT`/`EXHAUSTED`/`OUT_OF_RANGE`/`RESOURCE_LIMIT`); erro nunca vira fim natural. |
+| Fechamento + geração | um plano e um commit: DONE/SKIP transferem a regra para no máximo uma próxima TODO; END não gera; reabrir não recupera regra. |
+| Portadora única | varredura de tarefas e lixeira dentro da unidade; duplicidade histórica recusa regra/prazo/fechamento com `SERIES_CONFLICT`, sem reparação automática. |
+| CAS | edição/status/toggle comparam `editRevision`; reversão interna compara conteúdo completo de anterior/gerada; claim conserva conteúdo e edição. |
+| Lembretes (guarda D8) | recusa mudança efetiva de prazo/status e fechamento/geração quando a tarefa tem lembretes, preservando dados/marcadores; permite edições independentes, regra em não terminal sem efeitos e retirada isolada da regra. Nenhum scheduler/settlement/notificação é entregue. |
+| Subtarefas | até 20, títulos trim 1–200, ordem manual, progresso derivado, marcação por intenção em qualquer status; formulário envia id/título sem `done`. |
+
+**Fronteiras futuras (contratos, sem funcionalidade):** TFA-006 consumirá reversão por conteúdo
+completo de anterior/gerada e lixeira que conserva regra sem gerar na restauração; TFA-008
+consumirá cópia de lembretes OFFSET com IDs novos, settlement de vencidos e reconcile após o
+commit. Nada disso está disponível na UI ou em serviços desta entrega.

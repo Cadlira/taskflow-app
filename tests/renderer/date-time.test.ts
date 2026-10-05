@@ -6,6 +6,7 @@ import {
   formatDateTime,
   fromLocalDateTimeInput,
   needsTimeZoneReview,
+  needsUntilTimeZoneReview,
   toLocalDateTimeInput,
 } from '../../src/renderer/src/components/tasks/date-time.js'
 
@@ -86,6 +87,74 @@ describe('helper de datas: entrada local e exibição', () => {
     ).toBe(true)
     // Tarefa sem prazo original nunca exige revisão.
     expect(needsTimeZoneReview({ originalIso: undefined, capturedInput: '', nextInput: '2026-10-05T17:45', dirty: true })).toBe(false)
+  })
+
+  it('revisão de fuso do limite da série segue o mesmo contrato do prazo', () => {
+    const untilIso = '2026-12-31T02:30:00.000Z'
+    const captured = toLocalDateTimeInput(untilIso)
+
+    // Sem alteração do limite, o ISO salvo é conservado e nada bloqueia.
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: untilIso,
+        capturedUntilInput: captured,
+        nextUntilInput: captured,
+        dirty: false,
+      }),
+    ).toBe(false)
+    // Limite novo sem valor original não precisa de revisão.
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: undefined,
+        capturedUntilInput: '',
+        nextUntilInput: '2026-12-31T10:00',
+        dirty: true,
+        convert: () => 'qualquer',
+      }),
+    ).toBe(false)
+    // Limite removido também não precisa de revisão.
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: untilIso,
+        capturedUntilInput: captured,
+        nextUntilInput: '',
+        dirty: true,
+        convert: () => 'qualquer',
+      }),
+    ).toBe(false)
+    // Fuso inalterado: a conversão corrente ainda reproduz o texto capturado.
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: untilIso,
+        capturedUntilInput: captured,
+        nextUntilInput: '2026-12-31T10:00',
+        dirty: true,
+      }),
+    ).toBe(false)
+    // Fuso mudou com o limite alterado: exige revisão explícita.
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: untilIso,
+        capturedUntilInput: captured,
+        nextUntilInput: '2026-12-31T10:00',
+        dirty: true,
+        convert: () => '2026-12-30T22:30',
+      }),
+    ).toBe(true)
+  })
+
+  it('conserva o ISO intacto do limite não editado, inclusive segundos e milissegundos', () => {
+    const untilIso = '2026-12-31T02:30:45.123Z'
+    const captured = toLocalDateTimeInput(untilIso)
+    expect(
+      needsUntilTimeZoneReview({
+        originalUntilIso: untilIso,
+        capturedUntilInput: captured,
+        nextUntilInput: captured,
+        dirty: false,
+      }),
+    ).toBe(false)
+    expect(untilIso).toBe('2026-12-31T02:30:45.123Z')
   })
 
   it('exercita gap, hora repetida e troca de fuso em subprocesso com TZ fixado', () => {
