@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { lstat, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -75,5 +76,61 @@ describe('checkBackupDestination (B04/B12)', () => {
     const second = await captureDestinationFingerprint(file)
     expect(sameDestinationFingerprint(first, second)).toBe(false)
     expect(sameDestinationFingerprint(undefined, undefined)).toBe(true)
+  })
+
+  it('aceita alias legítimo de caminho (8.3/caixa) como no runner e ainda protege a raiz canônica', async () => {
+    // Simula o `%TEMP%` do runner: o caminho digitado usa o alias curto e o realpath devolve a
+    // forma longa. Aliases não podem reprovar um destino legítimo (regressão encontrada na CI).
+    const alias = join(workDir, 'ALIAS~1')
+    const fsOps = {
+      realpath: async (value: string): Promise<string> => {
+        const lowered = value.toLowerCase()
+        const mapped = lowered.startsWith(alias.toLowerCase())
+          ? join(workDir, value.slice(alias.length))
+          : value
+        return realpath(mapped)
+      },
+      lstat,
+    }
+
+    const allowed = await checkBackupDestination(join(alias, 'livre2', 'b.json'), {
+      protectedRoots: [protectedRoot],
+      fs: fsOps,
+    })
+    expect(allowed).toEqual({ ok: true, destination: join(alias, 'livre2', 'b.json'), existed: false })
+
+    const insideRoot = await checkBackupDestination(join(alias, 'userData', 'data', 'taskflow.sqlite'), {
+      protectedRoots: [protectedRoot],
+      fs: fsOps,
+    })
+    expect(insideRoot).toEqual({ ok: false, code: 'DESTINATION_NOT_ALLOWED' })
+  })
+
+  it('recusa reparse/symlink no ancestral e indeterminação conservadora', async () => {
+    const directory = join(workDir, 'reparse')
+    mkdirSync(directory, { recursive: true })
+    const target = join(workDir, 'alvo')
+    mkdirSync(target, { recursive: true })
+    const junction = join(workDir, 'reparse', 'link')
+    try {
+      symlinkSync(target, junction, 'junction')
+    } catch {
+      return
+    }
+    expect(
+      await checkBackupDestination(join(junction, 'b.json'), { protectedRoots: [] }),
+    ).toEqual({ ok: false, code: 'DESTINATION_NOT_ALLOWED' })
+
+    // realpath que nunca resolve (nem a raiz) é falha segura, não aceitação.
+    const failing = {
+      realpath: async (): Promise<string> => {
+        throw new Error('sem resolução')
+      },
+      lstat,
+    }
+    expect(await checkBackupDestination(join(workDir, 'x.json'), { protectedRoots: [], fs: failing })).toEqual({
+      ok: false,
+      code: 'FILE_WRITE_FAILED',
+    })
   })
 })

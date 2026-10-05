@@ -2,6 +2,11 @@
 // recusa de destinos internos do aplicativo (userData/sessionData/runtime, inclusive banco e
 // journal) e de dispositivos/nomes reservados do Windows. Fingerprint observável do destino antes
 // da substituição, sem prometer CAS contra terceiros.
+//
+// Canonicalização tolera aliases legítimos de caminho (nomes curtos 8.3 do Windows, caixa): o que
+// reprova é ser, de fato, um reparse/symlink conhecido ou cair dentro de raiz protegida — a
+// comparação é sempre entre formas canônicas, nunca entre a forma digitada e a real.
+import type { Stats } from 'node:fs'
 import { lstat, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -40,15 +45,76 @@ export function isReservedWindowsTarget(destination: string): boolean {
   return WINDOWS_RESERVED.test(base) || base === ''
 }
 
+export interface ProtectDestinationFs {
+  realpath: (value: string) => Promise<string>
+  lstat: (value: string) => Promise<Stats>
+}
+
 export interface ProtectDestinationOptions {
   /** Raízes internas do aplicativo (userData, sessionData, app path) já resolvidas. */
   protectedRoots: readonly string[]
+  /** Injeção usada somente por testes para simular aliases 8.3/short names; produção usa `node:fs`. */
+  fs?: ProtectDestinationFs
 }
 
 /**
- * Resolve o destino real e recusa: destino interno do app, dispositivo/nome reservado, pai
- * symlink/reparse conhecido e destino que seja symlink. Caminho irmão com prefixo parecido não é
- * confundido com filho (comparação por segmentos, não `startsWith`).
+ * Forma canônica de um caminho que pode não existir: canonicaliza o ancestral existente mais
+ * profundo e reanexa os segmentos ausentes. Devolve `undefined` quando nem a raiz resolve.
+ */
+async function canonicalPathOf(
+  resolved: string,
+  realpathFn: (value: string) => Promise<string>,
+): Promise<string | undefined> {
+  let current = resolved
+  const suffix: string[] = []
+  for (;;) {
+    try {
+      const real = await realpathFn(current)
+      return suffix.length === 0 ? real : path.join(real, ...suffix.reverse())
+    } catch {
+      const parent = path.dirname(current)
+      if (parent === current) return undefined
+      suffix.push(path.basename(current))
+      current = parent
+    }
+  }
+}
+
+/**
+ * Percorre os ancestrais existentes do destino procurando reparse/symlink conhecido (junctions do
+ * Windows aparecem como symlink em `lstat`). `undefined` significa indeterminado (erro que não é
+ * ENOENT) — o chamador recusa conservadoramente.
+ */
+async function hasReparseAncestor(
+  resolved: string,
+  lstatFn: (value: string) => Promise<Stats>,
+): Promise<boolean | undefined> {
+  let current = path.dirname(resolved)
+  for (;;) {
+    let info: Stats
+    try {
+      info = await lstatFn(current)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        const parent = path.dirname(current)
+        if (parent === current) return false
+        current = parent
+        continue
+      }
+      return undefined
+    }
+    if (info.isSymbolicLink()) return true
+    const parent = path.dirname(current)
+    if (parent === current) return false
+    current = parent
+  }
+}
+
+/**
+ * Resolve o destino real e recusa: destino interno do app, dispositivo/nome reservado, ancestral
+ * symlink/reparse conhecido e destino que seja symlink. Aliases legítimos de caminho (8.3/caixa)
+ * são canonicalizados e aceitos; caminho irmão com prefixo parecido não é confundido com filho
+ * (comparação por segmentos, não `startsWith`).
  */
 export async function checkBackupDestination(
   destination: string,
@@ -60,42 +126,34 @@ export async function checkBackupDestination(
   const resolved = path.resolve(destination)
   if (isReservedWindowsTarget(resolved)) return { ok: false, code: 'DESTINATION_NOT_ALLOWED' }
 
-  // Raízes internas são resolvidas antes: destino lexicalmente dentro delas é recusado mesmo que o
-  // subdiretório ainda não exista.
-  const realRoots: string[] = []
+  const fsOps: ProtectDestinationFs = options.fs ?? { realpath, lstat }
+  const canonical = await canonicalPathOf(resolved, fsOps.realpath)
+  if (canonical === undefined) return { ok: false, code: 'FILE_WRITE_FAILED' }
+
+  // Raízes internas: comparação canônica, cobrindo destino ainda inexistente dentro delas.
   for (const root of options.protectedRoots) {
     let realRoot: string
     try {
-      realRoot = await realpath(root)
+      realRoot = await fsOps.realpath(root)
     } catch {
       realRoot = path.resolve(root)
     }
-    realRoots.push(realRoot)
-    if (samePath(realRoot, resolved) || isInside(realRoot, resolved)) {
+    if (samePath(realRoot, canonical) || isInside(realRoot, canonical)) {
       return { ok: false, code: 'DESTINATION_NOT_ALLOWED' }
     }
   }
 
-  const parent = path.dirname(resolved)
-  let realParent: string
-  try {
-    realParent = await realpath(parent)
-  } catch {
-    return { ok: false, code: 'FILE_WRITE_FAILED' }
-  }
-  if (!samePath(realParent, parent)) return { ok: false, code: 'DESTINATION_NOT_ALLOWED' }
+  // Reparse/symlink em qualquer ancestral existente (indeterminado também recusa).
+  const reparse = await hasReparseAncestor(resolved, fsOps.lstat)
+  if (reparse !== false) return { ok: false, code: 'DESTINATION_NOT_ALLOWED' }
 
   let existed = false
   try {
-    const info = await lstat(resolved)
+    const info = await fsOps.lstat(resolved)
     if (info.isSymbolicLink()) return { ok: false, code: 'DESTINATION_NOT_ALLOWED' }
     existed = true
   } catch {
     existed = false
-  }
-
-  for (const realRoot of realRoots) {
-    if (isInside(realRoot, realParent)) return { ok: false, code: 'DESTINATION_NOT_ALLOWED' }
   }
 
   return { ok: true, destination: resolved, existed }

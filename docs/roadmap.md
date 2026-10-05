@@ -1831,6 +1831,15 @@ before-images extremas, prova de energia e diálogo nativo real do Windows (rote
 registrado e não executado; o stub do harness nunca é apresentado como nativo). TFA-008 e
 distribuição/releases continuam dependentes de pedido próprio.
 
+**Correção pós-archive encontrada pela CI do PR #7 (2026-10-05):** o runner usa `%TEMP%` com nome
+curto 8.3 (`C:\Users\RUNNER~1\...`) e a proteção de destino comparava a forma digitada com o
+`realpath` (forma longa), recusando destino legítimo com `DESTINATION_NOT_ALLOWED`/
+`FILE_WRITE_FAILED` (5 testes). A canonicalização foi corrigida para comparar sempre formas
+canônicas (ancestral existente mais profundo + segmentos ausentes) e detectar reparse/symlink por
+`lstat` ancestral, com injeção de FS apenas para testes; teste de regressão do alias 8.3 e da
+proteção de raiz canônica adicionado. `npm run validate` passou com **836 testes + 11 skipped**;
+commit e push da correção na mesma branch reexecutam a CI do PR.
+
 ## TFA-008 — Lembretes, notificações e ciclo de vida
 
 **Slug sugerido:** `migrar-lembretes-e-ciclo-de-vida-desktop`. **Dependências:** TFA-007.
