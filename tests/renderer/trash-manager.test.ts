@@ -20,8 +20,8 @@ function trashRecord(task: Task, deletedAt = '2026-10-03T10:00:00.000Z', revisio
   return { task, deletedAt, contentRevision: revision, editRevision: revision }
 }
 
-function snapshot(revision: string, tasks: TaskRecord[], trash: TrashRecord[] = []): StateSnapshot {
-  return { revision, tasks, trash }
+function snapshot(revision: string, tasks: TaskRecord[], trash: TrashRecord[] = [], undoEpoch = 1): StateSnapshot {
+  return { revision, undoEpoch, tasks, trash }
 }
 
 type Mock = ReturnType<typeof vi.fn>
@@ -55,12 +55,12 @@ function setupHarness(initial: StateSnapshot): Harness {
   let listener: ((update: StateUpdate) => void) | undefined
   const api = {
     verifyFoundation: vi.fn(),
-    getStateSnapshot: vi.fn(async () => ({ version: 2 as const, status: 'ok' as const, snapshot: current })),
+    getStateSnapshot: vi.fn(async () => ({ version: 3 as const, status: 'ok' as const, snapshot: current })),
     subscribeState: vi.fn(async (_request: unknown, next?: (update: StateUpdate) => void) => {
       listener = next
-      return { version: 2 as const, status: 'ok' as const, subscriptionId: 'sub'.padEnd(24, 'S'), snapshot: current }
+      return { version: 3 as const, status: 'ok' as const, subscriptionId: 'sub'.padEnd(24, 'S'), snapshot: current }
     }),
-    unsubscribeState: vi.fn(async () => ({ version: 2 as const, status: 'ok' as const })),
+    unsubscribeState: vi.fn(async () => ({ version: 3 as const, status: 'ok' as const })),
     createTask: vi.fn(),
     updateTask: vi.fn(),
     changeTaskStatus: vi.fn(),
@@ -205,10 +205,11 @@ describe('excluir e desfazer na interface', () => {
       hasRecurrence: false,
     })
     harness.api.moveTaskToTrash.mockResolvedValue({
-      version: 1,
+      version: 2,
       status: 'ok',
       revision: '2',
       retained: true,
+      undoEpoch: 1,
       undoToken: 'B'.repeat(32),
     })
     await view.get('[data-action="delete"]').trigger('click')
@@ -237,7 +238,7 @@ describe('excluir e desfazer na interface', () => {
       revision: '1',
       itemCount: 1,
     })
-    harness.api.moveTaskToTrash.mockResolvedValue({ version: 1, status: 'ok', revision: '2', retained: false })
+    harness.api.moveTaskToTrash.mockResolvedValue({ version: 2, status: 'ok', revision: '2', retained: false, undoEpoch: 1 })
     await view.get('[data-action="delete"]').trigger('click')
     await flushPromises()
     await view.find('[role="alertdialog"] button').trigger('click')
@@ -262,10 +263,11 @@ describe('excluir e desfazer na interface', () => {
       itemCount: 1,
     })
     harness.api.moveTaskToTrash.mockResolvedValue({
-      version: 1,
+      version: 2,
       status: 'ok',
       revision: '2',
       retained: true,
+      undoEpoch: 1,
       undoToken: 'B'.repeat(32),
     })
     await view.get('[data-action="delete"]').trigger('click')
@@ -295,10 +297,11 @@ describe('excluir e desfazer na interface', () => {
 
     // Segunda tentativa (token consumido) recebe recusa segura e mensagem local.
     harness.api.moveTaskToTrash.mockResolvedValueOnce({
-      version: 1,
+      version: 2,
       status: 'ok',
       revision: '4',
       retained: true,
+      undoEpoch: 1,
       undoToken: 'C'.repeat(32),
     })
     harness.api.undoLastTaskAction.mockResolvedValueOnce({ version: 1, status: 'error', code: 'UNDO_NOT_AVAILABLE' })

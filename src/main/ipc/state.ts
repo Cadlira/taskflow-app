@@ -14,6 +14,7 @@ import {
   STATE_CHANGED_EVENT,
   STATE_LIMITS,
   STATE_UNAVAILABLE_EVENT,
+  STATE_UNDO_INVALIDATED_EVENT,
   parseSnapshotPageRequest,
   parseStateRequest,
   parseUnsubscribeRequest,
@@ -26,15 +27,23 @@ import {
   type StateFailure,
   type StateUnavailableEvent,
   type SubscribeWireResult,
+  type UndoInvalidatedEvent,
+  type UndoInvalidationReason,
   type UnsubscribeStateResult,
 } from '../../contracts/state.js'
 import { utf8ByteLength } from '../../contracts/text.js'
 import type { UnitOptions } from '../storage/coordinator.js'
 import type { DocumentSessions, DocumentTicket, InvocationLike } from './document-sessions.js'
 
-/** Reserva para o envelope da página (versão, status, revisão, cursor e inscrição). */
+/** Reserva para o envelope da página (versão, status, revisão, época, cursor e inscrição). */
 const PAGE_ENVELOPE_RESERVE_BYTES = 512
 const RETIRED_SUBSCRIPTIONS = 16
+
+/** Época transitória observável pelo IPC de estado (nunca vem do renderer). */
+export interface UndoEpochSource {
+  readonly epoch: number
+  onInvalidated(listener: (event: { epoch: number; reason: UndoInvalidationReason }) => void): () => void
+}
 
 /** O que o IPC de estado usa do coordenador: leitura coordenada e notificações. */
 export interface StateStorage {
@@ -47,6 +56,7 @@ export interface StateStorage {
 export interface StateIpcOptions {
   sessions: DocumentSessions
   storage: StateStorage
+  undo: UndoEpochSource
   /** Token opaco gerado pelo main (cursor e inscrição). */
   randomToken: () => string
   now?: () => number
@@ -57,6 +67,7 @@ export interface StateIpcOptions {
 interface SnapshotCursor {
   token: string
   revision: Revision
+  undoEpoch: number
   position: SnapshotPosition
   expiresAt: number
 }
@@ -68,6 +79,8 @@ interface DocumentState {
   retired: string[]
   cursor: SnapshotCursor | undefined
   pendingRevision: Revision | undefined
+  pendingEpoch: number | undefined
+  pendingEpochReason: UndoInvalidationReason | undefined
 }
 
 type PageOutcome =
@@ -112,6 +125,7 @@ function recordSource(reader: TaskStorageReader): SnapshotRecordSource {
 export class StateIpcService {
   readonly #sessions: DocumentSessions
   readonly #storage: StateStorage
+  readonly #undo: UndoEpochSource
   readonly #randomToken: () => string
   readonly #now: () => number
   readonly #schedule: (callback: () => void) => void
@@ -122,6 +136,7 @@ export class StateIpcService {
   constructor(options: StateIpcOptions) {
     this.#sessions = options.sessions
     this.#storage = options.storage
+    this.#undo = options.undo
     this.#randomToken = options.randomToken
     this.#now = options.now ?? (() => Date.now())
     this.#schedule = options.schedule ?? ((callback) => void setImmediate(callback))
@@ -129,6 +144,7 @@ export class StateIpcService {
       this.#sessions.onInvalidated((key) => this.#forget(key)),
       this.#storage.onCommitted((revision) => this.#queueInvalidation(revision)),
       this.#storage.onUnavailable((reason) => this.#announceUnavailable(reason)),
+      this.#undo.onInvalidated((event) => this.#queueEpoch(event.epoch, event.reason)),
     ]
   }
 
@@ -159,7 +175,7 @@ export class StateIpcService {
 
       const outcome = await this.#page(ticket, parsed.cursor, false)
       if (outcome.kind === 'error') return stateFailure(outcome.code)
-      return this.#withinBudget(ticket, { version: 2, status: 'ok', page: outcome.page })
+      return this.#withinBudget(ticket, { version: 3, status: 'ok', page: outcome.page })
     } catch {
       return stateFailure('STORAGE_UNAVAILABLE')
     }
@@ -175,7 +191,7 @@ export class StateIpcService {
       if (outcome.kind === 'error') return stateFailure(outcome.code)
       if (outcome.subscriptionId === undefined) return stateFailure('STORAGE_UNAVAILABLE')
       return this.#withinBudget(ticket, {
-        version: 2,
+        version: 3,
         status: 'ok',
         subscriptionId: outcome.subscriptionId,
         page: outcome.page,
@@ -196,12 +212,14 @@ export class StateIpcService {
       if (document?.subscriptionId === parsed.subscriptionId) {
         document.subscriptionId = undefined
         document.pendingRevision = undefined
+        document.pendingEpoch = undefined
+        document.pendingEpochReason = undefined
         document.retired = [...document.retired, parsed.subscriptionId].slice(-RETIRED_SUBSCRIPTIONS)
-        return Promise.resolve({ version: 2, status: 'ok' })
+        return Promise.resolve({ version: 3, status: 'ok' })
       }
       // Repetição do próprio cancelamento é segura; token de outra sessão é recusado.
       if (document?.retired.includes(parsed.subscriptionId) === true) {
-        return Promise.resolve({ version: 2, status: 'ok' })
+        return Promise.resolve({ version: 3, status: 'ok' })
       }
       return Promise.resolve(stateFailure('UNAUTHORIZED'))
     } catch {
@@ -212,7 +230,15 @@ export class StateIpcService {
   #documentFor(ticket: DocumentTicket): DocumentState {
     let document = this.#documents.get(ticket.key)
     if (document === undefined) {
-      document = { ticket, subscriptionId: undefined, retired: [], cursor: undefined, pendingRevision: undefined }
+      document = {
+        ticket,
+        subscriptionId: undefined,
+        retired: [],
+        cursor: undefined,
+        pendingRevision: undefined,
+        pendingEpoch: undefined,
+        pendingEpochReason: undefined,
+      }
       this.#documents.set(ticket.key, document)
     }
     return document
@@ -245,12 +271,14 @@ export class StateIpcService {
       (reader): PageOutcome => {
         const current = this.#documents.get(ticket.key)
         if (current === undefined) return { kind: 'error', code: 'SESSION_CLOSED' }
+        // Época capturada no mesmo turno coordenado da leitura: páginas pertencem ao par.
+        const undoEpoch = this.#undo.epoch
 
         let position = initialSnapshotPosition()
         if (cursorToken !== undefined) {
           const cursor = this.#activeCursor(current, cursorToken)
           // Commit entre páginas: a continuação não vale mais e nada parcial é completado.
-          if (cursor === undefined || cursor.revision !== reader.baseRevision) {
+          if (cursor === undefined || cursor.revision !== reader.baseRevision || cursor.undoEpoch !== undoEpoch) {
             current.cursor = undefined
             return { kind: 'error', code: 'SNAPSHOT_STALE' }
           }
@@ -270,14 +298,14 @@ export class StateIpcService {
           throw error
         }
 
-        // Inscrição, revisão base e primeira página saem do mesmo turno coordenado.
+        // Inscrição, revisão/época base e primeira página saem do mesmo turno coordenado.
         if (subscribe && current.subscriptionId === undefined) current.subscriptionId = this.#randomToken()
 
         const revision = formatRevision(reader.baseRevision)
         if (built.complete !== undefined) {
           return {
             kind: 'page',
-            page: { revision, fragments: built.fragments, complete: built.complete },
+            page: { revision, undoEpoch, fragments: built.fragments, complete: built.complete },
             subscriptionId: current.subscriptionId,
           }
         }
@@ -286,12 +314,13 @@ export class StateIpcService {
         current.cursor = {
           token,
           revision: reader.baseRevision,
+          undoEpoch,
           position: built.position,
           expiresAt: this.#now() + STATE_LIMITS.cursorTtlMs,
         }
         return {
           kind: 'page',
-          page: { revision, fragments: built.fragments, cursor: token },
+          page: { revision, undoEpoch, fragments: built.fragments, cursor: token },
           subscriptionId: current.subscriptionId,
         }
       },
@@ -320,6 +349,22 @@ export class StateIpcService {
         document.pendingRevision = revision
       }
     }
+    this.#scheduleFlush()
+  }
+
+  /** Barreira de época (inclusive UNCHANGED): não fabrica revisão SQL nem evento de alteração. */
+  #queueEpoch(epoch: number, reason: UndoInvalidationReason): void {
+    for (const document of this.#documents.values()) {
+      if (document.subscriptionId === undefined) continue
+      if (document.pendingEpoch === undefined || epoch > document.pendingEpoch) {
+        document.pendingEpoch = epoch
+        document.pendingEpochReason = reason
+      }
+    }
+    this.#scheduleFlush()
+  }
+
+  #scheduleFlush(): void {
     if (this.#flushScheduled) return
     this.#flushScheduled = true
     this.#schedule(() => {
@@ -329,12 +374,31 @@ export class StateIpcService {
   }
 
   #flushInvalidations(): void {
+    const epoch = this.#undo.epoch
     for (const document of [...this.#documents.values()]) {
-      const { subscriptionId, pendingRevision } = document
+      const { subscriptionId, pendingRevision, pendingEpoch, pendingEpochReason } = document
       document.pendingRevision = undefined
-      if (subscriptionId === undefined || pendingRevision === undefined) continue
-      const event: StateChangedEvent = { version: 2, subscriptionId, revision: formatRevision(pendingRevision) }
-      this.#send(document, STATE_CHANGED_EVENT, event)
+      document.pendingEpoch = undefined
+      document.pendingEpochReason = undefined
+      if (subscriptionId === undefined) continue
+
+      // A barreira transitória precede a alteração; a época real acompanha o evento v3.
+      if (pendingEpoch !== undefined && pendingEpochReason !== undefined) {
+        this.#send(document, STATE_UNDO_INVALIDATED_EVENT, {
+          version: 1,
+          subscriptionId,
+          undoEpoch: pendingEpoch,
+          reason: pendingEpochReason,
+        })
+      }
+      if (pendingRevision !== undefined) {
+        this.#send(document, STATE_CHANGED_EVENT, {
+          version: 3,
+          subscriptionId,
+          revision: formatRevision(pendingRevision),
+          undoEpoch: epoch,
+        })
+      }
     }
   }
 
@@ -342,7 +406,7 @@ export class StateIpcService {
     for (const document of [...this.#documents.values()]) {
       if (document.subscriptionId === undefined) continue
       const event: StateUnavailableEvent = {
-        version: 2,
+        version: 3,
         subscriptionId: document.subscriptionId,
         code: stateErrorCodeFor(reason),
       }
@@ -351,7 +415,11 @@ export class StateIpcService {
   }
 
   /** Guard de envio: só o documento corrente da sessão recebe; evento acima de 1 KiB não sai. */
-  #send(document: DocumentState, channel: string, event: StateChangedEvent | StateUnavailableEvent): void {
+  #send(
+    document: DocumentState,
+    channel: string,
+    event: StateChangedEvent | StateUnavailableEvent | UndoInvalidatedEvent,
+  ): void {
     const frame = this.#sessions.currentFrame(document.ticket)
     if (frame === null) {
       this.#forget(document.ticket.key)

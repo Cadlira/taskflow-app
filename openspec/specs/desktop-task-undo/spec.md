@@ -119,7 +119,7 @@ Restore/revert SHALL preservar processedFor atual de ocorrência inalterada e li
 
 ### Requirement: Encerramento e backup invalidam estado temporário
 
-Reload/navegação/crash/fechamento/saída SHALL descartar recibos/tokens próprios sem perder commits. Reabertura SHALL não recuperar histórico. Contrato interno de futuro backup bem-sucedido SHALL invalidar recibos/confirmações/publicações de todas as sessões, inclusive UNCHANGED; cancelamento/falha confirmada SHALL não invalidar as demais.
+Encerramento SHALL descartar tokens próprios sem perder commits. Backup confirmado APPLIED/UNCHANGED SHALL invalidar recibos/confirmações/candidatos e ofertas visuais globais por época antes de próxima ação/publicação, sem revisão SQL fictícia. Cancelamento/rollback SHALL não invalidar outras sessões; recuperação incerta SHALL limpar estado temporário sem atestar sucesso.
 
 #### Scenario: Encerrar durante ação e reabrir
 - **WHEN** documento encerra com pedido pendente ou commit já confirmado e depois reabre
@@ -127,9 +127,19 @@ Reload/navegação/crash/fechamento/saída SHALL descartar recibos/tokens própr
 - **AND** minimizar/foco não executa essa limpeza; lifecycle provisório permanece sem bandeja
 
 #### Scenario: Porta futura de backup e candidato tardio
-- **WHEN** fixture chama sucesso de backup APPLIED/UNCHANGED ou cancelamento/falha com rollback
-- **THEN** sucesso invalida todas as ofertas internas e candidato antigo não publica; cancel/falha não invalida outras sessões
-- **AND** trash permanece e não há wrapper/importação/UI de backup nem histórico/credenciais/lixeira exportados nesta Change
+- **WHEN** usuário confirma backup APPLIED/UNCHANGED ou cancela/falha com rollback
+- **THEN** sucesso invalida ofertas internas/visuais e candidato/ack de época antiga não publica; cancel/falha não invalida outras sessões
+- **AND** trash permanece, backup não oferece undo e arquivo não contém histórico/credenciais/lixeira
+
+#### Scenario: UNCHANGED sem evento SQL
+- **WHEN** backup idêntico confirma sem incrementar globalRevision
+- **THEN** época aumenta, todas as ofertas somem e evento/ressync da mesma inscrição transporta invalidação
+- **AND** evento perdido é recuperado no foco/em até30s mesmo com revisão SQL igual
+
+#### Scenario: Preparação expira e commit incerto
+- **WHEN** prévia de backup expira em5min ou armazenamento exige recuperação incerta
+- **THEN** expiração não expira oferta temporal de undo alheia; recuperação aplica barreira conservadora depois de reopen
+- **AND** rollback confirmado e mero cancelamento não são sucesso nem barreira global
 
 ### Requirement: Recursos de recibos são limitados antes do efeito
 
@@ -142,7 +152,7 @@ Recibos/confirmações SHALL ter no máximo uma oferta publicada/confirmação c
 
 ### Requirement: Oferta e resultado preservam anúncio e foco
 
-Oferta SHALL aparecer apenas após ack confirmado e snapshot válido, sem roubar foco. Undo SHALL anunciar sucesso/recusa/erro, manter busy focável e devolver foco a Editar do alvo visível ou ação principal pertinente. Filtros SHALL não ser desfeitos.
+Oferta SHALL aparecer apenas após ack confirmado, snapshot válido, contexto e época atuais, sem roubar foco. Undo SHALL anunciar fase verdadeira e conservar busy/foco pertinentes. Filtros SHALL não ser desfeitos; snapshot SHALL não reconstruir oferta perdida.
 
 #### Scenario: Alvo visível oculto ou falha
 - **WHEN** undo conclui/recusa e alvo está visível, oculto por filtro ou lista fica vazia
@@ -153,3 +163,8 @@ Oferta SHALL aparecer apenas após ack confirmado e snapshot válido, sem roubar
 - **WHEN** ack de ação confirma mas ressync não conclui, ou resposta antiga chega em contexto novo
 - **THEN** UI informa gravação confirmada/atualização pendente ou descarta oferta antiga, sem upsert, replay ou anúncio falso de rollback
 - **AND** snapshot sozinho não cria oferta ou transfere recibo entre documentos
+
+#### Scenario: Ack com época anterior ou maior
+- **WHEN** resposta elegível chega depois de backup ou antes do snapshot da sua época
+- **THEN** época anterior nunca reinstala oferta; época maior exige reconciliação e só oferta no contexto atual com snapshot>=ack
+- **AND** invalidação não apaga oferta nova por evento antigo e não altera filtros/draft arbitrariamente

@@ -16,7 +16,7 @@ function mountApp(foundation: FoundationApi): VueWrapper {
   const api: TaskFlowDesktopApi = {
     ...foundation,
     getStateSnapshot: vi.fn(),
-    subscribeState: vi.fn().mockResolvedValue({ version: 2, status: 'error', code: 'STORAGE_UNAVAILABLE' }),
+    subscribeState: vi.fn().mockResolvedValue({ version: 3, status: 'error', code: 'STORAGE_UNAVAILABLE' }),
     unsubscribeState: vi.fn(),
     createTask: vi.fn(),
     updateTask: vi.fn(),
@@ -31,6 +31,10 @@ function mountApp(foundation: FoundationApi): VueWrapper {
     emptyTrash: vi.fn(),
     prepareTrashView: vi.fn(),
     undoLastTaskAction: vi.fn(),
+    exportBackup: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'INVALID_REQUEST' }),
+    prepareBackupRestore: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'INVALID_REQUEST' }),
+    confirmBackupRestore: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'INVALID_REQUEST' }),
+    cancelBackupRestore: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'INVALID_REQUEST' }),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api })
   setActivePinia(createPinia())

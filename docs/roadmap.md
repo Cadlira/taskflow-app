@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-05**. Estado: **TFA-001 a TFA-006 integradas pelos PRs #1 a #5; TFA-006 arquivada em 2026-10-05 com 45/45 tasks e specs consolidadas, DONE com commits `bed816c`/`a5d37af` e PR #6 aberto na branch `codex/tfa-006-migrar-lixeira-e-desfazer`, com CI verde no run 37284379612 (merge é ação do usuário)**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2, catálogo v3/17 wrappers, lixeira e desfazer. A pendência D10 de desempenho permanece documentada (p95 688,3 ms; heartbeat 760,5 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
+Preparado em **2026-10-03**; atualizado em **2026-10-05**. Estado: **TFA-001 a TFA-007 integradas/arquivadas; TFA-001 a TFA-006 integradas pelos PRs #1 a #6 (merge da TFA-006 `9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`), e TFA-007 DONE em 2026-10-05 (apply 45/45, verificação sem críticos, archive `2026-10-05-migrar-backups-e-importar-dados-da-extensao`, README factual e PR aberto para a main; DONE antes do merge por decisão explícita do usuário, com integração a conferir no merge)**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2, catálogo v3/21 wrappers, lixeira, desfazer e backup/importação. A pendência D10 de desempenho permanece documentada (p95 688,3 ms; heartbeat 760,5 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
 
 ## Objetivo e limites confirmados
 
@@ -80,8 +80,8 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-002 | Integração do PR #3 conferida no Git local: `main` e referência local `origin/main` em `d74e02d`; dependência da TFA-004 satisfeita |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada e archive; PR #4 integrado, merge local `64fe7ad` conferido. D10 de 10.000 permanece como pendência pós-archive documentada |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive; integração do PR #5 conferida na main e referência local origin/main em `ab3ed68` em 2026-10-04. D10 e prova humana de acessibilidade continuam pendentes |
-| TFA-006 | `migrar-lixeira-e-desfazer` | DONE | — | 2026-10-04 | 2026-10-05 | TFA-005 | Apply 45/45, verification aprovado, archive, commits `bed816c`/`a5d37af`, push, PR #6 e CI verde no run 37284379612 em 2026-10-05; DONE antecipado por pedido explícito (revisar se o PR for recusado). D10 herdado segue como pendência pós-archive |
-| TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | PLANNED | — | — | — | TFA-006 | Após dependências, usar o prompt abaixo |
+| TFA-006 | `migrar-lixeira-e-desfazer` | DONE | — | 2026-10-04 | 2026-10-05 | TFA-005 | Apply 45/45, verification aprovado, archive e PR #6 integrado; merge `9e8a05a` conferido em 2026-10-05. D10, acessibilidade humana e before-images extremas continuam pendentes |
+| TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | DONE | — | 2026-10-05 | 2026-10-05 | TFA-006 | Apply 45/45, verificação sem críticos, archive e README factual em 2026-10-05; PR aberto para a main na sequência. DONE registrado antes do merge por decisão explícita do usuário (mesmo precedente da TFA-003); a integração será conferida no merge do PR |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | PLANNED | — | — | — | TFA-008 | Após dependências, usar o prompt abaixo |
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | PLANNED | — | — | — | TFA-009 | Após dependências, usar o prompt abaixo |
@@ -1142,7 +1142,7 @@ O histórico Git local contém o merge do PR #5 em **`ab3ed688f025064c16ce155ff5
 
 ## TFA-006 — Lixeira e desfazer
 
-**Slug:** `migrar-lixeira-e-desfazer`. **Dependências:** TFA-005 integrada pelo PR #5, com contratos de persistência/IPC da TFA-003 e interface da TFA-004. **Estado: DONE**; início **2026-10-04**, conclusão **2026-10-05**. Branch `codex/tfa-006-migrar-lixeira-e-desfazer`, criada da `main` limpa em `ab3ed688f025064c16ce155ff5220fe62f9dbc59` por pedido explícito em 2026-10-04 e reutilizada no propose e no apply. Artefatos aprovados pelo usuário em 2026-10-04; apply executado com 45/45 tasks, relatório aprovado e archive em 2026-10-05, seguido de commit/push/PR por pedido explícito. O DONE foi registrado antes do merge por decisão explícita do usuário (revisar se o PR for recusado).
+**Slug:** `migrar-lixeira-e-desfazer`. **Dependências:** TFA-005 integrada pelo PR #5, com contratos de persistência/IPC da TFA-003 e interface da TFA-004. **Estado: DONE**; início **2026-10-04**, conclusão **2026-10-05**. Branch `codex/tfa-006-migrar-lixeira-e-desfazer`, criada da `main` limpa em `ab3ed688f025064c16ce155ff5220fe62f9dbc59` por pedido explícito em 2026-10-04 e reutilizada no propose e no apply. Artefatos aprovados pelo usuário em 2026-10-04; apply executado com 45/45 tasks, relatório aprovado e archive em 2026-10-05, seguido de commit/push/PR por pedido explícito. O DONE inicialmente antecipado foi confirmado pela integração do PR #6 em `9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`, conferida em 2026-10-05.
 
 **Resultado:** Conservar exclusão recuperável e desfazer seguro de ações recentes.
 
@@ -1434,9 +1434,17 @@ pendente e não bloqueia o runner), prova humana de acessibilidade (roteiro em
 before-images extremas. A TFA-007 permanece **PLANNED** com o prompt de explore próprio, sem início
 por inferência.
 
+**Integração conferida na exploração da TFA-007 — 2026-10-05:** o GitHub informa o PR #6 como
+fechado e integrado em **2026-10-05T08:41:07Z** (05:41:07, America/Sao_Paulo), merge
+**`9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`**, head `af6a1650393f2ae5393d65e9e8081d9f9ac212d2`.
+`git fetch origin main` confirmou essa integração em `origin/main`; a branch da TFA-007 foi criada
+dessa base. Não houve merge realizado pelo agente nem atualização da branch local `main`, que
+continuava em `ab3ed68`. A dependência da TFA-007 está satisfeita; os registros anteriores de PR
+aberto e TFA-007 PLANNED são históricos. As pendências pós-archive acima permanecem.
+
 ## TFA-007 — Backups e migração das atividades
 
-**Slug sugerido:** `migrar-backups-e-importar-dados-da-extensao`. **Dependências:** TFA-006.
+**Slug:** `migrar-backups-e-importar-dados-da-extensao`. **Dependências:** TFA-006 integrada pelo PR #6. **Estado: DONE**; início **2026-10-05**, conclusão **2026-10-05**. Propose solicitado explicitamente nesta data e entregue com proposal/design/sete deltas/0 de 45 tasks; artefatos aprovados pelo usuário em **2026-10-05**, com commit e push autorizados na mesma mensagem (registro abaixo). **Apply concluído em 2026-10-05 com 45/45 tasks**, gates npm/OpenSpec/pacote/smoke aprovados, `verification.md` sem críticos e **aprovado pelo pedido explícito de archive**, archive `2026-10-05-migrar-backups-e-importar-dados-da-extensao` (19 requisitos ADDED/26 MODIFIED), README factual atualizado e PR aberto para a main na sequência. O DONE foi registrado antes do merge por decisão explícita do usuário (precedente da TFA-003); a integração será conferida no merge. Branch `codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`, base `9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`.
 
 **Resultado:** Permitir que o usuário leve suas tarefas existentes ao desktop por backup, com compatibilidade e validação.
 
@@ -1455,6 +1463,386 @@ Leia application/backup, componentes de backup, domain/task-integrity.ts e tests
 
 Entregue achados com referências, alternativas e recomendação justificada, escopo e exclusões, dúvidas materiais, riscos e critérios de aceitação/testes a refinar no propose. Pare após a exploração: não implemente, não instale dependências, não crie artefatos da Change e não inicie propose/apply sem pedido explícito.
 ```
+
+### Exploração concluída — 2026-10-05
+
+**Autorização e entrega:** o usuário pediu explorar a TFA-007, criar sua branch e ajustar o roadmap.
+Branch **`codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`** criada de `origin/main`
+**`9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`**, integração do PR #6, sem upstream para a `main`.
+Estado **READY_FOR_PROPOSE/EXPLORE**; início/conclusão da Change permanecem sem data. Somente
+este roadmap foi editado. Nenhum diretório, proposal, design, spec, task, código ou teste da
+TFA-007 foi criado. Sem propose/apply, instalação, novo pacote/Setup, commit, push, PR, merge ou
+distribuição. Os gates existentes foram executados no app, com runtime já instalado.
+
+**Base consultada:** AGENTS.md e roadmap integralmente; proposal/design/tasks/verification
+arquivados da TFA-006; specs consolidadas de persistência, IPC, fundação, gerenciamento,
+recorrências, subtarefas e undo; codecs, unidade de substituição, coordenador, sessões e registro
+de undo do app. OpenSpec **1.14.0**, raiz local, schema **spec-driven**, dez specs e zero Changes
+ativas. A extensão foi consultada somente em leitura no HEAD reconferido
+**`a763e7a0d646c664ecd4f979528bc2c3589fa8c4`**, worktree limpo: backup-file/service, componentes,
+labels/download/composição Chrome, task-integrity, fixtures v1–v4 e testes pertinentes. Não
+executar testes/builds/instalações nem alterar arquivos/Git da origem.
+
+#### Formatos e compatibilidade observada
+
+O envelope usa `format: "taskflow-backup"`, `formatVersion`, `exportedAt` UTC canônico,
+`app.version` informativa e `tasks`. Não usar a versão do app para decidir migração. Versão
+futura é recusada; JSON, estrutura, tarefas inválidas e IDs de tarefa repetidos rejeitam o arquivo
+inteiro. Formato de backup **4**, codec de payload **4** e schema SQL **2** são contratos distintos.
+
+| Arquivo original | Conversão observada | Preservação / teste necessário |
+| --- | --- | --- |
+| v1 | Lembretes legados passam a `OFFSET`; `processedFor = lastTriggeredFor - offsetMinutes` quando válido; depois v2→v3→v4 | Não copiar `lastTriggeredFor` como se já fosse o instante do gatilho. Valores inválidos não são descartados para aceitar o arquivo. Fixture: 4 tarefas, subtarefas vazias. |
+| v2 | v2→v3 muda a versão; v3→v4 acrescenta `subtasks: []` | Preservar OFFSET/AT e marcadores, sem inventar séries/recorrência. Fixture: 3 tarefas. |
+| v3 | v3→v4 acrescenta `subtasks: []` a cada tarefa | Preservar histórico com seriesId, portadora, frequência/parâmetros, anchorAt/until e lembretes; subtarefas desconhecidas de arquivos antigos não são transportadas. Fixture: 3 tarefas. |
+| v4 | Validação sem migração de formato | `subtasks` é obrigatório; preservar IDs, títulos, done e ordem. Fixture: 4 tarefas / 7 subtarefas, com casos vazios, mistos e série. |
+
+Referências: [migrações e envelope](C:/QSI/Workspaces/taskflow-extension/src/application/backup/backup-file.ts:28),
+[leitura integral](C:/QSI/Workspaces/taskflow-extension/src/application/backup/backup-file.ts:193),
+[validação](C:/QSI/Workspaces/taskflow-extension/src/domain/task-integrity.ts:84) e
+[fixtures](C:/QSI/Workspaces/taskflow-extension/tests/fixtures/backups/taskflow-backup-v4.json).
+O leitor retorna sempre versão normalizada **4**; a UI da origem apresenta esse valor mesmo para
+v1–v3. Recomendar prévia que diferencie **versão original** e conversão para v4, sem alterar o
+envelope exportado nem confundir migração de arquivo com migração SQL.
+
+O validador é estrito para textos/limites, status/prioridade, timestamps UTC, relação DONE/completedAt,
+tags, URL HTTP(S), até dez lembretes com IDs/instantes distintos e até vinte subtarefas. Recorrência
+exige prazo e seriesId, parâmetros válidos e somente OFFSET; IDs de subtarefa são únicos dentro
+da tarefa, podendo repetir entre tarefas. Esse contrato não deve substituir o codec persistido,
+que aceita dados históricos mais amplos. Propor validação do arquivo exportado pelo próprio
+leitor, sem corrigir, truncar ou omitir silenciosamente dados locais que não satisfaçam o formato.
+
+#### Lacunas confirmadas e adaptação ao app
+
+| Referência verificada | Achado e consequência |
+| --- | --- |
+| [Comparação pós-gravação](C:/QSI/Workspaces/taskflow-extension/src/application/backup/backup-service.ts:102) | `sameTask` omite **seriesId, recurrence e subtasks**. Sondagens com repository sintético que remove cada campo deram `verified: true` nos três casos. Não reutilizar esse comparador. Comparar todos os campos conhecidos, presença/ausência dos opcionais e listas aninhadas completas. |
+| [Validação da coleção](C:/QSI/Workspaces/taskflow-extension/src/domain/task-integrity.ts:500) e [proteção de portadora](C:/QSI/Workspaces/taskflow-app/openspec/specs/desktop-task-recurrence/spec.md:116) | A origem aceita duas tarefas distintas com mesma seriesId e regra ativa; a sonda confirmou. No app, validar unicidade de portadora no estado final **tarefas importadas + lixeira preservada**, dentro da unidade. Conflito rejeita tudo, sem apagar lixeira ou retirar regra para ajustar o arquivo. |
+| [Recorrência validada](C:/QSI/Workspaces/taskflow-extension/src/domain/task-integrity.ts:384) | O validador conserva propriedades desconhecidas do objeto recurrence; sonda confirmou. Exportação deve projetar explicitamente todos os campos conhecidos, inclusive objetos aninhados. Importação não deve persistir extras nem usá-los como configuração. Os testes de credenciais atuais cobrem configurações fora de tasks, sem cobrir esse aninhamento. |
+| [Tamanho e preparação](C:/QSI/Workspaces/taskflow-extension/src/application/backup/backup-service.ts:14) | Importação aceita até **20 MiB**, inclusive o limite; verifica `file.size` antes da leitura. Exportação não limita bytes. No desktop, conferir bytes UTF-8 reais com leitura limitada, inclusive crescimento após stat; não usar comprimento de string nem confiar em tamanho declarado. |
+| [Prévia e confirmação](C:/QSI/Workspaces/taskflow-extension/src/components/backup/BackupManager.vue:117) | Há contagens local/arquivo, data, versão, aviso para arquivo vazio, exportação preventiva e confirmação irreversível. A preparação atual não contém estado-base. [Arquitetura aprovada](C:/QSI/Workspaces/taskflow-app/docs/architecture.md:104) já exige nova prévia se o estado mudar; aplicar revisão global/CAS e token por documento no main. |
+| [Substituição existente](C:/QSI/Workspaces/taskflow-app/src/application/storage/task-storage-unit.ts:235) | `replaceAllTasks` verifica revisão global, compara conteúdo completo, preserva trash e retorna UNCHANGED sem incrementar revisão. Reutilizar a unidade coordenada, acrescentando as verificações de domínio e de backup; não trocar o arquivo SQLite nem criar repository/fila por janela. |
+| [Igualdade estrutural](C:/QSI/Workspaces/taskflow-app/src/application/storage/stored-task-codec.ts:349) | Há comparador completo de JSON, mas é necessário projetar o modelo permitido e comparar a coleção por ID: a ordem da lista SQL pode diferir da ordem do arquivo. Ordem de tags, reminders, weekdays e subtasks continua preservada; revisões SQL não pertencem ao backup. |
+| [Invalidação de undo](C:/QSI/Workspaces/taskflow-app/src/application/undo/undo-registry.ts:254) | `invalidateAll()` já invalida por época recibos/confirmações/publicações de todas as sessões. Falta integrar o backup e a remoção visual das ofertas. **UNCHANGED também invalida**, mesmo sem evento de alteração/revisão SQL. Definir notificação limitada própria, sem simular mutação para emitir stateChanged. |
+| [Restauração e lembretes](C:/QSI/Workspaces/taskflow-extension/src/application/backup/backup-service.ts:211) | Origem liquida lembretes vencidos, grava, relê e reconcilia scheduler Chrome. No app, reaproveitar somente a liquidação pura `<= now` no momento da confirmação. Scheduler/notificações/bandeja são TFA-008; não anunciar alarmes funcionando nesta Change. |
+
+**Verificação completa proposta:** id, title, description, requester, assignee, status, priority,
+tags/ordem, dueAt, sourceUrl, createdAt, updatedAt, completedAt, seriesId; todos os tipos e campos
+da recurrence (incluindo intervalos, weekdays/dayOfMonth quando pertinentes, anchorAt/until);
+cada reminder (id/type/offsetMinutes ou at/processedFor e ordem); cada subtask (id/title/done e
+ordem). Não recriar IDs, gerar ocorrências, recalcular âncoras nem resetar subtarefas ao importar.
+Somente `processedFor` de gatilhos vencidos pode mudar pela liquidação explicitamente prevista,
+sem modificar timestamps da tarefa ou produzir notificação retroativa.
+
+#### Alternativas e recomendação
+
+| Decisão | Alternativas | Recomendação e motivo |
+| --- | --- | --- |
+| Arquivos | Input/Blob/download no renderer; diálogos nativos e filesystem no main | **Diálogos nativos no main**, associados à janela e validados por sessão. O save dialog escolhe um caminho, não grava o JSON. Isolamento existente permanece; renderer recebe resumo/token/resultado, sem paths ou arquivo inteiro via IPC. |
+| Substituição | Gravações por tarefa; trocar banco; única unidade sobre tasks | **Uma unidade coordenada sobre tasks**, com CAS e validação do estado final. Evita coleção parcial e preserva lixeira, schema e metadata locais. Mesclagem e extração do Chrome estão excluídas por instrução humana. |
+| Prévia concorrente | Confirmar sobre dados que mudaram; recusar e renovar prévia | **Recusar base antiga e exigir nova prévia/confirmação**, coerente com a arquitetura aprovada; qualquer alteração da revisão global, inclusive lixeira, invalida a base. A consulta opcional desta sessão não teve nova resposta humana; não registrar recomendação como aprovação. |
+| Limite de arquivo | 20 MiB simétricos; exportar maior que se consegue importar; ampliar limite desktop com orçamento demonstrado | **Propor inicialmente 20 MiB para ambos**, com erro anterior à gravação, sem corte de tarefas; submeter o impacto à revisão. A base já testou 23,9 MiB de payload persistido (não equivale a tamanho de backup); coleções legítimas podem exceder 20 MiB ao exportar. Ampliação requer número e evidência de memória/bloqueio, ainda não aprovados. Não recomendar gerar silenciosamente um backup que o app não restaura. |
+| Recuperação | Rollback/reopen conforme fase; restaurar automaticamente dados anteriores; substituir SQLite corrupto | **Rollback confirmado antes de commit, ressincronização/reopen após commit ou resultado incerto**. Não repetir importação nem reverter automaticamente após mudanças posteriores. Recuperar banco inacessível por outro percurso exige escopo e proteção explícitos; não resetar SQLite para contornar o preflight. |
+
+APIs verificadas nas declarações do Electron **44.5.1** já instalado e na documentação primária:
+[Electron dialog](https://www.electronjs.org/docs/latest/api/dialog) e
+[Node 24 filesystem](https://nodejs.org/docs/latest-v24.x/api/fs.html). Propor exportação de snapshot
+consistente coordenado, de todas as tarefas independentemente de filtros, seguida de gravação
+em arquivo temporário exclusivo no diretório escolhido, flush/close e substituição controlada.
+Não abrir o destino com truncamento antes de ter o arquivo completo. Cancelamento é resultado
+neutro; erro deve preservar destino anterior e tarefas, sem sucesso antes da confirmação de I/O.
+Testar substituição no Windows; rename/kill de processo não são prova de durabilidade sob falta
+de energia. Dialog/read/write ficam fora da transação SQL e exigem revalidação da sessão nas
+fronteiras assíncronas. Evitar exportação sobre arquivos internos do perfil/banco do app.
+
+Preparação mantém uma cópia validada no main, vinculada ao documento, à revisão global e a um
+token opaco consumível uma vez. Definir expiração, uma preparação por sessão e orçamento global
+de bytes/heap, liberando em cancelamento, troca, navegação e encerramento. Confirmação usa essa
+cópia; não reler arquivo que pode ter sido modificado após a prévia. Propor comandos IPC finitos
+de exportar/preparar/confirmar/cancelar e resumo limitado (versões/data/app/contagens/avisos,
+primeiros cinco erros e contagem restante), sem transportar tasks/paths/callbacks livres.
+Nomes, versões, token/acks e notificação de invalidação devem ser fechados no design; atualizar
+coerentemente specs que hoje limitam o catálogo a 17 wrappers e excluem backup funcional.
+
+**Falhas por fase:** seleção/leitura/validação/conflito/cancelamento não alteram tarefas, lixeira
+ou ofertas de outras sessões. Na unidade, validar/serializar/verificar a projeção gravada antes
+do COMMIT permite rollback de divergência. Após commit confirmado, invalidar undo globalmente
+na mesma sequência coordenada, antes que ações seguintes/publicações antigas recuperem oferta;
+UNCHANGED tem o mesmo efeito transitório. A confirmação de leitura após commit deve distinguir
+gravação confirmada porém não verificada de falha com rollback; não anunciar que nada mudou se
+o commit ocorreu. Resposta perdida pede ressync, sem replay. Commit incerto segue o bloqueio e
+reopen do coordenador existente. Testar reler/reabrir coleção completa com todos os campos e
+revisões novas coerentes, preservando timestamps históricos do arquivo.
+
+#### Percurso de migração, escopo e exclusões
+
+1. Na extensão inalterada, abrir seu recurso existente de backup e exportar o JSON. Conservar o
+   arquivo e os dados da extensão até conferir a migração; exportação não move nem exclui tarefas.
+2. No app, oferecer **Exportar tarefas atuais** antes de substituir; a ação é opcional e não
+   confirma importação. Escolher o JSON, validar integralmente e exibir a prévia das contagens,
+   data e versão original/conversão. Arquivo vazio avisa que removerá todas as tarefas ativas.
+3. Confirmar explicitamente a substituição total, verificando novamente a base. Tarefas do app
+   ausentes no arquivo serão removidas, sem enviá-las para a lixeira nem criar undo de importação.
+4. Mostrar resultado confirmado e conferência; erros/avisos indicam a fase correta. Conferir
+   campos, recorrências, subtarefas e marcadores no app e em exportação/reimportação de revisão.
+   Manter cópia dos arquivos originais para recuperação manual consentida.
+
+**Incluído para propor:** leitura v1–v4, exportação v4, adapters nativos, limite real de bytes,
+prévia e confirmação total, CAS, validação integral/portadora, preservação e verificação completa,
+tratamento de falhas por fase, invalidação interna/visual de undo, UI de backup com identidade,
+teclado/foco/busy acessível e documentação operacional da migração quando implementada.
+
+**Excluído:** mesclagem, extração do perfil/storage do Chrome, alteração da extensão, importação
+de SQLite, lixeira no arquivo, credenciais/configuração de IA, desfazer temporário ou histórico
+persistente, undo da importação, sincronização/nuvem, criptografia nova de backup, scheduler,
+notificações/bandeja, captura/atalhos/IA, redesign, workers sem decisão aprovada, instalação
+corporativa, release/publicação e outras Changes. A lixeira **já existente no app é preservada**;
+coexistência de ID com tarefa importada permanece válida, e seu restore posterior pode recusar
+ID_EXISTS. Uma portadora conflitante é recusada antes da importação. Nenhum segredo/configuração
+é lido para formar backup; JSON continua sem criptografia e pode conter dados pessoais nas
+próprias tarefas. Erros/logs não devem reproduzir conteúdo, títulos, paths ou credenciais.
+
+#### Dúvidas materiais e riscos a fechar no propose
+
+- **Limite:** confirmar 20 MiB simétricos ou justificar novo teto medido. Definir UTF-8/BOM,
+  arquivo regular, leitura limitada durante crescimento, memória de parse/projeção/preparações,
+  orçamento e descarte. O limite do arquivo não é teto retroativo do banco/codec.
+- **Dados históricos:** exportação estrita pode recusar conteúdo que o codec conserva, mas o
+  backup não aceita. Recomendar erro integral com campo/código seguro e preservação dos dados;
+  uma conversão que altere texto/limites exige decisão explícita, sem correção silenciosa.
+- **Banco inacessível:** fluxo normal respeita preflight de schema futuro/corrupção; importar
+  backup com o banco já bloqueado exige projeto próprio de recuperação. Não prometer reparar
+  um banco que não abre nem substituir o arquivo do perfil nesta Change.
+- **Verificação e invalidação:** fechar posição da releitura em relação a COMMIT/publicação,
+  resultado pós-commit não verificado, perda de resposta e evento de invalidação em UNCHANGED.
+  Sem isso, pode haver falso sucesso, falso rollback ou oferta antiga visível em outra sessão.
+- **Windows e recursos:** diálogos cancelados, permissão/disco cheio/arquivo ocupado e rename
+  exigem testes reais no pacote; consumo de até oito preparações não pode ser ilimitado. D10,
+  acessibilidade humana e before-images extremas herdadas continuam pendentes; não alterar
+  seus budgets ou afirmar paridade instalada por build/smoke de renderer.
+
+#### Critérios de aceitação/testes candidatos B01–B14
+
+| ID | Critério observável a refinar nos artefatos |
+| --- | --- |
+| B01 | Fixtures v1–v4 aceitas e comparadas com resultado canônico esperado; migração de lastTriggeredFor, ausência de subtarefas legadas e versão original da prévia corretas. JSON/futuro/estrutura/inválido/IDs duplicados falham integralmente. |
+| B02 | Round-trip de todos os campos listados; testes negativos alteram/removem cada campo, parâmetros de recurrence, ids/títulos/done/ordem de subtasks e markers e exigem divergência detectada. Reordenar só a coleção de tarefas não gera falso erro. |
+| B03 | UTF-8 no limite e limite+1, multibyte, tamanho declarado inexato/crescimento, leitura truncada/erro/encoding inválido, arquivo vazio válido vs JSON vazio, sem leitura/mutação indevida. Exportação grande não trunca nem gera sucesso incompatível com seu limite. |
+| B04 | Exportação v4 de todas as tarefas, independente de filtros, validada pelo leitor; apenas envelope/campos permitidos, sem trash/metadata/undo/configuração/credenciais nem extras aninhados. Fixtures sintéticas com sentinelas de segredo/configuração. |
+| B05 | Prévia e confirmação irreversível com contagens/data/versões, aviso de zero tarefas, exportação preventiva e cancelamento; escolher novamente o mesmo arquivo funciona. Cancelar seleção/save/preview/confirm não grava nem invalida outras sessões. |
+| B06 | Alteração de tasks ou trash entre prévia e confirmação produz conflito e exige nova prévia; duas sessões, token alheio/expirado/reutilizado, navegação/encerramento e mudança do arquivo após prévia não substituem estado sem consentimento válido. |
+| B07 | Substituição total em uma unidade: lista nova completa ou anterior completa, inclusive arquivo vazio; remoção não vai à lixeira. IDs/timestamps/ordens preservados, revisões geradas localmente e rollback/fault injection sem coleção parcial. |
+| B08 | Lixeira permanece integral; IDs entre tasks/trash podem coexistir e restore mantém ID_EXISTS. Duas portadoras importadas ou colisão com portadora na lixeira rejeitam antes do efeito, sem expurgo nem alteração de regras. |
+| B09 | Commit confirmado APPLIED e UNCHANGED invalidam recibos/confirmações/candidatos e ofertas visuais de todas as sessões, sem inventar revisão SQL em no-op. Falha/rollback/cancelamento preservam as demais ofertas; publicação tardia não as recria. |
+| B10 | Liquidação de OFFSET/AT vencido `<= now`, com relógio sintético; marcas futuras e timestamps da tarefa preservados. Sem ocorrência/subtarefa regenerada, notificação retroativa ou alegação de scheduler instalado. |
+| B11 | Falha antes/depois de COMMIT, verificação divergente, resposta perdida, commit incerto e reopen: resultado informa fase verdadeira; ressync sem replay/rollback automático sobre alterações posteriores. Reabertura encontra coleção completa e verificável. |
+| B12 | Save dialog e I/O reais Windows: destino novo/existente, cancelamento, Unicode, permissão/disco cheio/arquivo ocupado, falhas write/flush/rename e interrupção em barreiras. Destino anterior preservado antes da substituição, cleanup limitado aos temporários próprios e sucesso após gravação confirmada. |
+| B13 | Bridge real do pacote com catálogo/versionamento/bytes/erros fechados e isolamento; renderer não recebe filesystem/path/JSON completo. Recursos liberados em oito sessões e parse/validação/gravação medidos no teto, sem relaxar gates herdados ou truncar dados. |
+| B14 | UI por teclado/foco/anúncios/busy e migração manual com dados fictícios; lint/cinco typechecks/testes/build, OpenSpec estrito e provas adequadas no Electron empacotado. Documentação/README/matriz factual somente após implementação/etapa correspondente; roteiro humano pendente não é execução aprovada. |
+
+**Evidências da exploração:** sondagens em memória a partir de leitura dos módulos/fixtures da
+origem, executadas no diretório do app sem criar scripts ou rodar a suíte da extensão: v1/v2/v3/v4
+aceitos (4/3/3/4 tarefas, sete subtarefas no v4), três falsos `verified: true`, portadora duplicada
+aceita e propriedade desconhecida de recurrence conservada. Não são testes da futura TFA-007.
+`npm run validate` no app, Node **24.21.0**/npm **11.21.0** já instalados: lint, cinco typechecks,
+**46 arquivos / 664 testes + 11 skipped**, build aprovados. OpenSpec estrito `--all`: **10/10**;
+`--archived`: **6/6**, apenas observações INFO sobre requisitos extensos. Nenhuma prova nova de
+diálogos, I/O de backup, instalador ou aplicativo instalado foi executada.
+
+### Prompt consolidado para opsx:propose
+
+Este prompt registra a passagem para proposta; não inicia propose/apply nem aprova as recomendações.
+
+```text
+$openspec-propose TFA-007 — migrar-backups-e-importar-dados-da-extensao
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app, na branch codex/tfa-007-migrar-backups-e-importar-dados-da-extensao, base origin/main 9e8a05a2d84874f25d9f429ecc120e81c7ec0acc (PR #6 integrado). Leia AGENTS.md, docs/roadmap.md (exploração TFA-007, achados/dúvidas/B01–B14), artefatos arquivados da TFA-006 e specs/código pertinentes das TFA-003/004/005. Preserve trabalho preexistente. Extensão/Git C:\QSI\Workspaces\taskflow-extension somente leitura, HEAD a763e7a0d646c664ecd4f979528bc2c3589fa8c4; não editar/instalar/testar/buildar/alterar Git ali.
+
+Criar apenas proposal/design/deltas/tasks da TFA-007 no schema spec-driven/OpenSpec 1.14.0. Registrar IN_PROGRESS/PROPOSE e data de início antes, IN_REVIEW/REVIEW depois; não implementar nem aprovar automaticamente. Propor migração manual exportar na extensão inalterada → escolher JSON → validar/prévia → confirmar substituição total no app → conferir, com exportação preventiva opcional das tarefas atuais.
+
+Preservar envelope taskflow-backup v4 e leitura v1–v4: v1 converte lastTriggeredFor para processedFor subtraindo OFFSET; v2→v3 sem inventar séries; v3→v4 acrescenta subtasks vazias. Diferenciar versão original e normalizada na prévia. Validar arquivo integralmente com os contratos estritos do backup, sem trocar o codec histórico, renumerar IDs, normalizar/truncar dados ou gerar ocorrências. Fechar tratamento seguro de dados locais exportáveis pelo codec mas recusados pelo backup. Projetar campos permitidos em todos os níveis, removendo extras inclusive em recurrence.
+
+Propor diálogos nativos associados à janela e I/O no main; renderer sem paths/JSON completo/Node. Exportar snapshot consistente de todas as tarefas, sem filtros; salvar em temporário exclusivo, flush/close/substituição controlada, preservando destino anterior em falha e confirmando sucesso após I/O. Leitura limitada por bytes UTF-8 reais, sem confiar em stat/tamanho declarado durante crescimento. Proposta inicial: limite simétrico de 20 MiB, sem teto retroativo do banco; explicitar impacto em coleções grandes (base já mediu 23,9 MiB de payload, não de backup). Se propor ampliar, definir número e provas de memória/bloqueio e submetê-los à revisão. Definir encoding/BOM, orçamento/expiração/liberação de preparações e erros por fase.
+
+Prévia imutável no main, uma por documento, token opaco por sessão e revisão global; confirmar somente a base apresentada, recusando mudanças de tarefas/lixeira com nova prévia/confirmação. Não reler arquivo na confirmação. Definir comandos IPC finitos/versionados, schemas/bytes/acks e resumo limitado, com validação de sessão nas fronteiras assíncronas; evoluir specs que hoje restringem catálogo17/backup ausente, sem IPC livre. Arquivo vazio requer aviso de remoção de todas as tarefas ativas.
+
+Substituir somente tasks em uma unidade coordenada CAS, preservando lixeira/configurações e revisões locais. Validar portadora única em tarefas importadas+lixeira preservada, rejeitando conflito integralmente; coexistência normal de IDs tasks/trash mantém restore ID_EXISTS. Não enviar removidas à lixeira nem oferecer undo de importação. Comparar coleção por ID e todos os campos conhecidos/opcionais/listas, inclusive recurrence/seriesId e subtasks id/title/done/ordem: o comparador da extensão omite esses campos e não pode ser copiado. Liquidação pura de reminders vencidos <=now no commit é a única alteração prevista, mantendo timestamps e marcas futuras; scheduler/notificações/bandeja são TFA-008.
+
+Fechar verificação da projeção dentro da unidade e releitura/reopen após commit, rollback antes de commit, gravação confirmada mas não verificada, resultado incerto e resposta perdida; ressync sem replay/reversão automática. Integrar UndoRegistry.invalidateAll() após commit confirmado e em UNCHANGED, invalidando recibos/confirmações/candidatos/ofertas visuais de todas as sessões na sequência coordenada. Definir notificação limitada para UNCHANGED sem falsa revisão/evento SQL. Cancelamento/falha com rollback não invalidam outras sessões. Banco futuro/corrupto permanece protegido pelo preflight; não prometer recuperação substituindo SQLite.
+
+Incluir B01–B14 como cenários/tarefas observáveis: quatro fixtures por cópia revisada, round-trip completo e perdas isoladas de cada campo, fronteiras UTF-8/tamanho/recursos, concorrência/tokens, portadoras/trash, APPLIED/UNCHANGED/undo, sentinelas de segredo/extras, falhas por fase e I/O/bridge reais no pacote Windows. Preservar identidade, acessibilidade, foco/teclado/aria-disabled e feedback. Gates: lint/cinco typechecks/testes/build e OpenSpec estrito, depois provas de pacote aplicáveis com perfil fictício; smoke/build não provam diálogo/instalador. D10, prova humana de acessibilidade e before-images extremas continuam pendentes; não relaxar budgets por conveniência.
+
+Backup transporta tarefas e metadados do envelope, sem lixeira, credenciais/configuração de IA ou desfazer temporário; JSON não criptografado pode conter dados pessoais das tarefas. Excluir mesclagem, extração do Chrome, mudanças na origem, importação SQLite, histórico persistente, scheduler/bandeja/captura/IA/redesign, instalações/releases/publicação e outras Changes. Planejar documentação operacional/paridade e README factual na etapa correspondente, sem apresentar recurso planejado como disponível. Entregar os artefatos para revisão, decisões/dúvidas remanescentes e prompt consolidado de apply registrado no roadmap; parar sem apply.
+```
+
+### Proposta entregue para revisão — 2026-10-05
+
+**Autorização:** o usuário invocou `$openspec-propose` e anexou o prompt consolidado da TFA-007.
+Isso autorizou somente proposal/design/deltas/tasks. Artefatos criados na mesma branch/base da
+exploração, sem código de produto, nova instalação, alteração da origem ou execução de apply.
+Estado **IN_REVIEW/REVIEW**, início **2026-10-05**, conclusão sem data; **0/45 tasks**.
+Nenhuma aprovação humana dos artefatos foi registrada.
+
+**Artefatos:** [proposal.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/proposal.md),
+[design.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/design.md),
+[tasks.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/tasks.md) e metadado
+`.openspec.yaml` gerado pela CLI no schema `spec-driven`. Sete deltas, **45 requisitos /
+157 cenários** (contratos futuros, sem implementação):
+
+| Capability | Operação | Requisitos / cenários |
+| --- | --- | --- |
+| [desktop-task-backup](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-backup/spec.md) | ADDED | 18 / 39 |
+| [desktop-foundation](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-foundation/spec.md) | MODIFIED | 2 / 8 |
+| [desktop-state-ipc](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-state-ipc/spec.md) | MODIFIED + ADDED | 14 / 60 |
+| [desktop-task-management](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-management/spec.md) | MODIFIED | 3 / 13 |
+| [desktop-task-recurrence](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-recurrence/spec.md) | MODIFIED | 2 / 8 |
+| [desktop-task-undo](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/desktop-task-undo/spec.md) | MODIFIED | 2 / 7 |
+| [local-task-persistence](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/specs/local-task-persistence/spec.md) | MODIFIED | 4 / 22 |
+
+**Escolhas concretas propostas para revisão:**
+1. Arquivo completo **20 MiB** simétricos, UTF-8 estrito/BOM inicial opcional na entrada, saída sem
+   BOM; exportação incompatível com backup ou grande recusa tudo sem alterar/truncar dados.
+2. **128 MiB** de charge lógico global para backup, scanner antes de parse com profundidade
+   **64** e **262144 nós**, um job nativo global, oito preparações/uma por documento. Não é
+   garantia de heap nem teto do codec; reservas de undo continuam64MiB. Medições previstas.
+3. Token próprio/contexto/base global, **5 minutos monotônicos** de validade e consumo único.
+   Mudança em tasks/trash/claim exige nova prévia; abandonar modal mantém prévia, cancelar prévia
+   libera. Exportação preventiva é subação que não renova base/TTL/consentimento.
+4. Plano final importadas+trash preservada com portadora única qualquer status, sem geração,
+   expurgo, renumerar IDs ou alterar datas/âncoras. Validação histórica do backup é distinta da
+   edição de regra; somente liquidação de pendentes<=now é prevista.
+5. Verificação completa por ID antes de COMMIT e releitura/conclusão serializada depois, antes
+   da próxima unidade/publicação. Distinguir NOT_APPLIED, VERIFIED/PENDING e UNKNOWN; bloqueio/
+   reopen/resync sem replay. Recuperação incerta tem barreira conservadora sem afirmar sucesso.
+6. Época de undo transitória pública: estado/snapshot/eventos **v3**, update/status **v4** e move
+   **v2** com época em acks elegíveis. Create/check3 e demais wrappers mantêm versões. Quatro
+   backup1 completam **catálogo21**; invalidação usa a mesma inscrição, inclusive UNCHANGED,
+   sem revisão SQL falsa. SQL2/codec4/backup4 permanecem.
+7. Salvar por temporário exclusivo/sync/close/rename/readback no main, com destino anterior
+   preservado antes da substituição. Detectar alterações observáveis do destino; documentar
+   corrida residual de terceiros e energia não comprovada. Diálogo nativo real exige prova
+   Windows distinta de escolha stub do harness.
+
+Estas escolhas fecham as dúvidas materiais da exploração **como proposta**, não como preferência
+humana aprovada. Alteração de comportamento/budget ou impossibilidade demonstrada nos gates
+exige revisão coerente antes de implementar o ponto; não delegar decisão material ao apply.
+
+**Validações desta entrega:** OpenSpec1.14.0 estrito da Change **1/1 sem issues**,
+`--all` **11/11** (dez specs + uma Change), `--archived` **6/6**; INFO preexistentes de requisitos
+extensos nas specs principais, sem erro. `openspec status` indica quatro conjuntos de artefatos
+completos (planejamento), com tasks ainda **0/45**. `npm run validate` com Node24.21.0/npm11.21.0
+já instalados: lint, cinco typechecks, **46 arquivos / 664 testes + 11 skipped**, build aprovados.
+Revisão de cabeçalhos/cenários preservados, rastreabilidade B01–B14, links e diff sem erros.
+Esses gates validam os artefatos e a base existente; não comprovam backup, diálogos nativos ou
+novo recurso empacotado. Não foi gerado pacote/Setup nem alterado README/docs operacionais/specs
+principais. Origem permanece somente leitura e intacta.
+
+**Pendências:** revisão/aprovação humana dos artefatos antes de novo apply; implementação de45
+tasks e evidências futuras B01–B14. D10, acessibilidade humana e campanha de before-images
+extremas herdados continuam pendentes. Limites de tamanho/histórico/recursos, novo versionamento
+e janela residual de gravação estão visíveis para revisão, sem marcar disponibilidade do recurso.
+Após apply, verify/verification.md nesta Change; só arquivar depois da aprovação explícita do
+relatório. Commit/push/PR/merge/instalação/distribuição e TFA-008 dependem da autorização pertinente.
+
+### Prompt consolidado para opsx:apply
+
+Usar somente após aprovação explícita dos artefatos e novo pedido de apply. O prompt abaixo não
+é evidência de aprovação e não autoriza archive/merge/publicação.
+
+```text
+$openspec-apply-change TFA-007 — migrar-backups-e-importar-dados-da-extensao
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app, branch codex/tfa-007-migrar-backups-e-importar-dados-da-extensao, base 9e8a05a2d84874f25d9f429ecc120e81c7ec0acc (PR #6 integrado). Antes de iniciar, confira aprovação humana explícita dos artefatos registrada na conversa; este prompt não é essa evidência. Leia AGENTS.md, docs/roadmap.md (proposta TFA-007/B01–B14) e proposal/design/sete deltas/tasks de openspec/changes/migrar-backups-e-importar-dados-da-extensao, além dos contratos/dependências arquivados pertinentes. Preserve trabalho preexistente. Extensão e Git C:\QSI\Workspaces\taskflow-extension somente leitura, HEAD a763e7a0d646c664ecd4f979528bc2c3589fa8c4; não editar/instalar/testar/buildar/alterar Git ali.
+
+Implemente exclusivamente as45 tasks aprovadas. Preservar leitura v1–v4/exportação v4, versão original da prévia e projeção integral de campos conhecidos em todos os níveis; não copiar comparador incompleto, scheduler/composição Chrome ou normalizadores de formulário para arquivo histórico. Validar export pelo próprio leitor; dado histórico não exportável recusa tudo sem truncar/normalizar. Coletor mantém só5issues seguros e contagem restante, sem conteúdo/log sensível.
+
+Aplicar20MiB de bytes completos em import/export, UTF-8 estrito/BOM inicial opcional na entrada/saída sem BOM e leitura por handle regular max+1. Orçamento128MiB de backup com charges D2/overposição de fases, scanner depth64/nodes262144 anterior a parse, um job nativo global e até8preparações/uma por documento, sem novo limite de codec. Medir heap/RSS/pico/latência/liberação; preservar64MiB de undo e demais budgets.
+
+Main escolhe/salva por diálogos vinculados à janela, ticket/contexto revalidados em cada fronteira, sem path/JSON/Task/Node no renderer. Exportar snapshot de todas as tarefas após save dialog; temporário exclusivo no mesmo diretório, sync/close/rename/readback, destino protegido/fingerprint e resultados SAVED/SAVED_WITH_WARNING. Não truncar/remover original antecipadamente, fazer fallback copy-delete ou repetir efeito. Documentar corrida residual/energia não comprovada e separar diálogo real Windows de escolha stub do harness.
+
+Prévia imutável no main com token24bytes/base64url32, documento/contexto/revisão global, TTL5min monotônico e consumo único. Confirmar base exata; qualquer mudança em tasks/trash/claim exige nova prévia. Não reler arquivo na confirmação. Abandono modal mantém preview; cancelar/trocar/expirar/encerrar libera. Exportação preventiva conserva base/token/TTL, sem confirmar importação.
+
+Substituir somente tasks por CAS global em uma unidade, preservando trash/configurações/IDs/timestamps/listas. Validar portadora única em importadas+toda trash, qualquer status; rejeitar SERIES_CONFLICT sem expurgar/retirar regra/reparar. Homônimos tasks/trash continuam permitidos e restore mantém ID_EXISTS. Sem mandar removidas à lixeira, oferecer undo de importação ou gerar ocorrências/subtasks. Somente liquidação pura de reminders pendentes<=now muda processedFor; conservar marcas futuras/timestamps e guards D8, sem scheduler.
+
+Comparar conjunto exato por ID e todos os campos/opcionais/parâmetros/listas, inclusive seriesId/recurrence e subtask id/title/done/ordem; metadata SQL conferida separadamente. Verificar antes de COMMIT e acrescentar conclusão síncrona somente leitura/in-memory no coordenador após resultado e antes da próxima unidade/publicação, sem await/SQLwrite nela. Tratar NOT_APPLIED, VERIFIED/PENDING e UNKNOWN com rollback/contenção/reopen/resync apropriados, sem replay ou rollback falso. Banco inacessível/futuro/corrupto permanece protegido; não trocar SQLite para recuperar.
+
+Integrar invalidateAll por epoch segura após APPLIED/UNCHANGED e barreira conservadora de recuperação incerta, sem declarar sucesso incerto ou revisão SQL falsa. Estado/snapshot/subscription/eventos v3 com undoEpoch e cursor do par revision/epoch; evento fechado undo-invalidated v1 na mesma inscrição/callback, buffer/coalescimento/ressync foco30s mesmo com SQL igual. Update/status v4 e move v2 carregam epoch em acks elegíveis;create/check3 e demais wrappers mantêm versões. Só apresentar oferta com contexto/epoch atuais e snapshot>=ack; resposta antiga não a recria. Acrescentar quatro backup1, catálogo21, schemas/erros/guardas D8/budgets64KiB/8KiB/1KiB/página256KiB/fila/lock preservados.
+
+Preservar identidade/teclado/foco/aria-disabled/estados/feedback, prévia e confirmação irreversível/arquivo vazio/export preventiva; uma inscrição. Guia manual exportar na extensão→guardar original→selecionar/revisar/confirmar/conferir no app. Backup sem trash/credenciais/configuração IA/desfazer, JSON não criptografado com possíveis dados pessoais das tarefas; não anunciar migração desses itens ou alarmes disponíveis.
+
+Executar testes unitários/integração/componente e provas B01–B14 no produto fictício empacotado, inclusive diálogo real separado, perdas de cada campo, tamanho/encoding/nós/memória/tokens/duas sessões/portadoras/UNCHANGED/late ack/falhas/reopen. Gates npm run validate/OpenSpec estrito, package:win --publish never/verify:package/smoke:packaged sem Setup ou publicação. D10/a11y/before-images herdados permanecem separados; não relaxar budgets, truncar, dividir commits, virtualizar ou introduzir worker por conveniência. Descoberta material exige revisar artefatos e pedir revisão antes desse ponto, continuando trabalho independente autorizado.
+
+Atualizar documentação operacional/arquitetura/catálogo/matriz quando implementados; README factual após archive autorizado. Excluir mesclagem/extração Chrome/import SQLite/reset recuperação/histórico/criptografia nova/scheduler/bandeja/captura/IA/redesign/instalações/releases/outras Changes. Ao concluir apply, executar openspec-verify-change e criar verification.md nesta Change com aderência/45tasks/B01–B14/gates/pendências. Entregar relatório para aprovação explícita e parar sem archive/consolidação/README pós-archive/merge/publicação ou TFA-008.
+```
+
+
+### Aprovação dos artefatos — 2026-10-05
+
+**Evidência humana nesta conversa:** após receber os artefatos para revisão, o usuário determinou: **“Aprove os artefatos, commit e faça o push da branch”**. A aprovação abrange a versão entregue de proposal, design, os sete deltas (desktop-task-backup, desktop-foundation, desktop-state-ipc, desktop-task-management, desktop-task-recurrence, desktop-task-undo e local-task-persistence) e tasks da TFA-007, incluindo as sete escolhas concretas propostas para revisão e os orçamentos de recursos. Estado atualizado para **APPROVED/READY_FOR_APPLY**. As 45 tasks continuam pendentes; apply não iniciado.
+
+Este pedido aprova os artefatos, seu registro no roadmap, o commit e o push dos mesmos; não solicita iniciar apply, implementar, arquivar, abrir PR ou avançar a outra Change. As observações de aprovação pendente feitas durante a elaboração descrevem aquele momento; este registro estabelece a aprovação posterior sem alterar o conteúdo técnico. Próxima ação: usar o prompt acima mediante pedido explícito de apply.
+
+### Apply, verificação, archive e DONE — 2026-10-05
+
+**Apply 45/45 concluído** na branch `codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`,
+preservando o trabalho preexistente e mantendo a extensão e seu Git somente leitura no HEAD
+`a763e7a0d646c664ecd4f979528bc2c3589fa8c4` (worktree limpo; nenhum build/teste/escrita na origem).
+
+**Entregue no apply:** núcleo portável de backup (formato v1–v4, migrações, validação com coletor
+de 5 issues, projeção explícita, comparador completo, scanner 64/262 144 nós, ledger de 128 MiB,
+serialização sem BOM validada pelo leitor); adapters de arquivo no main (leitura por handle
+20 MiB+1/UTF-8 estrito, diálogos nativos vinculados, job global, proteção de destino, gravação
+atômica com fingerprint/readback); serviços export/prepare/confirm/cancel com prévia imutável
+(token 24 bytes/base64url, TTL 5 min, consumo único) e conclusão serializada com barreira de época;
+estado v3 com `undoEpoch`, evento `undo-invalidated:v1`, update/status v4, move v2, catálogo 21 e
+quatro wrappers backup; área de Backup na interface com prévia, modal irreversível, Escape, busy
+aria-disabled e foco; harness de produto `backup` com duas superfícies; documentação
+([backup-format.md](../docs/backup-format.md), [backup-migration-guide.md](../docs/backup-migration-guide.md),
+[packaged-evidence-tfa007.md](../docs/packaged-evidence-tfa007.md)) e a
+[verification.md](../openspec/changes/archive/2026-10-05-migrar-backups-e-importar-dados-da-extensao/verification.md)
+desta Change.
+
+**Gates executados:** `npm run validate` (lint, 5 typechecks, **834 testes + 11 skipped em 62
+arquivos**, build) aprovado; OpenSpec 1.14.0 estrito com Change **1/1**, `--all` **11/11** e
+`--archived` **6/6** (pré-archive); `package:win` NSIS x64 `--publish never`, `verify:package`
+(ASAR de 12 arquivos na allowlist; manifestos `asInvoker/uiAccess=false`; hashes SHA-256
+registrados) e `smoke:packaged -- --ci-runner` **OK com o gate D10 herdado reportado como
+pendente**; cenário `backup` do pacote com **18/18 verificações** (APPLIED/UNCHANGED/base stale/
+SERIES_CONFLICT/export-fail e epoch em duas superfícies, diálogos stub separados do roteiro
+nativo). Medições: teto de 20 MiB com 4 762 tarefas/214 303 nós (~99 ms encode, ~46 ms scan,
+~74 ms validação), `limite+1` recusado, adversariais recusados antes do parse, 8×16 MiB aceitos com
+liberação a zero e restauração de 1 000/10 000 + 100 de lixeira em ~9/~71 ms; a sobreposição
+parse+preparação no teto exato excede os 128 MiB para aquele formato (RESOURCE_LIMIT com dados
+intactos, dentro do design aprovado).
+
+**Verificação e archive:** o `verification.md` foi gerado com aderência, 45/45 tasks, B01–B14,
+gates e pendências, apontando **nenhum issue crítico** (3 WARNING herdados e 1 SUGGESTION). Após o
+pedido explícito de archive, a Change foi arquivada pela CLI 1.14.0 como
+**`2026-10-05-migrar-backups-e-importar-dados-da-extensao`**, com consolidação dos sete deltas em
+**19 requisitos ADDED/26 MODIFIED**; `openspec validate --all --strict` **11/11** e
+`--archived --strict` **7/7** depois do archive. O README factual foi atualizado (catálogo 21,
+estado v3/época, area de Backup e links de documentação) e o **DONE foi registrado em 2026-10-05
+por decisão explícita do usuário antes do merge** (precedente da TFA-003), com commit/push na
+mesma branch e PR aberto para a main na sequência; a integração será conferida no merge.
+
+**Pendências separadas (não resolvidas por esta Change):** D10 de UI (p95 688,3 ms; heartbeat
+760,5 ms; varredura 141,7 ms; números 700/700/250 não aprovados), acessibilidade humana,
+before-images extremas, prova de energia e diálogo nativo real do Windows (roteiro humano
+registrado e não executado; o stub do harness nunca é apresentado como nativo). TFA-008 e
+distribuição/releases continuam dependentes de pedido próprio.
+
+**Correção pós-archive encontrada pela CI do PR #7 (2026-10-05):** o runner usa `%TEMP%` com nome
+curto 8.3 (`C:\Users\RUNNER~1\...`) e a proteção de destino comparava a forma digitada com o
+`realpath` (forma longa), recusando destino legítimo com `DESTINATION_NOT_ALLOWED`/
+`FILE_WRITE_FAILED` (5 testes). A canonicalização foi corrigida para comparar sempre formas
+canônicas (ancestral existente mais profundo + segmentos ausentes) e detectar reparse/symlink por
+`lstat` ancestral, com injeção de FS apenas para testes; teste de regressão do alias 8.3 e da
+proteção de raiz canônica adicionado. `npm run validate` passou com **836 testes + 11 skipped**;
+commit `91eb477` e push na mesma branch reexecutaram a CI do PR. **CI do PR #7 verde em
+2026-10-05** ([run 37341894516](https://github.com/Cadlira/taskflow-app/actions/runs/37341894516)):
+gates (lint/typecheck/testes/build), pacote NSIS x64 sem publicação, inspeção de conteúdo,
+smoke do pacote e hashes aprovados; resta apenas a anotação informativa de depreciação do Node 20
+nas próprias actions. D10 herdado e demais pendências continuam separados.
 
 ## TFA-008 — Lembretes, notificações e ciclo de vida
 
@@ -1568,7 +1956,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001** está integrada pelo PR #1; a **TFA-002**, pelo PR #2 (`c123261`); a **TFA-003**, pelo PR #3 (`d74e02d`); a **TFA-004**, pelo PR #4 (`64fe7ad`). A **TFA-005** está **DONE**, arquivada e integrada pelo **PR #5**, merge **`ab3ed688f025064c16ce155ff5220fe62f9dbc59`** conferido na `main` e referência local `origin/main` em 2026-10-04, com **44/44 tasks**, relatório aprovado e specs consolidadas. A **TFA-006** está **APPROVED/READY_FOR_APPLY**, branch **`codex/tfa-006-migrar-lixeira-e-desfazer`** dessa base, início2026-10-04/conclusão sem data; proposal/design/sete deltas e **0/45 tasks** entregues e aprovados pelo usuário em 2026-10-04, com commit/push autorizados, sem implementação. A escolha humana de recusar EMPTY antigo foi incorporada. Usar seu prompt consolidado de apply mediante novo pedido explícito. **Pendência pós-archive:** D10 de 10.000 segue reprovado (p95 661,6 ms > 500 ms; heartbeat 636,1 ms > 250 ms; varredura141,7 ms), gate retido, sem virtualização/truncamento. Revisão dos números propostos (p95/heartbeat ≤700 ms e fechamento ≤250 ms) ou uma Change própria de janela de renderização permanece pendente. Prova humana de acessibilidade tem roteiro entregue e execução pendente (TFA-012 se não ocorrer antes). A prova instalada continua limitada à fundação; Setup, instalação corporativa, distribuição e promoção da versão exigem autorização correspondente.
+A **TFA-001 a TFA-006** estão **DONE**, arquivadas e integradas pelos **PRs #1 a #6**; merge mais recente **`9e8a05a2d84874f25d9f429ecc120e81c7ec0acc`** conferido em `origin/main`. A **TFA-007** está **DONE**, início e conclusão em 2026-10-05, na branch **`codex/tfa-007-migrar-backups-e-importar-dados-da-extensao`** dessa base: apply **45/45**, gates `npm run validate`/OpenSpec estrito/`package:win --publish never`/`verify:package`/`smoke:packaged -- --ci-runner` aprovados (cenário `backup` do pacote com 18/18 verificações), `verification.md` sem críticos, archive `2026-10-05-migrar-backups-e-importar-dados-da-extensao` com **19 requisitos ADDED/26 MODIFIED**, README factual atualizado e **PR aberto para a main na sequência do commit/push**. O **DONE foi registrado antes do merge por decisão explícita do usuário** (precedente da TFA-003) e a integração será conferida no merge do PR. TFA-008 e seguintes seguem PLANNED. Pendências herdadas: D10 (p95 688,3 ms/heartbeat 760,5 ms/varredura 141,7 ms, gate retido e números 700/700/250 não aprovados), acessibilidade humana, before-images extremas, prova de energia e diálogo nativo real do Windows. Prova instalada permanece limitada à fundação; Setup/instalação corporativa/distribuição/promoção exigem autorização pertinente.
 
 Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
 

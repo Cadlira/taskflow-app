@@ -54,11 +54,12 @@ function validateRevisionPair(content: unknown, edit: unknown): { contentRevisio
 
 /**
  * Reúne as páginas de um snapshot. Nada é publicado antes da conclusão: registros
- * fragmentados só são decodificados depois de reunidos, todas as páginas precisam ter a
- * mesma revisão e a contagem final precisa conferir.
+ * fragmentados só são decodificados depois de reunidos, todas as páginas precisam pertencer ao
+ * mesmo par (revisão, época do undo) e a contagem final precisa conferir.
  */
 export class SnapshotAssembler {
   #revision: string | undefined
+  #undoEpoch: number | undefined
   #collection: SnapshotCollection = 'tasks'
   #partial = ''
   #hasPartial = false
@@ -70,8 +71,12 @@ export class SnapshotAssembler {
   /** Devolve o snapshot completo na última página; `undefined` enquanto houver continuação. */
   accept(page: SnapshotPage): StateSnapshot | undefined {
     if (this.#finished) throw new MalformedSnapshotError()
-    if (this.#revision === undefined) this.#revision = page.revision
-    else if (this.#revision !== page.revision) throw new MalformedSnapshotError()
+    if (this.#revision === undefined) {
+      this.#revision = page.revision
+      this.#undoEpoch = page.undoEpoch
+    } else if (this.#revision !== page.revision || this.#undoEpoch !== page.undoEpoch) {
+      throw new MalformedSnapshotError()
+    }
 
     for (const fragment of page.fragments) {
       if (fragment.collection !== this.#collection) {
@@ -99,7 +104,12 @@ export class SnapshotAssembler {
     }
 
     this.#finished = true
-    return { revision: this.#revision, tasks: this.#tasks, trash: this.#trash }
+    return {
+      revision: this.#revision,
+      undoEpoch: this.#undoEpoch as number,
+      tasks: this.#tasks,
+      trash: this.#trash,
+    }
   }
 
   #addRecord(json: string): void {

@@ -305,3 +305,19 @@ commit. Nada disso está disponível na UI ou em serviços desta entrega.
 | Backup e lembretes delimitados | Porta interna de invalidação global por época após sucesso do futuro backup (TFA-007) e liquidação pura `<= now` no restore/revert, mantendo a guarda D8 (TFA-008). |
 
 Detalhes operacionais em [task-trash-and-undo.md](task-trash-and-undo.md).
+
+## TFA-007 — backup e migração das atividades (apply 2026-10-05)
+
+| Decisão | Consequência arquitetural |
+| --- | --- |
+| Formato portável e projeção estrita | O núcleo em `src/application/backup` lê `taskflow-backup` v1–v4 (migrações ordenadas, versão original separada da normalizada) e projeta somente campos conhecidos em todos os níveis; o codec persistido (v4) e o schema SQL (2) permanecem independentes do formato de arquivo (4). |
+| Limites e recursos | 20 MiB simétricos para o arquivo completo (UTF-8 estrito, BOM inicial opcional na entrada/sem BOM na saída); orçamento lógico próprio de 128 MiB, scanner de profundidade 64/262 144 nós antes do parse, um job nativo global e até 8 preparações (uma por documento), sem novo teto de codec nem alteração dos 64 MiB de undo. |
+| Arquivo no proprietário | Diálogos nativos vinculados à janela e I/O no main; o renderer recebe resumo/token/resultado, nunca path, JSON ou Task. Exportação grava temporário exclusivo no mesmo diretório com sync/close e uma substituição única, fingerprint e readback (`SAVED`/`SAVED_WITH_WARNING`); a janela residual de terceiros e energia não comprovada ficam documentadas. |
+| Prévia imutável | Cópia validada no main com token de 24 bytes/base64url, contexto e revisão global da base, TTL de 5 min monotônicos e consumo único; confirmar usa a cópia apresentada (não relê o arquivo) e qualquer mudança de tarefas/lixeira/claim exige nova prévia. |
+| Substituição atômica | `replaceAllTasks` por CAS global substitui **somente tarefas** numa unidade, preservando lixeira e metadados locais; portadora única validada no plano final (tarefas importadas + toda a lixeira, qualquer status) com `SERIES_CONFLICT` sem reparação; somente lembretes pendentes ≤ agora são liquidados. |
+| Conclusão e época | Conclusão síncrona e somente leitura no coordenador, antes da publicação/da próxima unidade, invalida recibos/preparações por época (`UndoRegistry.invalidateAll`) inclusive em `UNCHANGED`; `BACKUP_VERIFICATION_FAILED` reverte antes do COMMIT e resultado incerto aplica barreira conservadora sem declarar sucesso. |
+| Catálogo 21 e versões | Estado/snapshot/inscrição/eventos v3 com `undoEpoch` e cursor do par (revisão, época); `undo-invalidated:v1` fechado na mesma inscrição; update/status v4 e move v2 com época nos acks; create/check v3 e os demais wrappers v1; quatro wrappers backup v1 completam o catálogo. |
+| Migração manual | Exportar na extensão inalterada, guardar o original, selecionar/revisar/confirmar/conferir no app; o arquivo transporta tarefas e não inclui lixeira, credenciais/configuração de IA ou desfazer; JSON não criptografado com possíveis dados pessoais das tarefas. |
+
+Detalhes operacionais e roteiro manual em [backup-migration-guide.md](backup-migration-guide.md);
+formato, orçamento e medições em [backup-format.md](backup-format.md).

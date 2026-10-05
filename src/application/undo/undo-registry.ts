@@ -1,6 +1,7 @@
 import type { Revision } from '../storage/revisions.js'
 import type { TrashEntryRef } from '../storage/unit-of-work.js'
 import type { UndoFacts } from '../tasks/undo-types.js'
+import { StorageFailure } from '../storage/task-storage-error.js'
 import { utf8ByteLength } from '../../contracts/text.js'
 
 // Registro temporário de recibos/confirmações do main: uma oferta publicada e uma confirmação
@@ -34,6 +35,14 @@ export interface UndoReservation {
 
 export type ContextResult = { status: 'ok' } | { status: 'STALE_CONTEXT' }
 
+/** Barreira transitória de invalidação: sempre positiva e sem revisão SQL associada. */
+export type UndoInvalidationReason = 'BACKUP_RESTORED' | 'STORAGE_RECOVERED'
+
+export interface UndoInvalidationEvent {
+  epoch: number
+  reason: UndoInvalidationReason
+}
+
 export type ReserveResult =
   | { status: 'ok'; reservation: UndoReservation }
   | { status: 'busy' }
@@ -45,6 +54,8 @@ export interface UndoRegistryOptions {
   randomToken: () => string
   /** Charge determinístico do recibo; injetável para os testes de orçamento. */
   chargeBytes?: (payload: UndoFacts) => number
+  /** Época inicial; usada somente por testes de esgotamento/overflow da época. */
+  initialEpoch?: number
 }
 
 interface ActiveReservation {
@@ -85,6 +96,8 @@ export class UndoRegistry {
   readonly #chargeBytes: (payload: UndoFacts) => number
   readonly #documents = new Map<string, DocumentSlot>()
   readonly #reservations = new Map<number, ActiveReservation>()
+  readonly #invalidatedListeners = new Set<(event: UndoInvalidationEvent) => void>()
+  readonly #contextListeners = new Set<(documentKey: string, sequence: number) => void>()
   #usedBytes = 0
   #nextReservationId = 1
   #epoch = 1
@@ -93,6 +106,12 @@ export class UndoRegistry {
     this.#budgetBytes = options.budgetBytes ?? UNDO_BUDGET_BYTES
     this.#randomToken = options.randomToken
     this.#chargeBytes = options.chargeBytes ?? defaultChargeBytes
+    if (options.initialEpoch !== undefined) {
+      if (!Number.isSafeInteger(options.initialEpoch) || options.initialEpoch < 1) {
+        throw new Error('invalid initial epoch')
+      }
+      this.#epoch = options.initialEpoch
+    }
   }
 
   get usedBytes(): number {
@@ -134,6 +153,13 @@ export class UndoRegistry {
     const target = slot ?? { sequence: 0 }
     this.#documents.set(documentKey, { sequence })
     this.#clearTransient(target)
+    for (const listener of [...this.#contextListeners]) {
+      try {
+        listener(documentKey, sequence)
+      } catch {
+        // O contexto já mudou; falha de consumidor não o reverte.
+      }
+    }
     return { status: 'ok' }
   }
 
@@ -247,14 +273,37 @@ export class UndoRegistry {
   }
 
   /**
-   * Porta interna de sucesso de backup: invalida recibos/confirmações/publicações de TODAS as
-   * sessões por época monotônica, sem alterar revisão SQL. Cancelamento/falha confirmada não
-   * chama esta porta.
+   * Porta interna de sucesso de backup/recuperação: invalida recibos/confirmações/publicações de
+   * TODAS as sessões por época monotônica, sem alterar revisão SQL. Cancelamento/falha confirmada
+   * não chama esta porta. A reserva da próxima época é conferida antes do efeito: no limite
+   * seguro a operação falha sem wrap, sem reiniciar e sem limpar estado parcialmente.
    */
-  invalidateAll(): void {
+  invalidateAll(reason: UndoInvalidationReason = 'BACKUP_RESTORED'): number {
+    if (this.#epoch >= Number.MAX_SAFE_INTEGER) throw new StorageFailure('REVISION_EXHAUSTED')
     this.#epoch += 1
     for (const slot of this.#documents.values()) this.#clearTransient(slot)
     // Reservas em execução continuam contabilizadas até serem liberadas pelo próprio fluxo.
+    const event: UndoInvalidationEvent = { epoch: this.#epoch, reason }
+    for (const listener of [...this.#invalidatedListeners]) {
+      try {
+        listener(event)
+      } catch {
+        // A invalidação já aconteceu; falha de consumidor não a reverte.
+      }
+    }
+    return this.#epoch
+  }
+
+  /** Observa as barreiras de invalidação (época/reason) na mesma ordem síncrona da conclusão. */
+  onInvalidated(listener: (event: UndoInvalidationEvent) => void): () => void {
+    this.#invalidatedListeners.add(listener)
+    return () => this.#invalidatedListeners.delete(listener)
+  }
+
+  /** Observa a mudança de contexto por documento (para liberar preparações de backup obsoletas). */
+  onContextEstablished(listener: (documentKey: string, sequence: number) => void): () => void {
+    this.#contextListeners.add(listener)
+    return () => this.#contextListeners.delete(listener)
   }
 
   /** Sessão encerrada/navegada: libera o estado transitório do documento. */

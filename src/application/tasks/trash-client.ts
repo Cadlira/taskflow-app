@@ -24,6 +24,7 @@ import {
   parseUndoLastTaskActionRequest,
   parseUndoLastTaskActionResult,
   trashFailure,
+  trashMoveFailure,
   type ClearUndoOfferResult,
   type DeleteTrashItemResult,
   type EmptyTrashResult,
@@ -96,7 +97,7 @@ export function createTrashCommandClient(transport: TrashCommandTransport): Tras
 
     async moveTaskToTrash(request: unknown): Promise<MoveTaskToTrashResult> {
       const parsed = parseMoveTaskToTrashRequest(request)
-      if (parsed === null) return trashFailure('INVALID_REQUEST')
+      if (parsed === null) return trashMoveFailure('INVALID_REQUEST')
       const response = parseMoveTaskToTrashResult(await invokeStrict(transport, TRASH_MOVE_CHANNEL, parsed))
       if (response === null) throw new TrashCommandTransportError()
       return response

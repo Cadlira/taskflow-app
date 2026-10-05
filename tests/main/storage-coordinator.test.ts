@@ -218,7 +218,7 @@ describe('primitives de tarefas', () => {
 
     expect(stale.value).toEqual({ status: 'CONFLICT', currentRevision: 2n })
     expect(stale.committed).toBe(false)
-    expect(replaced.value).toEqual({ status: 'REPLACED', created: 1, updated: 1, removed: 1 })
+    expect(replaced.value).toEqual({ status: 'REPLACED', created: 1, updated: 1, removed: 1, revision: 3n })
     expect(again.value).toEqual({ status: 'UNCHANGED' })
     expect(again.committed).toBe(false)
 

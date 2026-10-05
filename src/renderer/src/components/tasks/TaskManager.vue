@@ -9,6 +9,7 @@ import type { TaskCancellation } from '../../../../contracts/tasks.js'
 import type { EditTaskPatch, TaskFieldErrors } from '../../../../domain/task-draft.js'
 import type { Task, TaskStatus } from '../../../../domain/task.js'
 import { useTasksStore, type TaskCommandStoreResult, type TrashCommandStoreResult } from '../../stores/tasks.js'
+import BackupManager from '../backup/BackupManager.vue'
 import TrashManager from '../trash/TrashManager.vue'
 import TaskCancellationDialog from './TaskCancellationDialog.vue'
 import TaskFilters from './TaskFilters.vue'
@@ -630,11 +631,28 @@ async function handleUndo(): Promise<void> {
 function openTrash(): void {
   void store.enterTrash()
 }
+
+function openBackup(): void {
+  void store.enterBackup()
+}
+
+/** Volta do backup preservando filtros/ordem e devolvendo o foco a um controle útil. */
+async function closeBackup(): Promise<void> {
+  await store.leaveBackup()
+  await nextTick()
+  if (store.totalTasks === 0) createFirstButton.value?.focus()
+  else if (store.noResults) clearFiltersButton.value?.focus()
+  else newTaskButton.value?.focus()
+}
 </script>
 
 <template>
   <main class="task-manager">
     <TrashManager v-if="store.trashMode" />
+    <BackupManager
+      v-else-if="store.backupMode"
+      @back="closeBackup"
+    />
     <template v-else>
       <header class="manager-header">
         <h1>Tarefas</h1>
@@ -657,6 +675,14 @@ function openTrash(): void {
             @click="openTrash"
           >
             Lixeira
+          </button>
+          <button
+            type="button"
+            class="button-secondary"
+            data-action="backup"
+            @click="openBackup"
+          >
+            Backup
           </button>
         </div>
       </header>
@@ -905,6 +931,14 @@ function openTrash(): void {
               @click="openTrash"
             >
               Abrir lixeira
+            </button>
+            <button
+              type="button"
+              class="button-secondary"
+              data-action="backup"
+              @click="openBackup"
+            >
+              Backup…
             </button>
           </div>
         </section>

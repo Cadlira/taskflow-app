@@ -26,7 +26,7 @@ O aplicativo SHALL abrir uma janela principal de gerenciamento local de tarefas,
 
 ### Requirement: Renderer sem autoridade irrestrita
 
-O renderer SHALL executar isolado, sem acesso livre a Node, filesystem, IPC ou sistema. A superfície SHALL expor somente os 17 wrappers versionados autorizados de diagnóstico, estado, tarefas, lixeira, contexto e undo, sem canais livres, SQL, callbacks remotos, repositories, Task/UndoPlan como comando ou paths arbitrários. Recursos posteriores SHALL permanecer indisponíveis.
+O renderer SHALL executar isolado, sem Node/filesystem/IPC livre. A superfície SHALL expor somente21 wrappers autorizados de diagnóstico/estado/tarefas/lixeira/contexto/undo/backup, com versões próprias, sem SQL/callbacks remotos/repositories/Task ou paths como comando. Recursos posteriores SHALL permanecer indisponíveis.
 
 #### Scenario: Conteúdo tenta usar APIs privilegiadas
 - **WHEN** código no renderer tenta acessar require, filesystem, IPC bruto ou enviar um comando/caminho livre pela bridge
@@ -34,8 +34,8 @@ O renderer SHALL executar isolado, sem acesso livre a Node, filesystem, IPC ou s
 
 #### Scenario: Catálogo limitado no pacote
 - **WHEN** a bridge do aplicativo empacotado é inspecionada
-- **THEN** somente os 17 wrappers previstos estão expostos, com estado v2, quatro mutações de tarefas v3, diagnóstico/origem v1 e oito operações novas v1
-- **AND** não há backup funcional, IA, clipboard, atalhos, notificações ou abertura de URL arbitrária; lixeira/undo usam somente intenções e tokens próprios
+- **THEN** somente21 wrappers estão expostos: estado3, create/check3, update/status4, move2, diagnóstico/origem/contexto e demais trash/undo1, quatro backup1
+- **AND** backup usa apenas escolha nativa/resumo/token no proprietário; IA/clipboard/atalhos/notificações/URL arbitrária permanecem ausentes; lixeira/undo usam intenções próprias
 
 #### Scenario: Abrir origem não amplia navegação
 - **WHEN** o usuário aciona openTaskSource por seu wrapper específico
@@ -96,7 +96,7 @@ O aplicativo SHALL manter identidade estável e dados próprios no perfil do usu
 
 ### Requirement: Ownership antes do armazenamento
 
-Somente o processo proprietário do perfil SHALL abrir bancos de prova e produto. Segunda instância SHALL encerrar antes do armazenamento. Fechamento provisório SHALL fechar admissão, invalidar sessões/recibos/confirmações/reservas e tratar unidades admitidas antes de liberar conexões, sem interromper commit ativo ou recuperar undo após reabertura.
+Somente o proprietário do perfil SHALL abrir bancos/arquivos de produto. Segunda instância SHALL encerrar antes do armazenamento. Fechamento SHALL fechar admissão, invalidar sessões/preparações/jobs/recibos e tratar unidades ativas com segurança, sem interromper commit ou recuperar tokens após reabrir.
 
 #### Scenario: Dois processos no mesmo perfil
 - **WHEN** uma instância está ativa e outro processo é iniciado para o mesmo perfil
@@ -118,6 +118,11 @@ Somente o processo proprietário do perfil SHALL abrir bancos de prova e produto
 - **WHEN** janela recarrega, sofre crash, fecha ou processo sai e depois reabre
 - **THEN** dados confirmados sobrevivem integralmente e recibos antigos não retornam, mesmo na mesma URL
 - **AND** minimizar/perder foco não invalida a sessão nem expira oferta
+
+#### Scenario: Fechamento durante arquivo ou prévia
+- **WHEN** documento fecha com diálogo/I/O/prévia de backup ou unidade ativa
+- **THEN** preparações e jobs não iniciados perdem autorização; temporários próprios liberam e unidade ativa termina/reverte com segurança
+- **AND** arquivo/commit já confirmado permanece e nada é enviado ao documento novo; nenhum perfil real é usado como teste
 
 ### Requirement: Prova transacional fictícia no runtime instalado
 

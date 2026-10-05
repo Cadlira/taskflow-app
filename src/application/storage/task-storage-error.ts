@@ -27,6 +27,7 @@ export type StorageFailureReason =
   | 'CLOSED'
   | 'SESSION_CLOSED'
   | 'INVALID_UNIT'
+  | 'BACKUP_VERIFICATION_FAILED'
 
 export const STORAGE_FAILURE_REASONS: readonly StorageFailureReason[] = [
   'INCOMPATIBLE_DATA',
@@ -41,6 +42,7 @@ export const STORAGE_FAILURE_REASONS: readonly StorageFailureReason[] = [
   'CLOSED',
   'SESSION_CLOSED',
   'INVALID_UNIT',
+  'BACKUP_VERIFICATION_FAILED',
 ]
 
 /**

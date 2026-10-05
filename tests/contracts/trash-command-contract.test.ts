@@ -13,6 +13,7 @@ import {
   parseRestoreTrashItemRequest,
   parseUndoLastTaskActionRequest,
   trashFailure,
+  trashMoveFailure,
 } from '../../src/contracts/trash.js'
 import {
   parseClearUndoOfferResult,
@@ -25,18 +26,18 @@ import {
   parseUndoLastTaskActionResult,
 } from '../../src/contracts/trash.js'
 
-// Contrato fechado dos oito wrappers v1: shapes exatos, versões, tokens, budgets e erros finitos.
+// Contrato fechado dos oito wrappers (move v2, demais v1): shapes exatos, versões, tokens, budgets e erros finitos.
 
 const TOKEN = 'A'.repeat(32)
 const ENTRY = { taskId: 'tarefa-1', contentRevision: '2', deletedAt: '2026-10-04T12:00:00.000Z' }
 
-describe('contrato dos wrappers v1 de lixeira/undo', () => {
-  it('expõe exatamente oito canais v1 e o orçamento 64 KiB/8 KiB', () => {
+describe('contrato dos wrappers de lixeira/undo (move v2, demais v1)', () => {
+  it('expõe exatamente oito canais versionados (move v2) e o orçamento 64 KiB/8 KiB', () => {
     expect(TRASH_COMMAND_CHANNELS).toHaveLength(8)
     expect(TRASH_COMMAND_CHANNELS).toEqual([
       'trash:clear-undo:v1',
       'trash:prepare-confirm:v1',
-      'trash:move:v1',
+      'trash:move:v2',
       'trash:restore:v1',
       'trash:delete:v1',
       'trash:empty:v1',
@@ -75,12 +76,14 @@ describe('contrato dos wrappers v1 de lixeira/undo', () => {
       parsePrepareTrashConfirmationRequest({ version: 1, contextSequence: 2, kind: 'PERMANENT', entry: { ...ENTRY, contentRevision: '01' } }),
     ).toBeNull()
 
-    expect(parseMoveTaskToTrashRequest({ version: 1, contextSequence: 3, confirmationToken: TOKEN })).toEqual({
-      version: 1,
+    expect(parseMoveTaskToTrashRequest({ version: 2, contextSequence: 3, confirmationToken: TOKEN })).toEqual({
+      version: 2,
       contextSequence: 3,
       confirmationToken: TOKEN,
     })
-    expect(parseMoveTaskToTrashRequest({ version: 1, contextSequence: 3, confirmationToken: 'curto' })).toBeNull()
+    expect(parseMoveTaskToTrashRequest({ version: 2, contextSequence: 3, confirmationToken: 'curto' })).toBeNull()
+    // A v1 anterior do move (e qualquer alias) é recusada sem tocar no token.
+    expect(parseMoveTaskToTrashRequest({ version: 1, contextSequence: 3, confirmationToken: TOKEN })).toBeNull()
     expect(parseRestoreTrashItemRequest({ version: 1, contextSequence: 3, entry: ENTRY })).toEqual({
       version: 1,
       contextSequence: 3,
@@ -124,9 +127,9 @@ describe('contrato dos wrappers v1 de lixeira/undo', () => {
       }),
     ).toMatchObject({ hasRecurrence: true })
     expect(
-      parseMoveTaskToTrashResult({ version: 1, status: 'ok', revision: '3', retained: true, undoToken: TOKEN }),
-    ).toMatchObject({ retained: true, undoToken: TOKEN })
-    expect(parseMoveTaskToTrashResult({ version: 1, status: 'ok', revision: '3', retained: false })).not.toBeNull()
+      parseMoveTaskToTrashResult({ version: 2, status: 'ok', revision: '3', retained: true, undoEpoch: 1, undoToken: TOKEN }),
+    ).toMatchObject({ retained: true, undoEpoch: 1, undoToken: TOKEN })
+    expect(parseMoveTaskToTrashResult({ version: 2, status: 'ok', revision: '3', retained: false, undoEpoch: 1 })).not.toBeNull()
     expect(
       parseRestoreTrashItemResult({ version: 1, status: 'ok', revision: '4', contentRevision: '4', editRevision: '4' }),
     ).not.toBeNull()
@@ -142,9 +145,15 @@ describe('contrato dos wrappers v1 de lixeira/undo', () => {
     expect(parseClearUndoOfferResult({ version: 1, status: 'ok' })).toBeNull()
     expect(parsePrepareTrashConfirmationResult({ version: 1, status: 'ok', confirmationToken: TOKEN, revision: '2' })).toBeNull()
     expect(
-      parseMoveTaskToTrashResult({ version: 1, status: 'ok', revision: '3', retained: true, undoToken: 'curto' }),
+      parseMoveTaskToTrashResult({ version: 2, status: 'ok', revision: '3', retained: true, undoEpoch: 1, undoToken: 'curto' }),
     ).toBeNull()
-    expect(parseMoveTaskToTrashResult({ version: 1, status: 'ok', revision: '3', retained: 'sim' })).toBeNull()
+    expect(parseMoveTaskToTrashResult({ version: 2, status: 'ok', revision: '3', retained: 'sim', undoEpoch: 1 })).toBeNull()
+    // Ack v1 anterior e época ausente/inválida são recusados; falha da move exige v2.
+    expect(parseMoveTaskToTrashResult({ version: 1, status: 'ok', revision: '3', retained: true, undoEpoch: 1 })).toBeNull()
+    expect(parseMoveTaskToTrashResult({ version: 2, status: 'ok', revision: '3', retained: true })).toBeNull()
+    expect(parseMoveTaskToTrashResult({ version: 2, status: 'ok', revision: '3', retained: true, undoEpoch: 0 })).toBeNull()
+    expect(parseMoveTaskToTrashResult(trashMoveFailure('NOT_IN_TRASH'))).toEqual({ version: 2, status: 'error', code: 'NOT_IN_TRASH' })
+    expect(parseMoveTaskToTrashResult(trashFailure('NOT_IN_TRASH'))).toBeNull()
     expect(parseEmptyTrashResult({ version: 1, status: 'ok', revision: '6', removedCount: -1 })).toBeNull()
     expect(parseUndoLastTaskActionResult({ version: 1, status: 'ok', revision: '8', contentRevision: '8' })).toBeNull()
     for (const code of TRASH_ERROR_CODES) {

@@ -524,6 +524,26 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     `${Object.keys(trash.marker.checks).length} verificações`,
   )
 
+  // P7d — TFA-007: backup no pacote (export/prepare/confirm com serviços reais, diálogos stub,
+  // lixeira/undo por época e duas superfícies inscritas na bridge v3).
+  const backup = await runScenario('backup', 180_000)
+  evidence.backup = backup.marker
+  const backupExit = await waitForExit(backup.child, 30_000)
+  const failedBackup = Object.entries(backup.marker.checks ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  out(`BACKUP ${JSON.stringify(backup.marker)}`)
+  assert(backup.marker.ok === true, `backup reprovou: ${failedBackup.join(', ') || 'sem resultado'}`)
+  assert(
+    !backupExit.timedOut && backupExit.code === 0,
+    `cenário backup não encerrou com saída 0 (${backupExit.code})`,
+  )
+  record(
+    'produto: backup export/prepare/confirm com serviços reais e diálogos stub',
+    true,
+    `${Object.keys(backup.marker.checks).length} verificações`,
+  )
+
   // P8 — acessibilidade/zoom/strings longas e abertura controlada (shell real na referência;
   // opener falso no runner hospedado, onde não há navegador padrão garantido).
   const a11y = await runScenario(ciRunner ? 'a11y|fake-opener' : 'a11y')

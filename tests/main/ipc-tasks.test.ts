@@ -151,7 +151,7 @@ async function updateTask(
   extra: Record<string, unknown> = {},
 ) {
   return service.handleUpdate(EVENT, {
-    version: 3,
+    version: 4,
     contextSequence: beginContext(service),
     taskId,
     expectedEditRevision,
@@ -168,7 +168,7 @@ async function changeStatus(
   extra: Record<string, unknown> = {},
 ) {
   return service.handleStatus(EVENT, {
-    version: 3,
+    version: 4,
     contextSequence: beginContext(service),
     taskId,
     expectedEditRevision,
@@ -215,7 +215,12 @@ async function readSnapshot(coordinator: ReturnType<typeof openCoordinator>): Pr
       }
       const built = buildSnapshotPage(source, initialSnapshotPosition(), STATE_LIMITS.pageBytes - 512)
       if (built.complete === undefined) throw new Error('fixture: snapshot não terminou numa página')
-      const snapshot = new SnapshotAssembler().accept({ revision: reader.baseRevision.toString(), fragments: built.fragments, complete: built.complete })
+      const snapshot = new SnapshotAssembler().accept({
+        revision: reader.baseRevision.toString(),
+        undoEpoch: 1,
+        fragments: built.fragments,
+        complete: built.complete,
+      })
       if (snapshot === undefined) throw new Error('fixture: snapshot incompleto')
       return snapshot
     }),
@@ -223,7 +228,7 @@ async function readSnapshot(coordinator: ReturnType<typeof openCoordinator>): Pr
   return assembled
 }
 
-describe('IPC dos comandos de tarefas v3', () => {
+describe('IPC dos comandos de tarefas (create/check v3, update/status v4)', () => {
   it('recusa remetente não autorizado sem nenhuma leitura/escrita nos cinco comandos', async () => {
     const { service, counts, sessions } = createService()
     sessions.deny()
@@ -248,7 +253,7 @@ describe('IPC dos comandos de tarefas v3', () => {
     expect(await updateTask(service, '', '1', {})).toMatchObject({ code: 'INVALID_REQUEST' })
     expect(await updateTask(service, 'a', '1.0', {})).toMatchObject({ code: 'INVALID_REQUEST' })
     expect(await changeStatus(service, 'a', '1', 'NOPE')).toEqual({
-      version: 3,
+      version: 4,
       status: 'error',
       code: 'VALIDATION_FAILED',
       fields: { status: 'INVALID_VALUE' },
@@ -268,7 +273,7 @@ describe('IPC dos comandos de tarefas v3', () => {
     expect(coordinator.confirmedRevision).toBe(0n)
   })
 
-  it('cria, edita e muda status com ack v3 e revisões exatas', async () => {
+  it('cria (v3), edita e muda status (v4) com revisões exatas e época corrente', async () => {
     const { service, coordinator } = createService()
     const created = await createTask(service, { title: 'Comprar leite' })
     expect(created).toEqual({
@@ -284,18 +289,19 @@ describe('IPC dos comandos de tarefas v3', () => {
 
     const updated = await updateTask(service, created.taskId, created.editRevision, { title: 'Comprar pão', tags: [] })
     expect(updated).toEqual({
-      version: 3,
+      version: 4,
       status: 'ok',
       outcome: 'APPLIED',
       revision: '2',
       contentRevision: '2',
       editRevision: '2',
+      undoEpoch: 1,
       undoToken: expect.any(String),
     })
 
     const conflict = await updateTask(service, created.taskId, created.editRevision, { title: 'Stale' })
     expect(conflict).toEqual({
-      version: 3,
+      version: 4,
       status: 'error',
       code: 'CONFLICT',
       currentContentRevision: '2',
@@ -308,20 +314,21 @@ describe('IPC dos comandos de tarefas v3', () => {
 
     const status = await changeStatus(service, created.taskId, '2', 'DONE')
     expect(status).toEqual({
-      version: 3,
+      version: 4,
       status: 'ok',
       outcome: 'APPLIED',
       revision: '3',
       contentRevision: '3',
       editRevision: '3',
+      undoEpoch: 1,
       undoToken: expect.any(String),
     })
 
     const noop = await changeStatus(service, created.taskId, '3', 'DONE')
-    expect(noop).toEqual({ version: 3, status: 'ok', outcome: 'UNCHANGED', revision: '3', contentRevision: '3', editRevision: '3' })
+    expect(noop).toEqual({ version: 4, status: 'ok', outcome: 'UNCHANGED', revision: '3', contentRevision: '3', editRevision: '3', undoEpoch: 1 })
 
     const missing = await updateTask(service, 'ausente', '1', { title: 'x' })
-    expect(missing).toEqual({ version: 3, status: 'error', code: 'NOT_FOUND' })
+    expect(missing).toEqual({ version: 4, status: 'error', code: 'NOT_FOUND' })
   })
 
   it('ack pós-commit informa global/conteúdo/edição; no-op usa revisões atuais e não emite evento', async () => {
@@ -335,11 +342,11 @@ describe('IPC dos comandos de tarefas v3', () => {
     expect(coordinator.confirmedRevision).toBe(1n)
     expect(created.revision).toBe('1')
 
-    // Patch vazio e status igual são no-op: ack com as revisões atuais, sem commit nem evento.
+    // Patch vazio e status igual são no-op: ack v4 com as revisões atuais e a época, sem commit nem evento.
     const emptyPatch = await updateTask(service, created.taskId, created.editRevision, {})
-    expect(emptyPatch).toEqual({ version: 3, status: 'ok', outcome: 'UNCHANGED', revision: '1', contentRevision: '1', editRevision: '1' })
+    expect(emptyPatch).toEqual({ version: 4, status: 'ok', outcome: 'UNCHANGED', revision: '1', contentRevision: '1', editRevision: '1', undoEpoch: 1 })
     const sameStatus = await changeStatus(service, created.taskId, created.editRevision, 'TODO')
-    expect(sameStatus).toEqual({ version: 3, status: 'ok', outcome: 'UNCHANGED', revision: '1', contentRevision: '1', editRevision: '1' })
+    expect(sameStatus).toEqual({ version: 4, status: 'ok', outcome: 'UNCHANGED', revision: '1', contentRevision: '1', editRevision: '1', undoEpoch: 1 })
     expect(events).toEqual([1n])
     expect(coordinator.confirmedRevision).toBe(1n)
   })
@@ -430,19 +437,20 @@ describe('IPC dos comandos de tarefas v3', () => {
     )
 
     const blockedDue = await updateTask(service, 'com-lembretes', '1', { dueAt: '2026-10-11T10:00:00.000Z' })
-    expect(blockedDue).toEqual({ version: 3, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
+    expect(blockedDue).toEqual({ version: 4, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
     const blockedStatus = await changeStatus(service, 'com-lembretes', '1', 'DONE')
-    expect(blockedStatus).toEqual({ version: 3, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
+    expect(blockedStatus).toEqual({ version: 4, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
     expect(coordinator.confirmedRevision).toBe(1n)
 
     const allowed = await updateTask(service, 'com-lembretes', '1', { title: 'Editada' })
     expect(allowed).toEqual({
-      version: 3,
+      version: 4,
       status: 'ok',
       outcome: 'APPLIED',
       revision: '2',
       contentRevision: '2',
       editRevision: '2',
+      undoEpoch: 1,
       undoToken: expect.any(String),
     })
     const stored = await storedTask(coordinator, 'com-lembretes')
@@ -456,10 +464,10 @@ describe('IPC dos comandos de tarefas v3', () => {
     if (created.status !== 'ok') throw new Error('esperado ack')
 
     const required = await changeStatus(service, created.taskId, created.editRevision, 'CANCELLED')
-    expect(required).toEqual({ version: 3, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
+    expect(required).toEqual({ version: 4, status: 'error', code: 'RECURRENCE_CHOICE_REQUIRED' })
 
     const extrinsic = await updateTask(service, created.taskId, created.editRevision, { title: 'Sem terminal' }, { cancellation: 'SKIP' })
-    expect(extrinsic).toEqual({ version: 3, status: 'error', code: 'INVALID_REQUEST' })
+    expect(extrinsic).toEqual({ version: 4, status: 'error', code: 'INVALID_REQUEST' })
 
     // Duas portadoras históricas da mesma série: regra/prazo conflitam; título independente passa.
     expectOk(
@@ -470,15 +478,16 @@ describe('IPC dos comandos de tarefas v3', () => {
     )
     const carrier = await storedTask(coordinator, 'portadora-a')
     const seriesConflict = await updateTask(service, 'portadora-a', carrier.editRevision.toString(), { dueAt: '2026-10-12T10:00:00.000Z' })
-    expect(seriesConflict).toEqual({ version: 3, status: 'error', code: 'SERIES_CONFLICT' })
+    expect(seriesConflict).toEqual({ version: 4, status: 'error', code: 'SERIES_CONFLICT' })
     const independent = await updateTask(service, 'portadora-a', carrier.editRevision.toString(), { title: 'Independente' })
     expect(independent).toEqual({
-      version: 3,
+      version: 4,
       status: 'ok',
       outcome: 'APPLIED',
       revision: '3',
       contentRevision: '3',
       editRevision: '3',
+      undoEpoch: 1,
       undoToken: expect.any(String),
     })
   })
@@ -501,12 +510,13 @@ describe('IPC dos comandos de tarefas v3', () => {
 
     const closed = await changeStatus(service, created.taskId, created.editRevision, 'CANCELLED', { cancellation: 'SKIP' })
     expect(closed).toEqual({
-      version: 3,
+      version: 4,
       status: 'ok',
       outcome: 'APPLIED',
       revision: '2',
       contentRevision: '2',
       editRevision: '2',
+      undoEpoch: 1,
       undoToken: expect.any(String),
     })
     if (closed.status !== 'ok') return
@@ -536,9 +546,9 @@ describe('IPC dos comandos de tarefas v3', () => {
     const commands: Array<() => Promise<unknown>> = [
       () => service.handleCreate(EVENT, { version: 3, contextSequence: beginContext(service), draft: { title: 'x' } }),
       () =>
-        service.handleUpdate(EVENT, { version: 3, contextSequence: beginContext(service), taskId: 'a', expectedEditRevision: '1', patch: {} }),
+        service.handleUpdate(EVENT, { version: 4, contextSequence: beginContext(service), taskId: 'a', expectedEditRevision: '1', patch: {} }),
       () =>
-        service.handleStatus(EVENT, { version: 3, contextSequence: beginContext(service), taskId: 'a', expectedEditRevision: '1', status: 'DONE' }),
+        service.handleStatus(EVENT, { version: 4, contextSequence: beginContext(service), taskId: 'a', expectedEditRevision: '1', status: 'DONE' }),
       () =>
         service.handleSubtaskDone(EVENT, {
           version: 3,
@@ -785,8 +795,8 @@ describe('IPC dos comandos de tarefas v3', () => {
   it('expõe os cinco canais do catálogo versionado e nenhum a mais', () => {
     expect([TASK_CREATE_CHANNEL, TASK_UPDATE_CHANNEL, TASK_STATUS_CHANNEL, TASK_SUBTASK_DONE_CHANNEL, TASK_OPEN_SOURCE_CHANNEL]).toEqual([
       'task:create:v3',
-      'task:update:v3',
-      'task:status:v3',
+      'task:update:v4',
+      'task:status:v4',
       'task:subtask-done:v3',
       'task:source:open:v1',
     ])
