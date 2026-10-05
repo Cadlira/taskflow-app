@@ -59,3 +59,17 @@ como tal.
   [a11y-manual-checklist-tfa006.md](a11y-manual-checklist-tfa006.md).
 - Setup não executado; instalação corporativa, bandeja, notificações e atalhos não são
   certificados por este pacote.
+
+## CI (runner hospedado)
+
+- **Run [37284379612](https://github.com/Cadlira/taskflow-app/actions/runs/37284379612) — PASS**
+  (commit `a5d37af`, PR #6): `validate`, `package:win --publish never`, `verify:package` e
+  `smoke:packaged --ci-runner` (primeira execução do smoke ampliado na CI, com catálogo 17,
+  cenário `trash` e bench). O runner hospedado é administrador com UAC desabilitado e **não**
+  substitui a prova em conta padrão.
+- **Run anterior [37283796347](https://github.com/Cadlira/taskflow-app/actions/runs/37283796347)
+  — FAIL nos gates:** timeout de 5 s no teste `fila limitada a 64 entradas` (64 commits reais; o
+  runner é mais lento que a máquina local). Corrigido com timeout explícito de 30 s nos testes de
+  I/O intenso (`a5d37af`); nenhuma lógica do produto foi alterada.
+- O gate D10 de UI em 10.000 tarefas é reportado como **pendente** no runner (`--ci-runner`) e não
+  bloqueia o CI; na máquina local o smoke segue reprovado por ele, como nas TFA-004/005.

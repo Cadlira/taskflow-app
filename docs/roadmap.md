@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-05**. Estado: **TFA-001 a TFA-006 integradas pelos PRs #1 a #5; TFA-006 arquivada em 2026-10-05 com 45/45 tasks e specs consolidadas, DONE com commit `bed816c` e PR #6 aberto na branch `codex/tfa-006-migrar-lixeira-e-desfazer` (merge é ação do usuário)**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2, catálogo v3/17 wrappers, lixeira e desfazer. A pendência D10 de desempenho permanece documentada (p95 688,3 ms; heartbeat 760,5 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
+Preparado em **2026-10-03**; atualizado em **2026-10-05**. Estado: **TFA-001 a TFA-006 integradas pelos PRs #1 a #5; TFA-006 arquivada em 2026-10-05 com 45/45 tasks e specs consolidadas, DONE com commits `bed816c`/`a5d37af` e PR #6 aberto na branch `codex/tfa-006-migrar-lixeira-e-desfazer`, com CI verde no run 37284379612 (merge é ação do usuário)**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL 2, catálogo v3/17 wrappers, lixeira e desfazer. A pendência D10 de desempenho permanece documentada (p95 688,3 ms; heartbeat 760,5 ms; varredura 141,7 ms), com o gate retido até decisão dos números do orçamento.
 
 ## Objetivo e limites confirmados
 
@@ -80,7 +80,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-003 | `implementar-persistencia-local-e-fronteira-ipc` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-002 | Integração do PR #3 conferida no Git local: `main` e referência local `origin/main` em `d74e02d`; dependência da TFA-004 satisfeita |
 | TFA-004 | `migrar-gerenciamento-de-tarefas-e-interface` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-003 | Apply 41/41, verificação aprovada e archive; PR #4 integrado, merge local `64fe7ad` conferido. D10 de 10.000 permanece como pendência pós-archive documentada |
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive; integração do PR #5 conferida na main e referência local origin/main em `ab3ed68` em 2026-10-04. D10 e prova humana de acessibilidade continuam pendentes |
-| TFA-006 | `migrar-lixeira-e-desfazer` | DONE | — | 2026-10-04 | 2026-10-05 | TFA-005 | Apply 45/45, verification aprovado, archive, commit `bed816c`, push e PR #6 em 2026-10-05; DONE antecipado por pedido explícito (revisar se o PR for recusado). D10 herdado segue como pendência pós-archive |
+| TFA-006 | `migrar-lixeira-e-desfazer` | DONE | — | 2026-10-04 | 2026-10-05 | TFA-005 | Apply 45/45, verification aprovado, archive, commits `bed816c`/`a5d37af`, push, PR #6 e CI verde no run 37284379612 em 2026-10-05; DONE antecipado por pedido explícito (revisar se o PR for recusado). D10 herdado segue como pendência pós-archive |
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | PLANNED | — | — | — | TFA-006 | Após dependências, usar o prompt abaixo |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | PLANNED | — | — | — | TFA-007 | Após dependências, usar o prompt abaixo |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | PLANNED | — | — | — | TFA-008 | Após dependências, usar o prompt abaixo |
@@ -1416,11 +1416,23 @@ recusado).
 **[PR #6](https://github.com/Cadlira/taskflow-app/pull/6)** aberto para a `main` com o resumo de
 escopo, gates, evidências e pendências. O merge é ação do usuário.
 
+**CI — 2026-10-05:** o primeiro run do PR (commit `bed816c`) falhou nos gates por timeout de 5 s no
+teste `fila limitada a 64 entradas` (64 commits reais; o runner é mais lento que a máquina local),
+sem relação com a lógica da Change. Correção mínima no commit **`a5d37af`** (`ci: timeout explícito
+para testes de I/O intenso no runner`), com timeout de 30 s nos testes de I/O intenso (fila de 64
+entradas e os dois cenários de 100 entradas da lixeira). O run seguinte,
+**[37284379612](https://github.com/Cadlira/taskflow-app/actions/runs/37284379612)**, passou em
+**todos os passos** — `validate`, `package:win`, `verify:package`, `smoke:packaged --ci-runner`
+(primeira execução do smoke ampliado com bridge catálogo 17, `trash` e bench na CI) — e gerou os
+artefatos de revisão com retenção de 14 dias. Anotação do runner: aviso de depreciação do Node 20
+nas actions fixadas, sem efeito nos gates.
+
 **Pendências pós-archive:** D10 de UI em 10.000 tarefas (gate retido; p95 688,3 ms / heartbeat
-760,5 ms na rodada limpa; números 700/700/250 não aprovados), prova humana de acessibilidade
-(roteiro em [a11y-manual-checklist-tfa006.md](a11y-manual-checklist-tfa006.md)), campanha isolada
-de before-images extremas e primeira execução do smoke ampliado na CI. A TFA-007 permanece
-**PLANNED** com o prompt de explore próprio, sem início por inferência.
+760,5 ms na rodada limpa local; números 700/700/250 não aprovados; na CI o gate é reportado como
+pendente e não bloqueia o runner), prova humana de acessibilidade (roteiro em
+[a11y-manual-checklist-tfa006.md](a11y-manual-checklist-tfa006.md)) e campanha isolada de
+before-images extremas. A TFA-007 permanece **PLANNED** com o prompt de explore próprio, sem início
+por inferência.
 
 ## TFA-007 — Backups e migração das atividades
 
