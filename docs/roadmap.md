@@ -1838,7 +1838,11 @@ curto 8.3 (`C:\Users\RUNNER~1\...`) e a proteção de destino comparava a forma 
 canônicas (ancestral existente mais profundo + segmentos ausentes) e detectar reparse/symlink por
 `lstat` ancestral, com injeção de FS apenas para testes; teste de regressão do alias 8.3 e da
 proteção de raiz canônica adicionado. `npm run validate` passou com **836 testes + 11 skipped**;
-commit e push da correção na mesma branch reexecutam a CI do PR.
+commit `91eb477` e push na mesma branch reexecutaram a CI do PR. **CI do PR #7 verde em
+2026-10-05** ([run 37341894516](https://github.com/Cadlira/taskflow-app/actions/runs/37341894516)):
+gates (lint/typecheck/testes/build), pacote NSIS x64 sem publicação, inspeção de conteúdo,
+smoke do pacote e hashes aprovados; resta apenas a anotação informativa de depreciação do Node 20
+nas próprias actions. D10 herdado e demais pendências continuam separados.
 
 ## TFA-008 — Lembretes, notificações e ciclo de vida
 
