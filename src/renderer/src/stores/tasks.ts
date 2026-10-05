@@ -1,9 +1,12 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import { TaskCommandTransportError } from '../../../application/tasks/task-client.js'
-import type { StateErrorCode, StateSnapshot, StateUpdate, TaskRecord } from '../../../contracts/state.js'
+import { TrashCommandTransportError } from '../../../application/tasks/trash-client.js'
+import type { StateErrorCode, StateSnapshot, StateUpdate, TaskRecord, TrashRecord } from '../../../contracts/state.js'
 import type { TaskCancellation, TaskCommandErrorCode, TaskMutationFailure, TaskMutationResult } from '../../../contracts/tasks.js'
+import type { TrashErrorCode } from '../../../contracts/trash.js'
 import type { CreateTaskDraft, EditTaskPatch, TaskFieldErrors } from '../../../domain/task-draft.js'
+import { compareTrashEntries, isTrashExpired } from '../../../domain/task-trash.js'
 import {
   EMPTY_TASK_FILTERS,
   filterTasks,
@@ -19,6 +22,8 @@ import type { Task, TaskStatus } from '../../../domain/task.js'
 export type TasksPresentation = 'loading' | 'ready' | 'empty' | 'stale' | 'blocked'
 
 export type TaskCommandKind = 'create' | 'update' | 'status' | 'subtask'
+export type TrashCommandKind = 'move' | 'restore' | 'delete' | 'empty' | 'undo' | 'maintenance'
+export type CommandKind = TaskCommandKind | TrashCommandKind
 
 export type TaskCommandStoreResult =
   | { status: 'accepted'; kind: TaskCommandKind; taskId?: string }
@@ -34,6 +39,33 @@ export type TaskCommandStoreResult =
   | { status: 'blocked'; code: TaskCommandErrorCode }
   | { status: 'uncertain' }
 
+export type TrashCommandStoreResult =
+  | {
+      status: 'accepted'
+      kind: TrashCommandKind
+      /** Revisão confirmada no ack; usar com waitForSnapshot antes de mexer no foco. */
+      revision?: string
+      /** Presente em move: distingue exclusão retida da descartada pelo limite/relógio. */
+      retained?: boolean
+      removedCount?: number
+    }
+  | { status: 'confirmation'; kind: 'move' | 'permanent' | 'empty' }
+  | { status: 'not-found' }
+  | { status: 'not-in-trash' }
+  | { status: 'entry-changed' }
+  | { status: 'entry-expired' }
+  | { status: 'id-exists' }
+  | { status: 'series-conflict' }
+  | { status: 'confirmation-changed' }
+  | { status: 'confirmation-invalid' }
+  | { status: 'stale-context' }
+  | { status: 'undo-not-available' }
+  | { status: 'removed' }
+  | { status: 'changed' }
+  | { status: 'generated-changed' }
+  | { status: 'uncertain' }
+  | { status: 'blocked'; code: TrashErrorCode }
+
 export type OpenSourceStoreResult =
   | { status: 'requested' }
   | { status: 'blocked'; code: TaskCommandErrorCode }
@@ -46,16 +78,23 @@ export type OpenSourceStoreResult =
 /** Relógio de apresentação: 60 s enquanto ativo e imediatamente ao retomar o foco. */
 const CLOCK_REFRESH_MS = 60_000
 
+/** Espera máxima por um snapshot >= revisão confirmada antes de bloquear a interface. */
+const SNAPSHOT_WAIT_MS = 5_000
+
 interface PendingAck {
-  kind: TaskCommandKind
+  kind: CommandKind
   taskId?: string
   revision: bigint
   contentRevision: string
   editRevision: string
+  /** Contexto em que a ação foi executada: oferta só publica se ainda for o corrente. */
+  context: number
+  /** Token opaco da oferta de undo, publicado somente com snapshot >= ack. */
+  undoToken?: string
 }
 
 export interface TaskConfirmation {
-  kind: TaskCommandKind
+  kind: CommandKind
   taskId?: string
   revision: string
   contentRevision: string
@@ -69,10 +108,29 @@ export interface TaskConflictState {
   currentEditRevision?: string
 }
 
+/** Oferta de desfazer visível: token opaco + rótulo/identidade para mensagem e foco. */
+export interface UndoOfferView {
+  token: string
+  kind: 'update' | 'status' | 'delete'
+  taskId?: string
+  sequence: number
+}
+
+/** Confirmação corrente preparada no main: MOVE/PERMANENT/EMPTY. */
+export interface TrashConfirmationView {
+  kind: 'MOVE' | 'PERMANENT' | 'EMPTY'
+  token: string
+  taskId?: string
+  entry?: { taskId: string; contentRevision: string; deletedAt: string }
+  itemCount: number
+  hasRecurrence: boolean
+}
+
 export const useTasksStore = defineStore('tasks', () => {
-  // Raso: os objetos de tarefa vêm prontos do snapshot e nunca são mutados no renderer; manter
-  // 10.000 tarefas profundamente reativas custaria proxy/dependency tracking em cada propriedade.
+  // Raso: os objetos vêm prontos do snapshot e nunca são mutados no renderer; manter 10.000
+  // tarefas profundamente reativas custaria proxy/dependency tracking em cada propriedade.
   const records = shallowRef<TaskRecord[]>([])
+  const trashRecords = shallowRef<TrashRecord[]>([])
   const revision = ref<string | undefined>(undefined)
   const stale = ref(false)
   const initialError = ref<StateErrorCode | null>(null)
@@ -86,15 +144,25 @@ export const useTasksStore = defineStore('tasks', () => {
   const updatePending = ref(false)
   const conflict = ref<TaskConflictState | null>(null)
   const notFound = ref<{ taskId: string } | null>(null)
-  const outcomeUnknown = ref<{ kind: TaskCommandKind; taskId?: string } | null>(null)
+  const outcomeUnknown = ref<{ kind: CommandKind; taskId?: string } | null>(null)
   const resyncError = ref<StateErrorCode | null>(null)
   const lastConfirmed = shallowRef<TaskConfirmation | null>(null)
+  // ---- Lixeira e desfazer (TFA-006) ----
+  const trashMode = ref(false)
+  const trashMaintenance = ref<'idle' | 'running' | 'failed'>('idle')
+  const trashError = ref<TrashErrorCode | null>(null)
+  const offer = ref<UndoOfferView | null>(null)
+  const confirmation = ref<TrashConfirmationView | null>(null)
+  /** Aviso honesto do resultado do move: retida com Desfazer ou descartada sem recuperação. */
+  const deleteNotice = ref<{ retained: boolean; discarded: number } | null>(null)
 
   let subscriptionId: string | undefined
   let pendingAck: PendingAck | undefined
   let clockTimer: ReturnType<typeof setInterval> | undefined
   let removeFocus: (() => void) | undefined
   let confirmationSequence = 0
+  /** Contexto monotônico por documento; cada ação começa em uma sequência nova. */
+  let contextSequence = 0
 
   const presentation = computed<TasksPresentation>(() => {
     if (revision.value === undefined) return initialError.value === null ? 'loading' : 'blocked'
@@ -132,6 +200,23 @@ export const useTasksStore = defineStore('tasks', () => {
   const commandsBlocked = computed(
     () => presentation.value === 'loading' || presentation.value === 'blocked' || submissionBlocked.value,
   )
+  /** Apresentação da lixeira: filtra vencidos pelo relógio local, sem gravar nem mutar o snapshot. */
+  const trashVisible = computed(() => {
+    const entries = trashRecords.value.filter((record) => !isTrashExpired(record.deletedAt, now.value))
+    return [...entries].sort((a, b) =>
+      compareTrashEntries(
+        { taskId: a.task.id, contentRevision: BigInt(a.contentRevision), deletedAt: a.deletedAt },
+        { taskId: b.task.id, contentRevision: BigInt(b.contentRevision), deletedAt: b.deletedAt },
+      ),
+    )
+  })
+  const trashTotal = computed(() => trashRecords.value.length)
+  const trashPresentation = computed<'loading' | 'ready' | 'empty' | 'stale' | 'blocked' | 'maintenance-failed'>(() => {
+    if (revision.value === undefined) return initialError.value === null ? 'loading' : 'blocked'
+    if (stale.value) return 'stale'
+    if (trashMaintenance.value === 'failed') return 'maintenance-failed'
+    return trashVisible.value.length === 0 ? 'empty' : 'ready'
+  })
 
   function taskRecord(taskId: string): TaskRecord | undefined {
     return records.value.find((record) => record.task.id === taskId)
@@ -141,11 +226,16 @@ export const useTasksStore = defineStore('tasks', () => {
     return taskRecord(taskId)?.task
   }
 
+  function trashRecord(taskId: string): TrashRecord | undefined {
+    return trashRecords.value.find((record) => record.task.id === taskId)
+  }
+
   function adopt(snapshot: StateSnapshot): void {
     // O cliente nunca regride; o store reforça para snapshots injetados fora do fluxo.
     if (revision.value !== undefined && BigInt(snapshot.revision) < BigInt(revision.value)) return
     revision.value = snapshot.revision
     records.value = snapshot.tasks
+    trashRecords.value = snapshot.trash
     stale.value = false
     initialError.value = null
     if (pendingAck !== undefined && BigInt(snapshot.revision) >= pendingAck.revision) resolveConfirmation()
@@ -153,18 +243,28 @@ export const useTasksStore = defineStore('tasks', () => {
 
   function resolveConfirmation(): void {
     if (pendingAck === undefined) return
+    const ack = pendingAck
     confirmationSequence += 1
     lastConfirmed.value = {
-      kind: pendingAck.kind,
-      ...(pendingAck.taskId !== undefined && { taskId: pendingAck.taskId }),
+      kind: ack.kind,
+      ...(ack.taskId !== undefined && { taskId: ack.taskId }),
       revision: revision.value ?? '0',
-      contentRevision: pendingAck.contentRevision,
-      editRevision: pendingAck.editRevision,
+      contentRevision: ack.contentRevision,
+      editRevision: ack.editRevision,
       sequence: confirmationSequence,
     }
     pendingAck = undefined
     awaitingConfirmation.value = false
     updatePending.value = false
+    // Oferta somente depois do snapshot >= ack e com o contexto ainda corrente.
+    if (ack.undoToken !== undefined && ack.context === contextSequence) {
+      offer.value = {
+        token: ack.undoToken,
+        kind: ack.kind === 'move' ? 'delete' : ack.kind === 'status' ? 'status' : 'update',
+        ...(ack.taskId !== undefined && { taskId: ack.taskId }),
+        sequence: ack.context,
+      }
+    }
   }
 
   function handleUpdate(update: StateUpdate): void {
@@ -229,6 +329,18 @@ export const useTasksStore = defineStore('tasks', () => {
     return true
   }
 
+  /** Aguarda (limitado) um snapshot com revisão >= alvo; usado antes de habilitar confirmações. */
+  async function waitForSnapshot(target: string): Promise<boolean> {
+    const goal = BigInt(target)
+    if (revision.value !== undefined && BigInt(revision.value) >= goal) return true
+    const started = Date.now()
+    while (Date.now() - started < SNAPSHOT_WAIT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      if (revision.value !== undefined && BigInt(revision.value) >= goal) return true
+    }
+    return false
+  }
+
   function mapFailure(failure: TaskMutationFailure, taskId: string | undefined): TaskCommandStoreResult {
     switch (failure.code) {
       case 'VALIDATION_FAILED':
@@ -264,10 +376,43 @@ export const useTasksStore = defineStore('tasks', () => {
     }
   }
 
+  function mapTrashFailure(code: TrashErrorCode): TrashCommandStoreResult {
+    switch (code) {
+      case 'NOT_FOUND':
+        return { status: 'not-found' }
+      case 'NOT_IN_TRASH':
+        return { status: 'not-in-trash' }
+      case 'ENTRY_CHANGED':
+        return { status: 'entry-changed' }
+      case 'ENTRY_EXPIRED':
+        return { status: 'entry-expired' }
+      case 'ID_EXISTS':
+        return { status: 'id-exists' }
+      case 'SERIES_CONFLICT':
+        return { status: 'series-conflict' }
+      case 'CONFIRMATION_CHANGED':
+        return { status: 'confirmation-changed' }
+      case 'CONFIRMATION_INVALID':
+        return { status: 'confirmation-invalid' }
+      case 'STALE_CONTEXT':
+        return { status: 'stale-context' }
+      case 'UNDO_NOT_AVAILABLE':
+        return { status: 'undo-not-available' }
+      case 'REMOVED':
+        return { status: 'removed' }
+      case 'CHANGED':
+        return { status: 'changed' }
+      case 'GENERATED_CHANGED':
+        return { status: 'generated-changed' }
+      default:
+        return { status: 'blocked', code }
+    }
+  }
+
   function acceptAck(
-    kind: TaskCommandKind,
+    kind: CommandKind,
     taskId: string | undefined,
-    ack: { revision: string; contentRevision: string; editRevision: string },
+    ack: { revision: string; contentRevision: string; editRevision: string; undoToken?: string },
   ): void {
     pendingAck = {
       kind,
@@ -275,11 +420,54 @@ export const useTasksStore = defineStore('tasks', () => {
       revision: BigInt(ack.revision),
       contentRevision: ack.contentRevision,
       editRevision: ack.editRevision,
+      context: contextSequence,
+      ...(ack.undoToken !== undefined && { undoToken: ack.undoToken }),
     }
     awaitingConfirmation.value = true
     updatePending.value = false
     // No-op ou snapshot já corrente: resolve sem esperar evento novo.
     if (revision.value !== undefined && BigInt(revision.value) >= pendingAck.revision) resolveConfirmation()
+  }
+
+  /** Ack de lixeira/undo: pode não trazer revisões de conteúdo/edição (move/delete/empty). */
+  function acceptTrashAck(
+    kind: TrashCommandKind,
+    taskId: string | undefined,
+    ack: { revision: string; contentRevision?: string; editRevision?: string; undoToken?: string },
+  ): void {
+    pendingAck = {
+      kind,
+      ...(taskId !== undefined && { taskId }),
+      revision: BigInt(ack.revision),
+      contentRevision: ack.contentRevision ?? '0',
+      editRevision: ack.editRevision ?? '0',
+      context: contextSequence,
+      ...(ack.undoToken !== undefined && { undoToken: ack.undoToken }),
+    }
+    awaitingConfirmation.value = true
+    updatePending.value = false
+    if (revision.value !== undefined && BigInt(revision.value) >= pendingAck.revision) resolveConfirmation()
+  }
+
+  /**
+   * Início de qualquer ação/área: esconde a oferta imediatamente, incrementa o contexto e espera
+   * o ack do clear antes do comando dependente. `false` bloqueia a ação (sem comando).
+   */
+  async function startAction(): Promise<boolean> {
+    offer.value = null
+    deleteNotice.value = null
+    const next = contextSequence + 1
+    if (!Number.isSafeInteger(next)) return false
+    contextSequence = next
+    // Token de ack antigo nunca publica depois de uma ação nova.
+    if (pendingAck !== undefined) delete pendingAck.undoToken
+    try {
+      const result = await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: next })
+      if (result.status !== 'ok') return false
+      return true
+    } catch {
+      return false
+    }
   }
 
   /** Gates comuns: estado válido, sem incerteza pendente e sem escrita em andamento. */
@@ -310,7 +498,12 @@ export const useTasksStore = defineStore('tasks', () => {
 
     submitting.value = true
     try {
-      const response = await window.taskflowDesktop.createTask({ version: 2, draft: { ...draft } })
+      if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
+      const response = await window.taskflowDesktop.createTask({
+        version: 3,
+        contextSequence,
+        draft: { ...draft },
+      })
       if (response.status === 'error') return mapFailure(response, undefined)
       acceptAck('create', response.taskId, response)
       return { status: 'accepted', kind: 'create', taskId: response.taskId }
@@ -335,6 +528,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
     submitting.value = true
     try {
+      if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
       const response = await operation()
       if (response.status === 'error') return mapFailure(response, taskId)
       acceptAck(kind, taskId, response)
@@ -362,7 +556,8 @@ export const useTasksStore = defineStore('tasks', () => {
   ): Promise<TaskCommandStoreResult> {
     return runMutation('update', taskId, () =>
       window.taskflowDesktop.updateTask({
-        version: 2,
+        version: 3,
+        contextSequence,
         taskId,
         expectedEditRevision,
         patch,
@@ -379,7 +574,8 @@ export const useTasksStore = defineStore('tasks', () => {
   ): Promise<TaskCommandStoreResult> {
     return runMutation('status', taskId, () =>
       window.taskflowDesktop.changeTaskStatus({
-        version: 2,
+        version: 3,
+        contextSequence,
         taskId,
         expectedEditRevision,
         status,
@@ -396,7 +592,7 @@ export const useTasksStore = defineStore('tasks', () => {
     done: boolean,
   ): Promise<TaskCommandStoreResult> {
     return runMutation('subtask', taskId, () =>
-      window.taskflowDesktop.setSubtaskDone({ version: 2, taskId, expectedEditRevision, subtaskId, done }),
+      window.taskflowDesktop.setSubtaskDone({ version: 3, contextSequence, taskId, expectedEditRevision, subtaskId, done }),
     )
   }
 
@@ -405,6 +601,8 @@ export const useTasksStore = defineStore('tasks', () => {
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     }
     if (presentation.value === 'stale') return { status: 'blocked', code: 'SNAPSHOT_STALE' }
+    // Abertura não oferece recibo, mas participa do contexto ordenado como qualquer ação.
+    await startAction()
 
     try {
       const result = await window.taskflowDesktop.openTaskSource({ version: 1, taskId, expectedContentRevision })
@@ -432,6 +630,246 @@ export const useTasksStore = defineStore('tasks', () => {
     } catch {
       // Efeito pode ter sido solicitado; não repetimos automaticamente.
       return { status: 'failed' }
+    }
+  }
+
+  // ---- Lixeira e desfazer (TFA-006) ----
+
+  /** Entra na área: limpa oferta/confirmação e executa a manutenção explícita por idade. */
+  async function enterTrash(): Promise<TrashCommandStoreResult> {
+    const prepared = await startAction()
+    trashMode.value = true
+    if (!prepared) return { status: 'blocked', code: 'BUSY' }
+    return runTrashMaintenance()
+  }
+
+  async function leaveTrash(): Promise<void> {
+    trashMode.value = false
+    confirmation.value = null
+    await startAction()
+  }
+
+  /** Manutenção explícita (expurgo por idade) seguida de snapshot; leitura pura não expurga. */
+  async function runTrashMaintenance(): Promise<TrashCommandStoreResult> {
+    trashMaintenance.value = 'running'
+    trashError.value = null
+    submitting.value = true
+    try {
+      const response = await window.taskflowDesktop.prepareTrashView({ version: 1, contextSequence })
+      if (response.status === 'error') {
+        trashError.value = response.code
+        trashMaintenance.value = 'failed'
+        return mapTrashFailure(response.code)
+      }
+      await refresh()
+      trashMaintenance.value = 'idle'
+      return { status: 'accepted', kind: 'maintenance', revision: response.revision }
+    } catch (error) {
+      trashMaintenance.value = 'failed'
+      if (error instanceof TrashCommandTransportError) {
+        outcomeUnknown.value = { kind: 'maintenance' }
+        return { status: 'uncertain' }
+      }
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    } finally {
+      submitting.value = false
+    }
+  }
+
+  /** Prepara a confirmação (base no main) e só habilita depois de snapshot >= revisão lida. */
+  async function prepareConfirmation(
+    kind: 'MOVE' | 'PERMANENT' | 'EMPTY',
+    target: { taskId?: string; expectedContentRevision?: string; entry?: { taskId: string; contentRevision: string; deletedAt: string } },
+  ): Promise<TrashCommandStoreResult> {
+    if (presentation.value === 'loading' || presentation.value === 'blocked') {
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    }
+    if (submitting.value) return { status: 'blocked', code: 'BUSY' }
+
+    submitting.value = true
+    try {
+      if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
+      const request =
+        kind === 'MOVE'
+          ? {
+              version: 1 as const,
+              contextSequence,
+              kind: 'MOVE' as const,
+              taskId: target.taskId ?? '',
+              expectedContentRevision: target.expectedContentRevision ?? '',
+            }
+          : kind === 'PERMANENT'
+            ? { version: 1 as const, contextSequence, kind: 'PERMANENT' as const, entry: target.entry! }
+            : { version: 1 as const, contextSequence, kind: 'EMPTY' as const }
+      const response = await window.taskflowDesktop.prepareTrashConfirmation(request)
+      if (response.status === 'error') return mapTrashFailure(response.code)
+      // Diálogo só habilita com snapshot completo igual/superior à revisão preparada.
+      const current = await refresh()
+      if (!current || revision.value === undefined || BigInt(revision.value) < BigInt(response.revision)) {
+        resyncError.value = 'SNAPSHOT_STALE'
+        return { status: 'blocked', code: 'SNAPSHOT_STALE' }
+      }
+      const view: TrashConfirmationView = {
+        kind,
+        token: response.confirmationToken,
+        itemCount: kind === 'EMPTY' ? response.itemCount : 1,
+        hasRecurrence: kind === 'MOVE' ? response.hasRecurrence === true : false,
+        ...(kind === 'MOVE' && target.taskId !== undefined && { taskId: target.taskId }),
+        ...(kind === 'PERMANENT' && target.entry !== undefined && { entry: target.entry }),
+      }
+      confirmation.value = view
+      return { status: 'confirmation', kind: kind === 'MOVE' ? 'move' : kind === 'PERMANENT' ? 'permanent' : 'empty' }
+    } catch (error) {
+      if (error instanceof TrashCommandTransportError) {
+        outcomeUnknown.value = { kind: 'maintenance' }
+        return { status: 'uncertain' }
+      }
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    } finally {
+      submitting.value = false
+    }
+  }
+
+  function abandonConfirmation(): void {
+    confirmation.value = null
+  }
+
+  /** Confirma a exclusão recuperável; ack informa retained e pode trazer a oferta de Desfazer. */
+  async function confirmMove(): Promise<TrashCommandStoreResult> {
+    const current = confirmation.value
+    if (current === null || current.kind !== 'MOVE') return { status: 'confirmation-invalid' }
+    submitting.value = true
+    try {
+      const response = await window.taskflowDesktop.moveTaskToTrash({
+        version: 1,
+        contextSequence,
+        confirmationToken: current.token,
+      })
+      confirmation.value = null
+      if (response.status === 'error') return mapTrashFailure(response.code)
+      acceptTrashAck('move', current.taskId, response)
+      deleteNotice.value = { retained: response.retained, discarded: 0 }
+      return { status: 'accepted', kind: 'move', retained: response.retained, revision: response.revision }
+    } catch (error) {
+      confirmation.value = null
+      if (error instanceof TrashCommandTransportError) {
+        outcomeUnknown.value = { kind: 'move', ...(current.taskId !== undefined && { taskId: current.taskId }) }
+        return { status: 'uncertain' }
+      }
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    } finally {
+      submitting.value = false
+    }
+  }
+
+  /** Restore normal: sem confirmação adicional e sem oferta de desfazer. */
+  async function restoreTrash(entry: { taskId: string; contentRevision: string; deletedAt: string }): Promise<TrashCommandStoreResult> {
+    if (submitting.value) return { status: 'blocked', code: 'BUSY' }
+    submitting.value = true
+    try {
+      if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
+      const response = await window.taskflowDesktop.restoreTrashItem({ version: 1, contextSequence, entry })
+      if (response.status === 'error') return mapTrashFailure(response.code)
+      acceptTrashAck('restore', entry.taskId, response)
+      return { status: 'accepted', kind: 'restore', revision: response.revision }
+    } catch (error) {
+      if (error instanceof TrashCommandTransportError) {
+        outcomeUnknown.value = { kind: 'restore', taskId: entry.taskId }
+        return { status: 'uncertain' }
+      }
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    } finally {
+      submitting.value = false
+    }
+  }
+
+  async function requestPermanentDelete(entry: {
+    taskId: string
+    contentRevision: string
+    deletedAt: string
+  }): Promise<TrashCommandStoreResult> {
+    return prepareConfirmation('PERMANENT', { entry })
+  }
+
+  async function confirmPermanentDelete(): Promise<TrashCommandStoreResult> {
+    const current = confirmation.value
+    if (current === null || current.kind !== 'PERMANENT') return { status: 'confirmation-invalid' }
+    submitting.value = true
+    try {
+      const response = await window.taskflowDesktop.deleteTrashItem({
+        version: 1,
+        contextSequence,
+        confirmationToken: current.token,
+      })
+      confirmation.value = null
+      if (response.status === 'error') return mapTrashFailure(response.code)
+      acceptTrashAck('delete', current.entry?.taskId, response)
+      return { status: 'accepted', kind: 'delete', revision: response.revision }
+    } catch (error) {
+      confirmation.value = null
+      if (error instanceof TrashCommandTransportError) {
+        outcomeUnknown.value = { kind: 'delete' }
+        return { status: 'uncertain' }
+      }
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    } finally {
+      submitting.value = false
+    }
+  }
+
+  async function requestEmptyTrash(): Promise<TrashCommandStoreResult> {
+    return prepareConfirmation('EMPTY', {})
+  }
+
+  async function confirmEmptyTrash(): Promise<TrashCommandStoreResult> {
+    const current = confirmation.value
+    if (current === null || current.kind !== 'EMPTY') return { status: 'confirmation-invalid' }
+    submitting.value = true
+    try {
+      const response = await window.taskflowDesktop.emptyTrash({
+        version: 1,
+        contextSequence,
+        confirmationToken: current.token,
+      })
+      confirmation.value = null
+      if (response.status === 'error') return mapTrashFailure(response.code)
+      acceptTrashAck('empty', undefined, response)
+      return { status: 'accepted', kind: 'empty', removedCount: response.removedCount, revision: response.revision }
+    } catch (error) {
+      confirmation.value = null
+      if (error instanceof TrashCommandTransportError) {
+        outcomeUnknown.value = { kind: 'empty' }
+        return { status: 'uncertain' }
+      }
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    } finally {
+      submitting.value = false
+    }
+  }
+
+  /** Desfaz a última ação própria consumindo o token uma única vez, na sequência da oferta. */
+  async function undoLastAction(): Promise<TrashCommandStoreResult> {
+    const current = offer.value
+    if (current === null) return { status: 'undo-not-available' }
+    offer.value = null
+    submitting.value = true
+    try {
+      const response = await window.taskflowDesktop.undoLastTaskAction({
+        version: 1,
+        contextSequence: current.sequence,
+        undoToken: current.token,
+      })
+      if (response.status === 'error') return mapTrashFailure(response.code)
+      acceptTrashAck('undo', current.taskId, response)
+      return { status: 'accepted', kind: 'undo', revision: response.revision }
+    } catch (error) {
+      if (error instanceof TrashCommandTransportError) {
+        outcomeUnknown.value = { kind: 'undo', ...(current.taskId !== undefined && { taskId: current.taskId }) }
+        return { status: 'uncertain' }
+      }
+      return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
+    } finally {
+      submitting.value = false
     }
   }
 
@@ -486,8 +924,34 @@ export const useTasksStore = defineStore('tasks', () => {
     return getDueSituation(task, now.value)
   }
 
+  /** Preparação da confirmação de exclusão recuperável a partir da tarefa atual. */
+  function requestDelete(taskId: string): Promise<TrashCommandStoreResult> {
+    const record = taskRecord(taskId)
+    if (record === undefined) return Promise.resolve({ status: 'not-found' })
+    return prepareConfirmation('MOVE', { taskId, expectedContentRevision: record.contentRevision })
+  }
+
+  function trashEntryOf(taskId: string): { taskId: string; contentRevision: string; deletedAt: string } | undefined {
+    const record = trashRecord(taskId)
+    if (record === undefined) return undefined
+    return { taskId, contentRevision: record.contentRevision, deletedAt: record.deletedAt }
+  }
+
+  function restoreFromArea(taskId: string): Promise<TrashCommandStoreResult> {
+    const entry = trashEntryOf(taskId)
+    if (entry === undefined) return Promise.resolve({ status: 'not-in-trash' })
+    return restoreTrash(entry)
+  }
+
+  function permanentFromArea(taskId: string): Promise<TrashCommandStoreResult> {
+    const entry = trashEntryOf(taskId)
+    if (entry === undefined) return Promise.resolve({ status: 'not-in-trash' })
+    return requestPermanentDelete(entry)
+  }
+
   return {
     records,
+    trashRecords,
     revision,
     stale,
     initialError,
@@ -512,14 +976,39 @@ export const useTasksStore = defineStore('tasks', () => {
     commandsBlocked,
     submissionBlocked,
     taskById,
+    trashVisible,
+    trashTotal,
+    trashMode,
+    trashPresentation,
+    trashMaintenance,
+    trashError,
+    offer,
+    confirmation,
+    deleteNotice,
     connect,
     disconnect,
     refresh,
+    waitForSnapshot,
+    startAction,
     create,
     update,
     changeStatus,
     setSubtaskDone,
     openSource,
+    enterTrash,
+    leaveTrash,
+    runTrashMaintenance,
+    requestDelete,
+    confirmMove,
+    abandonConfirmation,
+    restoreTrash,
+    restoreFromArea,
+    requestPermanentDelete,
+    permanentFromArea,
+    confirmPermanentDelete,
+    requestEmptyTrash,
+    confirmEmptyTrash,
+    undoLastAction,
     inspectCurrent,
     reviewAfterUncertain,
     reloadBase,
@@ -532,5 +1021,3 @@ export const useTasksStore = defineStore('tasks', () => {
     dueSituationOf,
   }
 })
-
-export type TasksStore = ReturnType<typeof useTasksStore>

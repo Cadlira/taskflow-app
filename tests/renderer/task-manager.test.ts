@@ -31,6 +31,14 @@ interface Harness {
     changeTaskStatus: Mock
     setSubtaskDone: Mock
     openTaskSource: Mock
+    clearUndoOffer: Mock
+    prepareTrashConfirmation: Mock
+    moveTaskToTrash: Mock
+    restoreTrashItem: Mock
+    deleteTrashItem: Mock
+    emptyTrash: Mock
+    prepareTrashView: Mock
+    undoLastTaskAction: Mock
   }
   emit(update: StateUpdate): void
   setSnapshot(next: StateSnapshot): void
@@ -54,6 +62,18 @@ function setupHarness(initial: StateSnapshot, subscribeFails = false): Harness {
     changeTaskStatus: vi.fn(),
     setSubtaskDone: vi.fn(),
     openTaskSource: vi.fn(),
+    clearUndoOffer: vi.fn(async (request: { contextSequence: number }) => ({
+      version: 1 as const,
+      status: 'ok' as const,
+      contextSequence: request.contextSequence,
+    })),
+    prepareTrashConfirmation: vi.fn(),
+    moveTaskToTrash: vi.fn(),
+    restoreTrashItem: vi.fn(),
+    deleteTrashItem: vi.fn(),
+    emptyTrash: vi.fn(),
+    prepareTrashView: vi.fn(),
+    undoLastTaskAction: vi.fn(),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api as unknown as TaskFlowDesktopApi })
 
@@ -113,7 +133,7 @@ describe('TaskManager: estados e fluxo básico', () => {
     expect(view.text()).toContain('Limpar filtros')
   })
 
-  it('cria: envia v2, formulário só fecha após snapshot >= ack, com feedback de confirmação', async () => {
+  it('cria: envia v3, formulário só fecha após snapshot >= ack, com feedback de confirmação', async () => {
     const harness = setupHarness(snapshot('1', []))
     const view = await mountManager()
 
@@ -131,7 +151,7 @@ describe('TaskManager: estados e fluxo básico', () => {
     await flushPromises()
 
     expect(harness.api.createTask).toHaveBeenCalledTimes(1)
-    expect(harness.api.createTask.mock.calls[0]?.[0]).toMatchObject({ version: 2, draft: { title: 'Comprar leite' } })
+    expect(harness.api.createTask.mock.calls[0]?.[0]).toMatchObject({ version: 3, draft: { title: 'Comprar leite' } })
     // Ack confirmado: formulário permanece com mensagem de sincronização até o snapshot chegar.
     expect(view.find('form').exists()).toBe(true)
     expect(view.text()).toContain('sincronizando a lista')
@@ -215,7 +235,8 @@ describe('TaskManager: estados e fluxo básico', () => {
     await flushPromises()
 
     expect(harness.api.changeTaskStatus).toHaveBeenCalledExactlyOnceWith({
-      version: 2,
+      version: 3,
+      contextSequence: expect.any(Number),
       taskId: 'a',
       expectedEditRevision: '5',
       status: 'DONE',
@@ -298,7 +319,8 @@ describe('TaskManager: cancelamento recorrente SKIP/END', () => {
 
     expect(harness.api.changeTaskStatus).toHaveBeenCalledTimes(3)
     expect(harness.api.changeTaskStatus.mock.calls[2]?.[0]).toEqual({
-      version: 2,
+      version: 3,
+      contextSequence: expect.any(Number),
       taskId: 'rec',
       expectedEditRevision: '3',
       status: 'CANCELLED',
@@ -439,7 +461,8 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     await flushPromises()
 
     expect(harness.api.setSubtaskDone).toHaveBeenCalledExactlyOnceWith({
-      version: 2,
+      version: 3,
+      contextSequence: expect.any(Number),
       taskId: 'sub',
       expectedEditRevision: '2',
       subtaskId: 's1',

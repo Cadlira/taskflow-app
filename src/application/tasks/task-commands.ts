@@ -15,6 +15,7 @@ import type { IdGenerator, Task, TaskStatus } from '../../domain/task.js'
 import { applyStatus } from '../../domain/task-status.js'
 import type { Revision } from '../storage/revisions.js'
 import type { TaskStorageUnit } from '../storage/unit-of-work.js'
+import type { ReservedUndo, RevertUndoFacts, UndoReservationPort } from './undo-types.js'
 
 // Casos de uso executados DENTRO da unidade coordenada: leem, decidem, validam e confirmam sobre
 // o estado atual. Nada aqui é assíncrono nem toca shell/rede/IPC. Relógio, identidades, âncora,
@@ -22,7 +23,8 @@ import type { TaskStorageUnit } from '../storage/unit-of-work.js'
 //
 // Classificação de revisões (D4): campos/status/regra/estrutura de subtarefas e fechamento/geração
 // atualizam conteúdo **e** edição; `setSubtaskDone` conserva a edição (primitiva tipada). Recusa,
-// no-op e rollback não alocam revisão.
+// no-op e rollback não alocam revisão. Mudanças efetivas de edição/status/fechamento devolvem
+// fatos internos de undo (before-image relida), nunca Task/plano para o renderer.
 
 export const CREATE_ID_ATTEMPTS = 3
 
@@ -35,7 +37,14 @@ export type CreateTaskOutcome =
   | { status: 'IDENTITY_CONFLICT' }
 
 export type MutationTaskOutcome =
-  | { status: 'UPDATED'; contentRevision: Revision; editRevision: Revision }
+  | {
+      status: 'UPDATED'
+      contentRevision: Revision
+      editRevision: Revision
+      undo: RevertUndoFacts
+      /** Reserva já contabilizada; o main publica o recibo somente após commit/contexto válidos. */
+      reserved?: ReservedUndo
+    }
   | { status: 'UNCHANGED'; contentRevision: Revision; editRevision: Revision }
   | { status: 'VALIDATION_FAILED'; fields: TaskFieldErrors }
   | { status: 'NOT_FOUND' }
@@ -47,6 +56,7 @@ export type MutationTaskOutcome =
   | { status: 'SERIES_CONFLICT' }
   | { status: 'IDENTITY_CONFLICT' }
   | { status: 'INVALID_REQUEST' }
+  | { status: 'STALE_CONTEXT' }
 
 export type SubtaskDoneOutcome =
   | { status: 'UPDATED'; contentRevision: Revision; editRevision: Revision }
@@ -54,6 +64,7 @@ export type SubtaskDoneOutcome =
   | { status: 'NOT_FOUND' }
   | { status: 'CONFLICT'; currentContentRevision: Revision; currentEditRevision: Revision }
   | { status: 'SUBTASK_NOT_FOUND' }
+  | { status: 'STALE_CONTEXT' }
 
 export interface CreateTaskInput {
   draft: CreateTaskDraft
@@ -69,6 +80,8 @@ export interface UpdateTaskInput {
   cancellation?: RecurrenceCancellation
   now: Date
   generateId: IdGenerator
+  /** Reserva do recibo antes da escrita; ausente em contextos que não oferecem desfazer. */
+  reservations?: UndoReservationPort
 }
 
 export interface ChangeStatusInput {
@@ -78,6 +91,7 @@ export interface ChangeStatusInput {
   cancellation?: RecurrenceCancellation
   now: Date
   generateId: IdGenerator
+  reservations?: UndoReservationPort
 }
 
 export interface SetSubtaskDoneInput {
@@ -229,7 +243,19 @@ function closureFailure(plan: Exclude<ClosurePlan, { status: 'CLOSE' }>): Mutati
 function writeClosure(
   unit: TaskStorageUnit,
   plan: Extract<ClosurePlan, { status: 'CLOSE' }>,
+  beforeImage: Task,
+  reservations: UndoReservationPort | undefined,
 ): MutationTaskOutcome {
+  // Reserva depois de determinar que o fechamento é efetivo e antes da primeira escrita.
+  const provisional: RevertUndoFacts = {
+    kind: 'REVERT',
+    target: { id: plan.closed.id, expectedContentRevision: 0n },
+    beforeImage,
+    ...(plan.generated !== undefined && { generated: { id: plan.generated.id, expectedContentRevision: 0n } }),
+  }
+  const reserved = reservations?.reserve(provisional)
+  if (reservations !== undefined && reserved === undefined) return { status: 'RESOURCE_LIMIT' }
+
   if (plan.generated === undefined) {
     unit.saveTask(plan.closed)
   } else {
@@ -237,8 +263,33 @@ function writeClosure(
   }
 
   const stored = unit.getTask(plan.closed.id)
-  if (stored === undefined) return { status: 'IDENTITY_CONFLICT' }
-  return { status: 'UPDATED', contentRevision: stored.contentRevision, editRevision: stored.editRevision }
+  if (stored === undefined) {
+    if (reserved !== undefined) reservations?.release(reserved)
+    return { status: 'IDENTITY_CONFLICT' }
+  }
+
+  let generated: RevertUndoFacts['generated']
+  if (plan.generated !== undefined) {
+    const generatedStored = unit.getTask(plan.generated.id)
+    if (generatedStored === undefined) {
+      if (reserved !== undefined) reservations?.release(reserved)
+      return { status: 'IDENTITY_CONFLICT' }
+    }
+    generated = { id: plan.generated.id, expectedContentRevision: generatedStored.contentRevision }
+  }
+
+  return {
+    status: 'UPDATED',
+    contentRevision: stored.contentRevision,
+    editRevision: stored.editRevision,
+    undo: {
+      kind: 'REVERT',
+      target: { id: plan.closed.id, expectedContentRevision: stored.contentRevision },
+      beforeImage,
+      ...(generated !== undefined && { generated }),
+    },
+    ...(reserved !== undefined && { reserved }),
+  }
 }
 
 /**
@@ -297,7 +348,7 @@ export function updateTaskInUnit(unit: TaskStorageUnit, input: UpdateTaskInput):
   if (closes) {
     const closure = planClosure(unit, next, input.cancellation, { now: input.now, generateId: input.generateId })
     if (closure.status !== 'CLOSE') return closureFailure(closure)
-    return writeClosure(unit, closure)
+    return writeClosure(unit, closure, stored.task, input.reservations)
   }
 
   if (input.cancellation !== undefined) return { status: 'INVALID_REQUEST' }
@@ -309,14 +360,36 @@ export function updateTaskInUnit(unit: TaskStorageUnit, input: UpdateTaskInput):
     if (seriesId !== undefined && hasOtherCarrier(unit, seriesId, stored.task.id)) return { status: 'SERIES_CONFLICT' }
   }
 
+  // Reserva depois de determinar que a edição é efetiva e antes da primeira escrita.
+  const provisional: RevertUndoFacts = {
+    kind: 'REVERT',
+    target: { id: input.taskId, expectedContentRevision: 0n },
+    beforeImage: stored.task,
+  }
+  const reserved = input.reservations?.reserve(provisional)
+  if (input.reservations !== undefined && reserved === undefined) return { status: 'RESOURCE_LIMIT' }
+
   const outcome = unit.updateTaskConditionally(input.taskId, input.expectedEditRevision, () => next)
   switch (outcome.status) {
     case 'UPDATED':
+      return {
+        status: 'UPDATED',
+        contentRevision: outcome.contentRevision,
+        editRevision: outcome.editRevision,
+        undo: {
+          ...provisional,
+          target: { id: input.taskId, expectedContentRevision: outcome.contentRevision },
+        },
+        ...(reserved !== undefined && { reserved }),
+      }
     case 'UNCHANGED':
-      return { status: outcome.status, contentRevision: outcome.contentRevision, editRevision: outcome.editRevision }
+      if (reserved !== undefined) input.reservations?.release(reserved)
+      return { status: 'UNCHANGED', contentRevision: outcome.contentRevision, editRevision: outcome.editRevision }
     case 'NOT_FOUND':
+      if (reserved !== undefined) input.reservations?.release(reserved)
       return { status: 'NOT_FOUND' }
     case 'CONFLICT':
+      if (reserved !== undefined) input.reservations?.release(reserved)
       return {
         status: 'CONFLICT',
         currentContentRevision: outcome.currentContentRevision,
@@ -351,19 +424,41 @@ export function changeTaskStatusInUnit(unit: TaskStorageUnit, input: ChangeStatu
   if (stored.task.recurrence !== undefined && terminal) {
     const closure = planClosure(unit, changed, input.cancellation, { now: input.now, generateId: input.generateId })
     if (closure.status !== 'CLOSE') return closureFailure(closure)
-    return writeClosure(unit, closure)
+    return writeClosure(unit, closure, stored.task, input.reservations)
   }
 
   if (input.cancellation !== undefined) return { status: 'INVALID_REQUEST' }
 
+  // Reserva depois de determinar que a mudança de status é efetiva e antes da escrita.
+  const provisional: RevertUndoFacts = {
+    kind: 'REVERT',
+    target: { id: input.taskId, expectedContentRevision: 0n },
+    beforeImage: stored.task,
+  }
+  const reserved = input.reservations?.reserve(provisional)
+  if (input.reservations !== undefined && reserved === undefined) return { status: 'RESOURCE_LIMIT' }
+
   const outcome = unit.updateTaskConditionally(input.taskId, input.expectedEditRevision, () => changed)
   switch (outcome.status) {
     case 'UPDATED':
+      return {
+        status: 'UPDATED',
+        contentRevision: outcome.contentRevision,
+        editRevision: outcome.editRevision,
+        undo: {
+          ...provisional,
+          target: { id: input.taskId, expectedContentRevision: outcome.contentRevision },
+        },
+        ...(reserved !== undefined && { reserved }),
+      }
     case 'UNCHANGED':
-      return { status: outcome.status, contentRevision: outcome.contentRevision, editRevision: outcome.editRevision }
+      if (reserved !== undefined) input.reservations?.release(reserved)
+      return { status: 'UNCHANGED', contentRevision: outcome.contentRevision, editRevision: outcome.editRevision }
     case 'NOT_FOUND':
+      if (reserved !== undefined) input.reservations?.release(reserved)
       return { status: 'NOT_FOUND' }
     case 'CONFLICT':
+      if (reserved !== undefined) input.reservations?.release(reserved)
       return {
         status: 'CONFLICT',
         currentContentRevision: outcome.currentContentRevision,

@@ -410,3 +410,48 @@ produto.
 - **CI:** o workflow existente executa `validate`, `package:win`, `verify:package` e `smoke:packaged`; o smoke ampliado ainda não foi executado no runner (nada foi enviado ao remoto nesta Change).
 - **Interface:** nenhuma UI consome o estado. A convergência entre superfícies foi verificada pelo harness com a bridge real, não por uma tela de tarefas.
 - **Fechamento pela janela depois do harness:** no cenário `bridge`, que cria e destrói superfícies de teste, o pedido de fechamento do sistema não alcançou a janela principal; a saída normal desse cenário é pedida ao próprio harness. O fechamento pela janela é verificado no cenário S8, com o banco de produto aberto. Não há indício de problema no produto, mas o comportamento do harness fica registrado.
+
+## Atualização da TFA-006 — lixeira, identidade de entrada e recibos (2026-10-04)
+
+### Unidades condicionais de lixeira
+
+- `moveToTrashConditionally(taskId, expectedContentRevision, now)` lê o alvo, filtra vencidos,
+  substitui o mesmo ID, insere a entrada com `contentRevision = editRevision = g` e corta em 100 no
+  mesmo commit; payload/versão/timestamps da Task seguem íntegros. `retained:false` indica que a
+  própria exclusão caiu fora do limite (relógio recuado) sem falsificar `deletedAt`.
+- `restoreTrashItemConditionally(entry, now)` confere ausência → identidade → idade → ID ativo →
+  portadora única no plano final (ignorando a entrada que sai da lixeira), conserva timestamps,
+  dá revisões novas e liquida lembretes vencidos `<= now` sem gerar próxima.
+- `deleteTrashItemConditionally` e `emptyTrashConditionally` comparam a identidade/composição
+  observada; definitiva não reexige idade; esvaziar vazio é no-op sem revisão.
+- `purgeExpiredTrash(now)` é a manutenção explícita por idade; leituras continuam puras.
+- `revertConditionally` passou a receber `now`, conservar marcadores atuais, liquidar vencidos e
+  validar a portadora no plano final (alvo substituído/gerada removida não contam).
+
+### Recibos e contexto no main
+
+- `UndoRegistry` (portável) mantém por documento: sequência de contexto, uma oferta publicada, uma
+  confirmação corrente e uma reserva de candidato; tokens opacos de uso único; charge determinístico
+  (`2 × bytes do before-image + 4096` para REVERT; 256 bytes para DELETE) sob orçamento global de
+  64 MiB; época monotônica para a porta de invalidação pós-backup.
+- As mutações v3 reservam o recibo antes da primeira escrita e publicam depois do commit, somente
+  com sessão/contexto correntes; resultado incerto/rollback libera a reserva sem oferta.
+- O IPC da lixeira (`trash:prepare-confirm:v1`, `trash:move:v1`, `trash:restore:v1`,
+  `trash:delete:v1`, `trash:empty:v1`, `trash:prepare-view:v1`, `task:undo:v1` e
+  `trash:clear-undo:v1`) aplica guards de remetente/documento/contexto na admissão, execução e
+  saída, consome cada token uma vez e devolve códigos fechados (`STALE_CONTEXT`,
+  `CONFIRMATION_INVALID`, `CONFIRMATION_CHANGED`, `NOT_IN_TRASH`, `ENTRY_CHANGED`,
+  `ENTRY_EXPIRED`, `ID_EXISTS`, `UNDO_NOT_AVAILABLE`, `CHANGED`, `REMOVED`, `GENERATED_CHANGED`,
+  `SERIES_CONFLICT`).
+
+### Evidências
+
+- `tests/domain/task-trash.test.ts` e `tests/domain/task-reminders.test.ts` — política/limite/ordem
+  e liquidação pura.
+- `tests/application/trash-commands.test.ts` — move/restore/definitiva/EMPTY/manutenção/reversão/
+  undo, concorrência e falha entre efeitos.
+- `tests/application/undo-registry.test.ts` — contexto, tokens, orçamento, época e oito sessões.
+- `tests/main/ipc-trash.test.ts` — oito wrappers, recusas exatas, consumo único, sessão e orçamento.
+- `tests/preload/bridge-catalog.test.ts` e `tests/contracts/*` — catálogo 17, versões e budgets.
+- Harness empacotado `trash` (30 verificações) e crashes `move`/`restore`/`revert` no
+  `smoke:packaged`.

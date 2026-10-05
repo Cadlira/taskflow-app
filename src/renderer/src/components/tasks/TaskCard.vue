@@ -29,6 +29,7 @@ const emit = defineEmits<{
   edit: [task: Task]
   'change-status': [task: Task, status: TaskStatus, origin: StatusChangeOrigin]
   'toggle-subtask': [task: Task, subtaskId: string, done: boolean]
+  delete: [task: Task]
 }>()
 
 const cardElement = ref<HTMLElement | null>(null)
@@ -107,6 +108,11 @@ function displayedStatus(): TaskStatus {
 function handleEdit(): void {
   if (props.busy) return
   emit('edit', props.task)
+}
+
+function handleDelete(): void {
+  if (props.busy) return
+  emit('delete', props.task)
 }
 
 function handleQuickStatus(status: TaskStatus, action: TaskStatusAction): void {
@@ -286,6 +292,16 @@ function handleStatusFocusout(): void {
         @click="handleEdit"
       >
         Editar<span class="visually-hidden"> {{ task.title }}</span>
+      </button>
+
+      <button
+        type="button"
+        class="button-small button-secondary"
+        data-action="delete"
+        :aria-disabled="busy ? 'true' : undefined"
+        @click="handleDelete"
+      >
+        Excluir<span class="visually-hidden"> {{ task.title }}</span>
       </button>
 
       <template v-if="task.status === 'TODO' || task.status === 'IN_PROGRESS'">

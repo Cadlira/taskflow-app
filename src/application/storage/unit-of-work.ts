@@ -62,6 +62,47 @@ export type TrashRestoreResult =
   | { status: 'NOT_IN_TRASH' }
   | { status: 'ID_EXISTS' }
 
+/** Identidade observada de uma entrada de lixeira (D3): comparação exata dos três campos. */
+export interface TrashEntryRef {
+  taskId: string
+  contentRevision: Revision
+  deletedAt: string
+}
+
+/** Move condicional com política de retenção/limite: nova identidade para a entrada. */
+export type ConditionalMoveToTrashResult =
+  | {
+      status: 'MOVED'
+      task: Task
+      retained: boolean
+      /** Identidade da nova entrada (contentRevision = revisão global do commit). */
+      entry: TrashEntryRef
+      /** IDs de entradas existentes descartadas por vencimento/substituição/limite. */
+      discardedTaskIds: string[]
+    }
+  | { status: 'NOT_FOUND' }
+  | { status: 'CHANGED'; currentContentRevision: Revision }
+
+/** Restore condicionado à entrada observada, com idade, ID ativo e portadora final. */
+export type ConditionalRestoreResult =
+  | { status: 'RESTORED'; task: Task; contentRevision: Revision; editRevision: Revision }
+  | { status: 'NOT_IN_TRASH' }
+  | { status: 'ENTRY_CHANGED' }
+  | { status: 'ENTRY_EXPIRED' }
+  | { status: 'ID_EXISTS' }
+  | { status: 'SERIES_CONFLICT' }
+
+/** Exclusão definitiva condicionada à identidade observada; idade não é reexigida. */
+export type ConditionalPermanentDeleteResult =
+  | { status: 'DELETED' }
+  | { status: 'NOT_IN_TRASH' }
+  | { status: 'ENTRY_CHANGED' }
+
+/** Esvaziamento condicionado à composição completa capturada no main. */
+export type ConditionalEmptyTrashResult =
+  | { status: 'EMPTIED'; removedCount: number }
+  | { status: 'CONFIRMATION_CHANGED' }
+
 export type ConditionalUpdateResult =
   | { status: 'UPDATED'; task: Task; contentRevision: Revision; editRevision: Revision }
   | { status: 'UNCHANGED'; task: Task; contentRevision: Revision; editRevision: Revision }
@@ -88,6 +129,7 @@ export type ConditionalRevertResult =
   | { status: 'REMOVED' }
   | { status: 'CHANGED'; currentRevision: Revision }
   | { status: 'GENERATED_CHANGED' }
+  | { status: 'SERIES_CONFLICT' }
 
 /** Ocorrência de lembrete a registrar de forma condicional nos dados mais recentes. */
 export interface ReminderOccurrenceClaim {
@@ -143,12 +185,34 @@ export interface TaskStorageUnit extends TaskStorageReader {
   deleteTask(id: string): boolean
   /** Move a tarefa para a lixeira no mesmo commit; `undefined` sem gravar se ela não existe. */
   moveToTrash(id: string, deletedAt: string): Task | undefined
+  /**
+   * Move condicionado à revisão de conteúdo observada, aplicando retenção/limite/substituição no
+   * mesmo commit. A nova entrada recebe `contentRevision=editRevision` da revisão global do commit
+   * (D3); payload/versão e timestamps da Task permanecem íntegros.
+   */
+  moveToTrashConditionally(
+    taskId: string,
+    expectedContentRevision: Revision,
+    now: Date,
+  ): ConditionalMoveToTrashResult
   /** Devolve o item à coleção aplicando `prepare`; recusa `ID_EXISTS` sem alterar nada. */
   restoreFromTrash(id: string, prepare: (task: Task) => Task): TrashRestoreResult
+  /**
+   * Restore condicionado: confere ausência, identidade exata, idade, ID ativo e portadora única
+   * no plano final (tasks+trash), preserva timestamps e liquida lembretes vencidos de forma pura.
+   * Recusas conservam coleções/revisões e não expurgam a entrada.
+   */
+  restoreTrashItemConditionally(entry: TrashEntryRef, now: Date): ConditionalRestoreResult
   deleteFromTrash(id: string): boolean
+  /** Exclusão definitiva condicionada à identidade observada; não reexige idade. */
+  deleteTrashItemConditionally(entry: TrashEntryRef): ConditionalPermanentDeleteResult
   emptyTrash(): number
+  /** Esvaziamento condicionado à composição completa observada; sem diferença não grava. */
+  emptyTrashConditionally(captured: readonly TrashEntryRef[]): ConditionalEmptyTrashResult
   /** Expurgo explícito: remove os itens que `shouldPurge` indicar. Leituras nunca expurgam. */
   purgeTrash(shouldPurge: (item: StoredTrashItem) => boolean): number
+  /** Manutenção por idade: remove somente entradas vencidas para o `now` do proprietário. */
+  purgeExpiredTrash(now: Date): number
   /**
    * Edição condicional: aplica `change` sobre a tarefa atual somente se a revisão de **edição**
    * ainda for a esperada. Uma alteração efetiva atualiza conteúdo e edição (revisão global nova);
@@ -170,8 +234,17 @@ export interface TaskStorageUnit extends TaskStorageReader {
     done: boolean,
     now: Date,
   ): MarkSubtaskDoneResult
-  /** Reversão condicional de uma ação, verificando as revisões de conteúdo na mesma unidade. */
-  revertConditionally(preconditions: RevertPreconditions, restore: (current: Task) => Task): ConditionalRevertResult
+  /**
+   * Reversão condicional de uma ação, verificando as revisões de conteúdo na mesma unidade.
+   * O callback devolve a versão anterior realmente relida; a unidade conserva marcadores atuais
+   * da mesma ocorrência, liquida lembretes vencidos <= `now` e valida a portadora única no plano
+   * final (alvo substituído e gerada removida não contam; homônimos de outra coleção contam).
+   */
+  revertConditionally(
+    preconditions: RevertPreconditions,
+    restore: (current: Task) => Task,
+    now: Date,
+  ): ConditionalRevertResult
   /**
    * Registra `processedFor` somente se a mesma ocorrência ainda estiver válida e pendente.
    * Altera a revisão global, conservando `updatedAt`, a revisão de conteúdo e a de edição.

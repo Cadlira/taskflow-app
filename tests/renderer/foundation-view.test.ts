@@ -23,6 +23,14 @@ function mountApp(foundation: FoundationApi): VueWrapper {
     changeTaskStatus: vi.fn(),
     setSubtaskDone: vi.fn(),
     openTaskSource: vi.fn(),
+    clearUndoOffer: vi.fn(),
+    prepareTrashConfirmation: vi.fn(),
+    moveTaskToTrash: vi.fn(),
+    restoreTrashItem: vi.fn(),
+    deleteTrashItem: vi.fn(),
+    emptyTrash: vi.fn(),
+    prepareTrashView: vi.fn(),
+    undoLastTaskAction: vi.fn(),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api })
   setActivePinia(createPinia())

@@ -131,3 +131,15 @@ puro está em [domain-recurrence-and-subtasks.md](domain-recurrence-and-subtasks
 | Adaptação de plataforma virar escopo novo | Qualquer redesign, dashboard, recurso novo ou mudança material de comportamento requer Change e aprovação próprias. |
 
 A TFA-001 não copia ou executa os testes listados, não cria runtime e não confirma funcionamento do produto. Critérios e gates futuros continuam associados às TFA responsáveis na tabela P01–P14.
+
+## TFA-006 — lixeira e desfazer (2026-10-04)
+
+| Comportamento da origem | Tratamento no desktop | Diferenças explícitas |
+| --- | --- | --- |
+| Lixeira 30 dias / 100 itens / ordem por exclusão | Preservado no domínio com 30×24 h decorridos, corte no move e ordem `deletedAt`/revisão/ID UTF-16. | Empates históricos usam desempate determinístico adaptado (a lista Chrome não existe no banco); relógio recuado pode descartar a própria exclusão com aviso honesto. |
+| Restore direto não conferia idade | Restore/undo conferem idade/entrada/ID/portadora **em todo caminho**, sem expurgo oculto na recusa. | Lacuna da origem corrigida; entrada vencida nunca é restaurada. |
+| Undo por `updatedAt` | Recibo no main por conteúdo completo (`contentRevision`), before-image relida e referência exata da gerada. | Claim isolado não bloqueia; edição/check/ABA bloqueiam; token consumido uma vez. |
+| Confirmações e foco | Confirmação recuperável/irreversível com base preparada no main, aviso de série e foco vizinho/último/Voltar. | Esvaziamento recusa composição alterada (escolha humana) em vez de apagar itens novos. |
+| Expurgo por leitura (startup/list) | `prepareTrashView` explícito no startup válido/entrada e no move; snapshots puros. | Filtro temporal só na apresentação (60 s/foco), sem timer de escrita. |
+| Desfazer com expiração/limpeza | Oferta sem prazo por documento; ações/áreas/falha/no-op limpam; filtros/minimizar não. | Histórico temporário não é persistido nem exportado; fechar/reabrir perde a oferta. |
+| Backup/lixeira/credenciais no arquivo | Backup continua transportando somente tarefas; contrato interno invalida recibos após sucesso futuro (TFA-007). | Lixeira e undo não entram no backup; nenhum percurso funcional de backup nesta Change. |

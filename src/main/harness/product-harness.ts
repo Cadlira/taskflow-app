@@ -8,7 +8,9 @@ import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:
 import os from 'node:os'
 import path from 'node:path'
 import { formatRevision } from '../../application/storage/revisions.js'
-import type { UnitResult } from '../../application/storage/unit-of-work.js'
+import type { TrashEntryRef, UnitResult } from '../../application/storage/unit-of-work.js'
+import type { UndoFacts } from '../../application/tasks/undo-types.js'
+import { UndoRegistry } from '../../application/undo/undo-registry.js'
 import {
   changeTaskStatusInUnit,
   updateTaskInUnit,
@@ -47,8 +49,9 @@ export type ProductHarnessScenario =
   | { name: 'seed-sql1' }
   | { name: 'inspect-sql1' }
   | { name: 'recurrence' }
+  | { name: 'trash' }
   | { name: 'a11y'; opener: 'real' | 'fake' }
-  | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' | 'migrate' }
+  | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' | 'migrate' | 'move' | 'restore' | 'revert' }
 
 /** Cenários que precisam do arquivo em SQL 1 intocado: o coordenador de produto não abre antes. */
 export function harnessSkipsCoordinatorStart(scenario: ProductHarnessScenario): boolean {
@@ -83,7 +86,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
-  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence') {
+  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash') {
     return { name: value }
   }
   if (value === 'a11y') return { name: 'a11y', opener: 'real' }
@@ -94,7 +97,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const [name, point, unit, ...rest] = value.split('|')
   if (name !== 'crash' || rest.length > 0) return null
   if (!CRASH_POINTS.includes(point as StorageFaultPoint)) return null
-  if (unit !== undefined && unit !== 'save' && unit !== 'claim' && unit !== 'migrate') return null
+  if (unit !== undefined && unit !== 'save' && unit !== 'claim' && unit !== 'migrate' && unit !== 'move' && unit !== 'restore' && unit !== 'revert') return null
   return { name: 'crash', point: point as StorageFaultPoint, unit: unit ?? 'save' }
 }
 
@@ -234,16 +237,24 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     })`,
   )
   info['catalog'] = catalog
-  // Nove wrappers: diagnóstico/estado (5) e comandos (4 v2 + origem v1). Nenhum canal livre.
+  // Dezessete wrappers: diagnóstico (1), estado (3), tarefas v3 (4), origem (1) e lixeira/undo (8).
   checks['catalogClosed'] =
     JSON.stringify(catalog['keys']) ===
       JSON.stringify([
         'changeTaskStatus',
+        'clearUndoOffer',
         'createTask',
+        'deleteTrashItem',
+        'emptyTrash',
         'getStateSnapshot',
+        'moveTaskToTrash',
         'openTaskSource',
+        'prepareTrashConfirmation',
+        'prepareTrashView',
+        'restoreTrashItem',
         'setSubtaskDone',
         'subscribeState',
+        'undoLastTaskAction',
         'unsubscribeState',
         'updateTask',
         'verifyFoundation',
@@ -481,7 +492,7 @@ function barrierFile(deps: ProductHarnessDependencies): string {
 async function runCrash(
   deps: ProductHarnessDependencies,
   point: StorageFaultPoint,
-  unit: 'save' | 'claim' | 'migrate',
+  unit: 'save' | 'claim' | 'migrate' | 'move' | 'restore' | 'revert',
 ): Promise<void> {
   const { coordinator } = deps
 
@@ -506,19 +517,82 @@ async function runCrash(
   const pending = claimTask.reminders.find((reminder) => reminder.processedFor === undefined && reminder.type === 'OFFSET')
   if (unit === 'claim') await coordinator.run((target) => target.saveTask(claimTask))
 
+  // Lixeira/reversão: o estado de partida (tarefa, entrada ou alvo alterado) é preparado ANTES
+  // da barreira; a barreira intercepta a própria operação sob teste.
+  const now = new Date('2026-10-04T12:00:00.000Z')
+  let moveTaskId = ''
+  let moveRevision = 1n
+  let restoreEntry: TrashEntryRef | undefined
+  let revertTarget: { id: string; expectedContentRevision: bigint } | undefined
+  let revertBefore: Task | undefined
+  if (unit === 'move' || unit === 'restore' || unit === 'revert') {
+    const seedIndex = 810_000 + Number((coordinator.confirmedRevision ?? 0n) % 100_000n)
+    const task = buildFictitiousTask(seedIndex, { idPrefix: 'crash-trash' })
+    moveTaskId = task.id
+    await coordinator.run((target) => target.saveTask(task))
+    const stored = await coordinator.read((reader) => reader.getTask(task.id))
+    moveRevision = stored.ok && stored.value !== undefined ? stored.value.contentRevision : 1n
+
+    if (unit === 'restore') {
+      const moved = await coordinator.run((target) => target.moveToTrashConditionally(task.id, moveRevision, now))
+      if (moved.ok && moved.value.status === 'MOVED') restoreEntry = moved.value.entry
+    }
+    if (unit === 'revert') {
+      const updated = await coordinator.run((target) =>
+        target.updateTaskConditionally(task.id, moveRevision, (current) => ({ ...current, title: `${current.title} alterada` })),
+      )
+      if (updated.ok && updated.value.status === 'UPDATED') {
+        revertTarget = { id: task.id, expectedContentRevision: updated.value.contentRevision }
+        revertBefore = task
+      }
+    }
+  }
+
   const base = coordinator.confirmedRevision ?? 0n
+  // Estado preparado (tarefa/entrada/alvo) capturado pela mesma projeção do reopen: o smoke
+  // compara o digest do rollback com este estado, não com o anterior ao processo de teste.
+  let preparedSummary: Record<string, unknown> | null = null
+  try {
+    const prepared = await evaluate<StateSnapshotResult>(deps.mainWindow, SNAPSHOT_SCRIPT)
+    if (prepared.status === 'ok') {
+      preparedSummary = {
+        revision: prepared.snapshot.revision,
+        tasks: prepared.snapshot.tasks.length,
+        trash: prepared.snapshot.trash.length,
+        digest: digest(prepared.snapshot),
+      }
+    }
+  } catch {
+    preparedSummary = null
+  }
   deps.faults.at = (reached) => {
     if (reached !== point) return
     writeFileSync(barrierFile(deps), JSON.stringify({ point, pid: process.pid, baseRevision: formatRevision(base) }))
     // Barreira: o processo fica parado aqui até ser encerrado pelo runner.
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
   }
-  emit({ scenario: 'crash', armed: true, point, unit, pid: process.pid, baseRevision: formatRevision(base) })
+  emit({
+    scenario: 'crash',
+    armed: true,
+    point,
+    unit,
+    pid: process.pid,
+    baseRevision: formatRevision(base),
+    ...(preparedSummary !== null && { preparedSummary }),
+  })
 
   if (unit === 'claim' && pending?.type === 'OFFSET' && claimTask.dueAt !== undefined) {
     const processedFor = new Date(Date.parse(claimTask.dueAt) - pending.offsetMinutes * 60_000).toISOString()
     await coordinator.run((target) =>
       target.claimReminderOccurrence({ taskId: claimTask.id, reminderId: pending.id, processedFor }),
+    )
+  } else if (unit === 'move') {
+    await coordinator.run((target) => target.moveToTrashConditionally(moveTaskId, moveRevision, now))
+  } else if (unit === 'restore' && restoreEntry !== undefined) {
+    await coordinator.run((target) => target.restoreTrashItemConditionally(restoreEntry as TrashEntryRef, now))
+  } else if (unit === 'revert' && revertTarget !== undefined && revertBefore !== undefined) {
+    await coordinator.run((target) =>
+      target.revertConditionally({ target: revertTarget as { id: string; expectedContentRevision: bigint } }, () => revertBefore as Task, now),
     )
   } else {
     await coordinator.run((target) => target.saveTask(buildFictitiousTask(800_000 + Number(base % 100_000n), { idPrefix: 'crash' })))
@@ -731,6 +805,51 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
     })
   }
 
+  // TFA-006 — recursos dos recibos: charge lógico, heap real, pico e liberação em oito sessões.
+  const receiptRegistry = new UndoRegistry({
+    randomToken: (() => {
+      let count = 0
+      return () => `bench-token-${String((count += 1)).padStart(12, '0')}`
+    })(),
+  })
+  const heavyBefore = { ...buildFictitiousTask(930_000), description: fictitiousText(200_000, 930_000) }
+  const heavyFacts: UndoFacts = {
+    kind: 'REVERT',
+    target: { id: heavyBefore.id, expectedContentRevision: 2n },
+    beforeImage: heavyBefore,
+  }
+  const heapBefore = process.memoryUsage().heapUsed
+  let chargeBytesPerReceipt = 0
+  let peakUsedBytes = 0
+  for (let round = 0; round < 25; round += 1) {
+    for (let doc = 0; doc < 8; doc += 1) {
+      const key = `bench-doc-${doc}`
+      const sequence = receiptRegistry.contextSequence(key) + 1
+      receiptRegistry.clear(key, sequence)
+      const reservation = receiptRegistry.reserve(key, sequence, heavyFacts)
+      if (reservation.status !== 'ok') throw new Error('reserva de recibo recusada')
+      chargeBytesPerReceipt = reservation.reservation.bytes
+      const token = receiptRegistry.publish(reservation.reservation, heavyFacts)
+      if (token === undefined) throw new Error('publicação de recibo recusada')
+      if (receiptRegistry.usedBytes > peakUsedBytes) peakUsedBytes = receiptRegistry.usedBytes
+      if (receiptRegistry.consumeOffer(key, sequence, token) === undefined) throw new Error('consumo de recibo falhou')
+    }
+  }
+  const heapAfter = process.memoryUsage().heapUsed
+  const receipts = {
+    chargeBytesPerReceipt,
+    peakUsedBytes,
+    usedBytesAfter: receiptRegistry.usedBytes,
+    heapDeltaBytes: heapAfter - heapBefore,
+    cycles: 25,
+    documents: 8,
+    released:
+      receiptRegistry.usedBytes === 0 &&
+      receiptRegistry.activeReservations === 0 &&
+      receiptRegistry.openOffers === 0 &&
+      receiptRegistry.openConfirmations === 0,
+  }
+
   // Drain: unidades internas admitidas no momento do encerramento.
   const draining = Array.from({ length: 32 }, (_unused, index) =>
     coordinator.run((unit) => unit.saveTask(buildFictitiousTask(700_000 + index, { idPrefix: 'bench-drain' }))),
@@ -757,6 +876,8 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
       const series = dataset['series'] as { carriersReady: boolean; limitStatus: string } | undefined
       return series?.carriersReady === true && series.limitStatus === 'RESOURCE_LIMIT'
     }),
+    // TFA-006: recibos liberados após ciclos em oito sessões, sem vazamento de charge.
+    receiptsReleased: receipts.released,
   }
 
   emit({
@@ -764,6 +885,7 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
     ok: Object.values(gates).every(Boolean),
     gates,
     datasets,
+    receipts,
     maxHeartbeatGapMs: round(maxHeartbeatGapMs),
     maxUnitMs: round(coordinator.metrics.maxUnitMs),
     drain:
@@ -944,6 +1066,19 @@ const CATALOG_SCRIPT = `({
 })`
 
 /**
+ * Estabelece contexto novo na superfície (clear ack) e executa o corpo com `seq` disponível.
+ * Toda ação de tarefa/lixeira desta Change passa por aqui, como o renderer real faz.
+ */
+function withFreshContext(body: string): string {
+  return `(async () => {
+    const seq = (window.__tfa006Sequence = (window.__tfa006Sequence ?? 0) + 1)
+    const cleared = await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: seq })
+    if (cleared.status !== 'ok') return cleared
+    return ${body}
+  })()`
+}
+
+/**
  * TFA-004: exercita a UI real de tarefas com dados fictícios no pacote — criar, editar, status,
  * reabrir, abrir origem (opener falso), duas superfícies, negativas, reconciliação por foco,
  * reload sem resposta e limpeza. Fecha a janela principal ao final (o runner valida a saída).
@@ -1016,24 +1151,24 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
     return read.ok && read.value?.task.status === 'TODO' && read.value.task.completedAt === undefined
   })
 
-  // Catálogo fechado e negativas na ponte real do pacote (v2; v1 antigo recusado).
+  // Catálogo fechado e negativas na ponte real do pacote (mutações v3; v1/v2 antigos recusados).
   const catalog = await evaluate<{ keys: string[]; frozen: boolean; globals: string[] }>(surfaceA, CATALOG_SCRIPT)
   info['catalog'] = catalog
-  checks['catalogNineClosed'] =
-    catalog.keys.length === 9 &&
+  checks['catalogSeventeenClosed'] =
+    catalog.keys.length === 17 &&
     catalog.frozen === true &&
     catalog.globals.every((kind) => kind === 'undefined') &&
-    ['remove', 'delete', 'trash', 'undo', 'shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'reminder'].every(
+    ['shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'reminder', 'harness'].every(
       (name) => !catalog.keys.some((key) => key.toLowerCase().includes(name)),
     )
   const negatives = await evaluate<Array<{ status: string; code?: string }>>(
     surfaceA,
     `Promise.all([
       window.taskflowDesktop.createTask({ version: 1, draft: { title: 'v1 recusado' } }),
-      window.taskflowDesktop.createTask({ version: 2, draft: { title: 'x', id: 'forjado' } }),
+      window.taskflowDesktop.createTask({ version: 2, contextSequence: 1, draft: { title: 'x', id: 'forjado' } }),
       window.taskflowDesktop.updateTask({ version: 1, taskId: 'a', expectedEditRevision: '01', patch: {} }),
-      window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: 'a', expectedEditRevision: '1', status: 'NOPE' }),
-      window.taskflowDesktop.setSubtaskDone({ version: 2, taskId: 'a', expectedEditRevision: '1', subtaskId: 's', done: 'sim' }),
+      window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', status: 'NOPE' }),
+      window.taskflowDesktop.setSubtaskDone({ version: 2, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', subtaskId: 's', done: 'sim' }),
       window.taskflowDesktop.openTaskSource({ version: 1, taskId: 'a', expectedContentRevision: '1', url: 'https://x.test' }),
     ])`,
   )
@@ -1055,7 +1190,12 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
   const lateTitle = `UI tardia ${Date.now()}`
   await evaluate<string>(
     surfaceA,
-    `(() => { window.__late = window.taskflowDesktop.createTask({ version: 2, draft: { title: ${JSON.stringify(lateTitle)} } }).catch(() => undefined); return 'issued' })()`,
+    `(async () => {
+      const seq = (window.__tfa006Sequence = (window.__tfa006Sequence ?? 0) + 1)
+      await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: seq })
+      window.__late = window.taskflowDesktop.createTask({ version: 3, contextSequence: seq, draft: { title: ${JSON.stringify(lateTitle)} } }).catch(() => undefined)
+      return 'issued'
+    })()`,
   )
   const reloaded = new Promise<void>((resolve) => surfaceA.webContents.once('did-finish-load', () => resolve()))
   surfaceA.webContents.reload()
@@ -1127,6 +1267,11 @@ interface CommandProbe {
   contentRevision?: string
   editRevision?: string
   currentEditRevision?: string
+  itemCount?: number
+  retained?: boolean
+  removedCount?: number
+  undoToken?: string
+  confirmationToken?: string
 }
 
 interface RecurrenceProbe {
@@ -1159,7 +1304,9 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const title = `Recorrente fictícia ${now}`
   const created = await evaluate<CommandProbe>(
     surfaceA,
-    `window.taskflowDesktop.createTask({ version: 2, draft: { title: ${JSON.stringify(title)}, dueAt: ${JSON.stringify(due)}, recurrence: { frequency: 'DAILY', intervalDays: 1 }, subtasks: [{ title: 'Passo A' }, { title: 'Passo B' }] } })`,
+    withFreshContext(
+      `window.taskflowDesktop.createTask({ version: 3, contextSequence: seq, draft: { title: ${JSON.stringify(title)}, dueAt: ${JSON.stringify(due)}, recurrence: { frequency: 'DAILY', intervalDays: 1 }, subtasks: [{ title: 'Passo A' }, { title: 'Passo B' }] } })`,
+    ),
   )
   info['created'] = created
   checks['createAccepted'] =
@@ -1198,7 +1345,9 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const editedTitle = `${title} editada`
   const saved = await evaluate<CommandProbe>(
     surfaceA,
-    `window.taskflowDesktop.updateTask({ version: 2, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
+    withFreshContext(
+      `window.taskflowDesktop.updateTask({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
+    ),
   )
   checks['saveAfterCheck'] = saved.status === 'ok'
   const afterSave = await coordinator.read((reader) => reader.getTask(taskId))
@@ -1211,7 +1360,9 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const editForClose = afterSave.ok && afterSave.value !== undefined ? afterSave.value.editRevision.toString() : '0'
   const closed = await evaluate<CommandProbe>(
     surfaceA,
-    `window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(editForClose)}, status: 'DONE' })`,
+    withFreshContext(
+      `window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(editForClose)}, status: 'DONE' })`,
+    ),
   )
   checks['closeAccepted'] = closed.status === 'ok'
   const afterClose = await coordinator.read((reader) => reader.listTasks())
@@ -1233,7 +1384,9 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   // Duas sessões: base de edição antiga recebe CONFLICT com as revisões atuais e nada é duplicado.
   const conflict = await evaluate<CommandProbe>(
     surfaceB,
-    `window.taskflowDesktop.updateTask({ version: 2, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: 'stale' } })`,
+    withFreshContext(
+      `window.taskflowDesktop.updateTask({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: 'stale' } })`,
+    ),
   )
   info['conflict'] = conflict
   checks['staleConflicts'] =
@@ -1245,16 +1398,22 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const title2 = `Cancelável fictícia ${now}`
   const created2 = await evaluate<RecurrenceProbe>(
     surfaceA,
-    `window.taskflowDesktop.createTask({ version: 2, draft: { title: ${JSON.stringify(title2)}, dueAt: ${JSON.stringify(later)}, recurrence: { frequency: 'WEEKLY', weekdays: [1, 3] } } })`,
+    withFreshContext(
+      `window.taskflowDesktop.createTask({ version: 3, contextSequence: seq, draft: { title: ${JSON.stringify(title2)}, dueAt: ${JSON.stringify(later)}, recurrence: { frequency: 'WEEKLY', weekdays: [1, 3] } } })`,
+    ),
   )
   const noChoice = await evaluate<CommandProbe>(
     surfaceA,
-    `window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED' })`,
+    withFreshContext(
+      `window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED' })`,
+    ),
   )
   checks['choiceRequired'] = noChoice.status === 'error' && noChoice.code === 'RECURRENCE_CHOICE_REQUIRED'
   const ended = await evaluate<CommandProbe>(
     surfaceA,
-    `window.taskflowDesktop.changeTaskStatus({ version: 2, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED', cancellation: 'END' })`,
+    withFreshContext(
+      `window.taskflowDesktop.changeTaskStatus({ version: 3, contextSequence: seq, taskId: ${JSON.stringify(created2.taskId ?? '')}, expectedEditRevision: ${JSON.stringify(created2.editRevision ?? '0')}, status: 'CANCELLED', cancellation: 'END' })`,
+    ),
   )
   checks['endAccepted'] = ended.status === 'ok'
   const finalTasks = await coordinator.read((reader) => reader.listTasks())
@@ -1600,6 +1759,278 @@ function runInspectSql1(deps: ProductHarnessDependencies): void {
  * Executa o cenário e reporta uma linha JSON no stdout. Cenários de verificação pontual
  * encerram o app ao final; `bridge` permanece vivo para o teste de segunda instância.
  */
+/**
+ * TFA-006: lixeira e desfazer no pacote real — bridge catálogo17, confirmações/tokens/contexto,
+ * duas superfícies convergindo pela mesma projeção tasks+trash, UI de excluir/restaurar/esvaziar
+ * com foco, e negativas de contexto/token. Fecha a janela principal (o runner valida a saída).
+ */
+async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
+  const { coordinator, mainWindow: surfaceA, stateIpc, sessions } = deps
+  const checks: Record<string, boolean> = {}
+  const info: Record<string, unknown> = { runtime: runtimeInfo(deps) }
+  const now = Date.now()
+  const revisionOf = async (id: string): Promise<string> => {
+    const read = await coordinator.read((reader) => reader.getTask(id))
+    return read.ok && read.value !== undefined ? read.value.contentRevision.toString(10) : '0'
+  }
+
+  expectOkUnit(
+    await coordinator.run((unit) => {
+      unit.emptyTrash()
+      return unit.replaceAllTasks([], unit.baseRevision)
+    }),
+  )
+  checks['trashAccessible'] = await evaluate<boolean>(
+    surfaceA,
+    uiWait(`(document.body.textContent || '').includes('Criar primeira tarefa') && Boolean(document.querySelector('[data-action="trash"]'))`),
+  )
+  await evaluate<boolean>(surfaceA, `(() => { document.querySelector('[data-action="trash"]')?.click(); return true })()`)
+  checks['trashEmptyUi'] = await evaluate<boolean>(surfaceA, uiBodyHas('Lixeira vazia'))
+  await evaluate<boolean>(surfaceA, `(() => { document.querySelector('[data-action="back"]')?.click(); return true })()`)
+  checks['trashBackUi'] = await evaluate<boolean>(surfaceA, uiBodyHas('Nenhuma tarefa ainda'))
+
+  // Semeia quatro tarefas fictícias direto no banco (mesmo coordenador do produto).
+  const titles = [0, 1, 2, 3].map((index) => `Lixeira fictícia ${now} ${index}`)
+  const seeded = [0, 1, 2, 3].map((index) => buildFictitiousTask(920_000 + index, { idPrefix: `trash-${index}` }))
+  seeded.forEach((task, index) => {
+    task.title = titles[index] ?? task.title
+  })
+  expectOkUnit(await coordinator.run((unit) => unit.saveTasks(seeded)))
+  const [first, second, third, fourth] = seeded
+  if (first === undefined || second === undefined || third === undefined || fourth === undefined) {
+    throw new Error('fixtures unavailable')
+  }
+  checks['seedVisible'] = await evaluate<boolean>(surfaceA, uiBodyHas(titles[0] ?? ''))
+
+  // Duas superfícies: B conduz a bridge (contexto próprio) e A a UI real (contexto do store).
+  const surfaceB = deps.createSurface(true)
+  if (surfaceB === null) throw new Error('second surface unavailable')
+  await loadSurface(surfaceB, deps.surfaceUrl)
+  const bridgeScript = (body: string): string => `(async () => {
+    const seq = (window.__tfa006Sequence = (window.__tfa006Sequence ?? 10000) + 1)
+    const cleared = await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: seq })
+    if (cleared.status !== 'ok') return { cleared }
+    return ${body}
+  })()`
+
+  // MOVE pela bridge real: prepara base, confirma e recebe retained + undoToken.
+  const moveFlow = bridgeScript(`(async () => {
+    const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(first.id)}, expectedContentRevision: ${JSON.stringify(await revisionOf(first.id))} })
+    if (prepared.status !== 'ok') return { prepared }
+    const moved = await window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+    return { seq, prepared, moved }
+  })()`)
+  const moved = await evaluate<{ seq?: number; prepared?: CommandProbe; moved?: CommandProbe }>(surfaceB, moveFlow)
+  info['move'] = { prepared: moved.prepared?.status, moved: moved.moved?.status }
+  checks['prepareMove'] = moved.prepared?.status === 'ok' && moved.prepared?.itemCount === 1
+  checks['moveRetained'] = moved.moved?.status === 'ok' && moved.moved?.retained === true && typeof moved.moved?.undoToken === 'string'
+  const firstGone = await coordinator.read((reader) => reader.getTask(first.id))
+  const trashAfterMove = await coordinator.read((reader) => reader.listTrash())
+  const entry = trashAfterMove.ok ? trashAfterMove.value.find((item) => item.task.id === first.id) : undefined
+  checks['trashIdentity'] =
+    firstGone.ok &&
+    firstGone.value === undefined &&
+    entry !== undefined &&
+    formatRevision(entry.contentRevision) === moved.moved?.revision &&
+    entry.deletedAt.length > 0
+  checks['crossSurfaceMove'] = await evaluate<boolean>(surfaceA, uiWait(`!(document.body.textContent || '').includes(${JSON.stringify(titles[0])})`))
+
+  // Restore pela bridge em B; A converge de volta pela mesma projeção tasks+trash.
+  const restoreFlow = bridgeScript(
+    `window.taskflowDesktop.restoreTrashItem({ version: 1, contextSequence: seq, entry: { taskId: ${JSON.stringify(first.id)}, contentRevision: ${JSON.stringify(moved.moved?.revision ?? '0')}, deletedAt: ${JSON.stringify(entry?.deletedAt ?? '')} } })`,
+  )
+  const restored = await evaluate<CommandProbe>(surfaceB, restoreFlow)
+  checks['restoreAccepted'] = restored.status === 'ok'
+  checks['crossSurfaceRestored'] = await evaluate<boolean>(surfaceA, uiBodyHas(titles[0] ?? ''))
+  const firstBack = await coordinator.read((reader) => reader.getTask(first.id))
+  const trashAfterRestore = await coordinator.read((reader) => reader.listTrash())
+  checks['restoreNoGeneration'] =
+    firstBack.ok &&
+    firstBack.value?.task.id === first.id &&
+    trashAfterRestore.ok &&
+    trashAfterRestore.value.length === 0
+
+  // UI de exclusão recuperável + oferta de Desfazer (L06/L07 pelo fluxo real do store em A).
+  const uiDeleteAndUndo = `(async () => {
+    const card = [...document.querySelectorAll('[data-task-id]')].find((element) => (element.textContent || '').includes(${JSON.stringify(titles[1])}))
+    const control = card?.querySelector('[data-action="delete"]')
+    if (!control) return false
+    control.click()
+    const deadline = Date.now() + 15000
+    while (Date.now() < deadline && !document.querySelector('[role="alertdialog"]')) await new Promise((resolve) => setTimeout(resolve, 25))
+    const dialog = document.querySelector('[role="alertdialog"]')
+    if (!dialog || !(dialog.textContent || '').includes('30 dias')) return false
+    const confirm = [...dialog.querySelectorAll('button')].find((button) => (button.textContent || '').includes('Excluir'))
+    if (!confirm) return false
+    confirm.click()
+    const undoDeadline = Date.now() + 15000
+    while (Date.now() < undoDeadline && !document.querySelector('[data-action="undo"]')) await new Promise((resolve) => setTimeout(resolve, 25))
+    return Boolean(document.querySelector('[data-action="undo"]'))
+  })()`
+  checks['uiDeleteOffersUndo'] = await evaluate<boolean>(surfaceA, uiDeleteAndUndo)
+  const secondInTrash = await coordinator.read((reader) => reader.getTrashItem(second.id))
+  checks['uiDeleteCommitted'] = secondInTrash.ok && secondInTrash.value !== undefined
+  checks['crossSurfaceDeleted'] = await evaluate<boolean>(surfaceB, uiWait(`!(document.body.textContent || '').includes(${JSON.stringify(titles[1])})`))
+  await evaluate<boolean>(surfaceA, `(() => { document.querySelector('[data-action="undo"]')?.click(); return true })()`)
+  checks['uiUndoRestores'] = await waitFor(async () => {
+    const read = await coordinator.read((reader) => reader.getTask(second.id))
+    return read.ok && read.value !== undefined
+  })
+  checks['undoConsumedOnce'] = await evaluate<boolean>(surfaceA, `(async () => !document.querySelector('[data-action="undo"]'))()`)
+
+  // Confirmação stale: prepara em B, outra sessão edita o alvo e o commit recusa sem escrever.
+  const stalePrepare = bridgeScript(`(async () => {
+    const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(third.id)}, expectedContentRevision: ${JSON.stringify(await revisionOf(third.id))} })
+    window.__staleConfirmation = { seq, token: prepared.confirmationToken }
+    return prepared
+  })()`)
+  const stalePrepared = await evaluate<CommandProbe>(surfaceB, stalePrepare)
+  checks['stalePrepared'] = stalePrepared.status === 'ok'
+  const thirdStored = await coordinator.read((reader) => reader.getTask(third.id))
+  const thirdEditRevision = thirdStored.ok && thirdStored.value !== undefined ? thirdStored.value.editRevision : 1n
+  expectOkUnit(
+    await coordinator.run((unit) =>
+      unit.updateTaskConditionally(third.id, thirdEditRevision, (current) => ({ ...current, title: `${current.title} alterada` })),
+    ),
+  )
+  const staleMove = await evaluate<CommandProbe>(
+    surfaceB,
+    `window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: window.__staleConfirmation.seq, confirmationToken: window.__staleConfirmation.token })`,
+  )
+  checks['staleConfirmationRefused'] = staleMove.status === 'error' && staleMove.code === 'CONFIRMATION_CHANGED'
+  const thirdStill = await coordinator.read((reader) => reader.getTask(third.id))
+  checks['staleKeepsTask'] = thirdStill.ok && thirdStill.value?.task.id === third.id
+
+  // Token alheio/repetido e contexto antigo na mesma superfície.
+  const tokenNegatives = await evaluate<Array<{ status: string; code?: string }>>(
+    surfaceB,
+    `Promise.all([
+      window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: window.__staleConfirmation.seq, confirmationToken: 'B'.repeat(32) }),
+      window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: window.__staleConfirmation.seq, confirmationToken: window.__staleConfirmation.token }),
+      (async () => {
+        const next = (window.__tfa006Sequence = (window.__tfa006Sequence ?? 10000) + 1)
+        await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: next })
+        return window.taskflowDesktop.restoreTrashItem({ version: 1, contextSequence: window.__staleConfirmation.seq, entry: { taskId: ${JSON.stringify(third.id)}, contentRevision: '1', deletedAt: '2026-10-04T12:00:00.000Z' } })
+      })(),
+    ])`,
+  )
+  info['tokenNegatives'] = tokenNegatives.map((result) => result.code ?? result.status)
+  checks['tokenAndContextRefused'] =
+    tokenNegatives[0]?.code === 'CONFIRMATION_INVALID' &&
+    tokenNegatives[1]?.code === 'CONFIRMATION_INVALID' &&
+    tokenNegatives[2]?.code === 'STALE_CONTEXT'
+
+  // EMPTY condicionado: prepara, composição muda por outra operação e recusa; depois esvazia.
+  const moveThird = bridgeScript(`(async () => {
+    const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(third.id)}, expectedContentRevision: ${JSON.stringify(await revisionOf(third.id))} })
+    if (prepared.status !== 'ok') return { prepared }
+    return window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+  })()`)
+  const movedThird = await evaluate<CommandProbe>(surfaceB, moveThird)
+  checks['moveThird'] = movedThird.status === 'ok'
+
+  const emptyPrepare = bridgeScript(`(async () => {
+    const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'EMPTY' })
+    window.__emptyConfirmation = { seq, token: prepared.confirmationToken }
+    return prepared
+  })()`)
+  const emptyPrepared = await evaluate<CommandProbe>(surfaceB, emptyPrepare)
+  checks['emptyPrepared'] = emptyPrepared.status === 'ok' && emptyPrepared.itemCount === 1
+  // Outra sessão move a quarta tarefa: composição muda e a confirmação antiga é recusada.
+  expectOkUnit(
+    await coordinator.run((unit) => {
+      unit.moveToTrash(fourth.id, new Date(now).toISOString())
+    }),
+  )
+  const staleEmpty = await evaluate<CommandProbe>(
+    surfaceB,
+    `window.taskflowDesktop.emptyTrash({ version: 1, contextSequence: window.__emptyConfirmation.seq, confirmationToken: window.__emptyConfirmation.token })`,
+  )
+  checks['emptyStaleRefused'] = staleEmpty.status === 'error' && staleEmpty.code === 'CONFIRMATION_CHANGED'
+  const stillTwo = await coordinator.read((reader) => reader.listTrash())
+  checks['emptyStaleKeepsItems'] = stillTwo.ok && stillTwo.value.length === 2
+
+  const emptyFlow = bridgeScript(`(async () => {
+    const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'EMPTY' })
+    if (prepared.status !== 'ok') return { prepared }
+    const emptied = await window.taskflowDesktop.emptyTrash({ version: 1, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+    return { prepared, emptied }
+  })()`)
+  const emptied = await evaluate<{ prepared?: CommandProbe; emptied?: CommandProbe }>(surfaceB, emptyFlow)
+  checks['emptyExact'] = emptied.emptied?.status === 'ok' && emptied.emptied?.removedCount === 2
+  checks['emptyNoUndo'] = emptied.emptied !== undefined && !('undoToken' in emptied.emptied)
+
+  // UI de esvaziamento com foco em Voltar: move uma tarefa pela bridge e esvazia pela UI de A.
+  const lastTask = buildFictitiousTask(920_100, { idPrefix: 'trash-ui' })
+  expectOkUnit(await coordinator.run((unit) => unit.saveTask(lastTask)))
+  const lastStored = await coordinator.read((reader) => reader.getTask(lastTask.id))
+  if (lastStored.ok && lastStored.value !== undefined) {
+    const moveUi = bridgeScript(`(async () => {
+      const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(lastTask.id)}, expectedContentRevision: ${JSON.stringify(lastStored.value.contentRevision.toString(10))} })
+      if (prepared.status !== 'ok') return prepared
+      return window.taskflowDesktop.moveTaskToTrash({ version: 1, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+    })()`)
+    await evaluate<CommandProbe>(surfaceB, moveUi)
+  }
+  checks['crossSurfaceSeesNew'] = await evaluate<boolean>(surfaceA, uiWait(`!(document.body.textContent || '').includes(${JSON.stringify(lastTask.title)})`))
+  await evaluate<boolean>(surfaceA, `(() => { document.querySelector('[data-action="trash"]')?.click(); return true })()`)
+  checks['uiTrashShowsItem'] = await evaluate<boolean>(surfaceA, uiBodyHas(lastTask.title))
+  const uiEmpty = `(async () => {
+    const stages = { clicked: false, disabled: false, dialog: false, confirmed: false, activeAction: '', alert: '' }
+    const clickDeadline = Date.now() + 15000
+    while (Date.now() < clickDeadline) {
+      const candidate = document.querySelector('[data-action="empty"]')
+      if (candidate) {
+        stages.disabled = candidate.getAttribute('aria-disabled') === 'true'
+        if (!stages.disabled) {
+          candidate.click()
+          stages.clicked = true
+          break
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    if (!stages.clicked) return stages
+    const deadline = Date.now() + 15000
+    while (Date.now() < deadline && !document.querySelector('[role="alertdialog"]')) {
+      const alert = document.querySelector('[role="alert"]')
+      if (alert && (alert.textContent || '').trim().length > 0) {
+        stages.alert = (alert.textContent || '').trim().slice(0, 160)
+        return stages
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    const dialog = document.querySelector('[role="alertdialog"]')
+    stages.dialog = Boolean(dialog)
+    const confirm = dialog ? [...dialog.querySelectorAll('button')].find((button) => (button.textContent || '').includes('Esvaziar lixeira')) : undefined
+    if (!confirm) return stages
+    confirm.click()
+    stages.confirmed = true
+    const focusDeadline = Date.now() + 15000
+    while (Date.now() < focusDeadline) {
+      const active = document.activeElement
+      stages.activeAction = active instanceof HTMLElement ? (active.dataset.action ?? active.tagName) : 'none'
+      if (stages.activeAction === 'back') return stages
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    return stages
+  })()`
+  const emptyUi = await evaluate<{ clicked: boolean; disabled: boolean; dialog: boolean; confirmed: boolean; activeAction: string; alert: string }>(surfaceA, uiEmpty)
+  info['emptyUi'] = emptyUi
+  checks['uiEmptyFocusBack'] = emptyUi.activeAction === 'back'
+
+  surfaceB.destroy()
+  await waitFor(() => sessions.size === 1 && stateIpc.trackedDocuments <= 1, 10_000)
+  checks['testSurfaceReleased'] = sessions.size === 1 && stateIpc.trackedDocuments <= 1
+
+  emit({ scenario: 'trash', ok: Object.values(checks).every(Boolean), checks, info })
+
+  await new Promise<void>((resolve) => {
+    deps.mainWindow.once('closed', () => resolve())
+    deps.mainWindow.close()
+  })
+}
+
 export async function runProductHarness(
   scenario: ProductHarnessScenario,
   deps: ProductHarnessDependencies,
@@ -1619,6 +2050,10 @@ export async function runProductHarness(
     }
     if (scenario.name === 'recurrence') {
       await runRecurrence(deps)
+      return
+    }
+    if (scenario.name === 'trash') {
+      await runTrash(deps)
       return
     }
     if (scenario.name === 'seed-sql1') {

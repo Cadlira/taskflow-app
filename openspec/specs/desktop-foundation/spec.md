@@ -26,7 +26,7 @@ O aplicativo SHALL abrir uma janela principal de gerenciamento local de tarefas,
 
 ### Requirement: Renderer sem autoridade irrestrita
 
-O renderer SHALL executar isolado, sem acesso livre a Node, filesystem, IPC ou sistema. A superfície SHALL expor somente verifyFoundation, getStateSnapshot, subscribeState, unsubscribeState, createTask, updateTask, changeTaskStatus, setSubtaskDone e openTaskSource versionados, sem canais, SQL, callbacks remotos, repositories, Task livre como comando ou caminhos arbitrários. Operações funcionais futuras SHALL permanecer indisponíveis.
+O renderer SHALL executar isolado, sem acesso livre a Node, filesystem, IPC ou sistema. A superfície SHALL expor somente os 17 wrappers versionados autorizados de diagnóstico, estado, tarefas, lixeira, contexto e undo, sem canais livres, SQL, callbacks remotos, repositories, Task/UndoPlan como comando ou paths arbitrários. Recursos posteriores SHALL permanecer indisponíveis.
 
 #### Scenario: Conteúdo tenta usar APIs privilegiadas
 - **WHEN** código no renderer tenta acessar require, filesystem, IPC bruto ou enviar um comando/caminho livre pela bridge
@@ -34,8 +34,8 @@ O renderer SHALL executar isolado, sem acesso livre a Node, filesystem, IPC ou s
 
 #### Scenario: Catálogo limitado no pacote
 - **WHEN** a bridge do aplicativo empacotado é inspecionada
-- **THEN** somente as nove operações versionadas previstas estão expostas, com estado e mutações de tarefas v2 e diagnóstico/abertura da origem v1
-- **AND** não há excluir/lixeira/undo funcionais, IA, clipboard, atalhos, notificações ou abertura de URL arbitrária
+- **THEN** somente os 17 wrappers previstos estão expostos, com estado v2, quatro mutações de tarefas v3, diagnóstico/origem v1 e oito operações novas v1
+- **AND** não há backup funcional, IA, clipboard, atalhos, notificações ou abertura de URL arbitrária; lixeira/undo usam somente intenções e tokens próprios
 
 #### Scenario: Abrir origem não amplia navegação
 - **WHEN** o usuário aciona openTaskSource por seu wrapper específico
@@ -96,7 +96,7 @@ O aplicativo SHALL manter identidade estável e dados próprios no perfil do usu
 
 ### Requirement: Ownership antes do armazenamento
 
-Somente o processo proprietário do perfil SHALL abrir bancos de prova e produto. Uma segunda instância do mesmo perfil SHALL encerrar antes de abrir banco ou iniciar diagnóstico/estado; fechar a janela provisória SHALL fechar admissão, invalidar sessões, tratar unidades admitidas e liberar conexões antes de encerrar, sem forçar saída durante commit ativo.
+Somente o processo proprietário do perfil SHALL abrir bancos de prova e produto. Segunda instância SHALL encerrar antes do armazenamento. Fechamento provisório SHALL fechar admissão, invalidar sessões/recibos/confirmações/reservas e tratar unidades admitidas antes de liberar conexões, sem interromper commit ativo ou recuperar undo após reabertura.
 
 #### Scenario: Dois processos no mesmo perfil
 - **WHEN** uma instância está ativa e outro processo é iniciado para o mesmo perfil
@@ -110,9 +110,14 @@ Somente o processo proprietário do perfil SHALL abrir bancos de prova e produto
 
 #### Scenario: Fechamento com produto em atividade
 - **WHEN** uma unidade de produto está ativa ou há entradas admitidas na fila ao fechar/sair
-- **THEN** novas entradas são recusadas, sessões/listeners são invalidados e unidades ativas terminam ou revertem antes de fechar conexão
+- **THEN** novas entradas são recusadas, sessões/listeners/recibos/confirmações/reservas são invalidados e unidades ativas terminam ou revertem antes de fechar conexão
 - **AND** entradas ainda não iniciadas podem ser canceladas com erro seguro; nenhum sucesso/evento é emitido para documento encerrado
 - **AND** interrupção forçada de processo é validada separadamente como crash, sem mudar o fechamento provisório para bandeja
+
+#### Scenario: Encerramento perde somente oferta temporária
+- **WHEN** janela recarrega, sofre crash, fecha ou processo sai e depois reabre
+- **THEN** dados confirmados sobrevivem integralmente e recibos antigos não retornam, mesmo na mesma URL
+- **AND** minimizar/perder foco não invalida a sessão nem expira oferta
 
 ### Requirement: Prova transacional fictícia no runtime instalado
 

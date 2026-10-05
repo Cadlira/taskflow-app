@@ -1,6 +1,12 @@
 import type { Task } from '../../domain/task.js'
-import { claimReminderOccurrence, preserveProcessedMarkers } from '../../domain/task-reminders.js'
+import { claimReminderOccurrence, preserveProcessedMarkers, settleElapsedReminders } from '../../domain/task-reminders.js'
 import { setSubtaskDone } from '../../domain/task-subtasks.js'
+import {
+  isTrashExpired,
+  planTrashInsertion,
+  sameTrashComposition,
+  sameTrashEntryKey,
+} from '../../domain/task-trash.js'
 import { isRevision, type Revision } from './revisions.js'
 import {
   decodeTaskCarrierSummary,
@@ -14,6 +20,10 @@ import {
 import { StorageFailure, storageFailureReasonOf } from './task-storage-error.js'
 import type {
   CarrierSummary,
+  ConditionalEmptyTrashResult,
+  ConditionalMoveToTrashResult,
+  ConditionalPermanentDeleteResult,
+  ConditionalRestoreResult,
   ConditionalRevertResult,
   ConditionalUpdateResult,
   MarkSubtaskDoneResult,
@@ -27,6 +37,7 @@ import type {
   StoredTask,
   StoredTrashItem,
   TaskStorageUnit,
+  TrashEntryRef,
   TrashRestoreResult,
 } from './unit-of-work.js'
 
@@ -65,6 +76,11 @@ function decodeTrashRow(row: StoredRow): StoredTrashItem {
     throw new StorageFailure('INCOMPATIBLE_DATA')
   }
   return { ...decodeTaskRow(row), deletedAt: row.deletedAt }
+}
+
+/** Identidade observada da entrada (D3) a partir da linha decodificada. */
+function trashEntryRefOf(item: StoredTrashItem): TrashEntryRef {
+  return { taskId: item.task.id, contentRevision: item.contentRevision, deletedAt: item.deletedAt }
 }
 
 function isThenable(value: unknown): boolean {
@@ -122,6 +138,33 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
     const revision = port.allocateRevision()
     writeTask(encoded, revision, revision)
     return row === undefined ? 'CREATED' : 'UPDATED'
+  }
+
+  /** Percorre resumos de portadora (id/série/regra) das duas coleções, sem decodificar payload. */
+  function* carrierSummariesOf(collection: StoredCollection, afterId: string | undefined): Generator<CarrierSummary> {
+    for (const row of port.iterateRows(collection, afterId)) {
+      yield decodeTaskCarrierSummary(row.payloadJson, row.id)
+    }
+  }
+
+  /**
+   * Outra portadora com regra da mesma série no plano final? Alvos que serão substituídos ou
+   * removidos são ignorados por coleção; entradas homônimas da outra coleção continuam contando.
+   */
+  function anotherCarrierExists(
+    seriesId: string,
+    ignoreTasks: ReadonlySet<string>,
+    ignoreTrash: ReadonlySet<string>,
+  ): boolean {
+    for (const summary of carrierSummariesOf('tasks', undefined)) {
+      if (ignoreTasks.has(summary.id)) continue
+      if (summary.hasRecurrence && summary.seriesId === seriesId) return true
+    }
+    for (const summary of carrierSummariesOf('trash', undefined)) {
+      if (ignoreTrash.has(summary.id)) continue
+      if (summary.hasRecurrence && summary.seriesId === seriesId) return true
+    }
+    return false
   }
 
   function conflictFrom(row: StoredRow): ConditionalUpdateResult & { status: 'CONFLICT' } {
@@ -238,6 +281,65 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       return task
     },
 
+    moveToTrashConditionally(
+      taskId: string,
+      expectedContentRevision: Revision,
+      now: Date,
+    ): ConditionalMoveToTrashResult {
+      assertActive()
+      const row = port.readRow('tasks', taskId)
+      if (row === undefined) return { status: 'NOT_FOUND' }
+
+      const current = decodeTaskRow(row)
+      if (current.contentRevision !== expectedContentRevision) {
+        return { status: 'CHANGED', currentContentRevision: current.contentRevision }
+      }
+
+      const deletedAt = now.toISOString()
+      if (!isStoredDeletedAt(deletedAt)) throw new StorageFailure('INVALID_DATA')
+
+      const existing = port.listRows('trash').map(decodeTrashRow)
+      const revision = port.allocateRevision()
+      const inserted: StoredTrashItem = {
+        task: current.task,
+        contentRevision: revision,
+        editRevision: revision,
+        deletedAt,
+      }
+      const plan = planTrashInsertion(
+        existing.map((item) => ({ ...trashEntryRefOf(item), item })),
+        { ...trashEntryRefOf(inserted), item: inserted },
+        now,
+      )
+      const keptIds = new Set(plan.kept.map((entry) => entry.taskId))
+      const discardedTaskIds = existing
+        .filter((item) => !keptIds.has(item.task.id) && item.task.id !== taskId)
+        .map((item) => item.task.id)
+
+      port.deleteRow('tasks', taskId)
+      for (const item of existing) {
+        if (item.task.id === taskId || !keptIds.has(item.task.id)) port.deleteRow('trash', item.task.id)
+      }
+      if (plan.retained) {
+        port.writeRow('trash', {
+          id: inserted.task.id,
+          payloadVersion: row.payloadVersion,
+          payloadJson: row.payloadJson,
+          contentRevision: inserted.contentRevision,
+          editRevision: inserted.editRevision,
+          deletedAt: inserted.deletedAt,
+        })
+      }
+
+      return {
+        status: 'MOVED',
+        task: current.task,
+        retained: plan.retained,
+        entry: trashEntryRefOf(inserted),
+        discardedTaskIds,
+      }
+    },
+
     restoreFromTrash(id: string, prepare: (task: Task) => Task): TrashRestoreResult {
       assertActive()
       const row = port.readRow('trash', id)
@@ -255,12 +357,54 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       return { status: 'RESTORED', task: encoded.task, contentRevision: revision, editRevision: revision }
     },
 
+    restoreTrashItemConditionally(entry: TrashEntryRef, now: Date): ConditionalRestoreResult {
+      assertActive()
+      const row = port.readRow('trash', entry.taskId)
+      if (row === undefined) return { status: 'NOT_IN_TRASH' }
+
+      const item = decodeTrashRow(row)
+      if (!sameTrashEntryKey(trashEntryRefOf(item), entry)) return { status: 'ENTRY_CHANGED' }
+      if (isTrashExpired(item.deletedAt, now)) return { status: 'ENTRY_EXPIRED' }
+      if (port.readRow('tasks', entry.taskId) !== undefined) return { status: 'ID_EXISTS' }
+
+      // Liquidação pura dos vencidos: preserva timestamps, não gera ocorrência e não altera status.
+      const restored = settleElapsedReminders(item.task, now)
+      const seriesId = restored.seriesId
+      if (restored.recurrence !== undefined && seriesId !== undefined && seriesId !== '') {
+        // A entrada sai da lixeira no plano final; qualquer outra portadora da mesma série conflita.
+        if (anotherCarrierExists(seriesId, new Set(), new Set([entry.taskId]))) {
+          return { status: 'SERIES_CONFLICT' }
+        }
+      }
+
+      const encoded = encodeTaskPayload(restored)
+      if (encoded.task.id !== entry.taskId) throw new StorageFailure('INVALID_DATA')
+
+      const revision = port.allocateRevision()
+      port.deleteRow('trash', entry.taskId)
+      writeTask(encoded, revision, revision)
+      return { status: 'RESTORED', task: encoded.task, contentRevision: revision, editRevision: revision }
+    },
+
     deleteFromTrash(id: string): boolean {
       assertActive()
       if (port.readRow('trash', id) === undefined) return false
       port.deleteRow('trash', id)
       port.allocateRevision()
       return true
+    },
+
+    deleteTrashItemConditionally(entry: TrashEntryRef): ConditionalPermanentDeleteResult {
+      assertActive()
+      const row = port.readRow('trash', entry.taskId)
+      if (row === undefined) return { status: 'NOT_IN_TRASH' }
+
+      const item = decodeTrashRow(row)
+      if (!sameTrashEntryKey(trashEntryRefOf(item), entry)) return { status: 'ENTRY_CHANGED' }
+
+      port.deleteRow('trash', entry.taskId)
+      port.allocateRevision()
+      return { status: 'DELETED' }
     },
 
     emptyTrash(): number {
@@ -270,6 +414,18 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       for (const row of rows) port.deleteRow('trash', row.id)
       port.allocateRevision()
       return rows.length
+    },
+
+    emptyTrashConditionally(captured: readonly TrashEntryRef[]): ConditionalEmptyTrashResult {
+      assertActive()
+      const rows = port.listRows('trash').map(decodeTrashRow)
+      if (!sameTrashComposition(captured, rows.map(trashEntryRefOf))) {
+        return { status: 'CONFIRMATION_CHANGED' }
+      }
+      if (rows.length === 0) return { status: 'EMPTIED', removedCount: 0 }
+      for (const item of rows) port.deleteRow('trash', item.task.id)
+      port.allocateRevision()
+      return { status: 'EMPTIED', removedCount: rows.length }
     },
 
     purgeTrash(shouldPurge: (item: StoredTrashItem) => boolean): number {
@@ -282,6 +438,15 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       for (const item of purged) port.deleteRow('trash', item.task.id)
       port.allocateRevision()
       return purged.length
+    },
+
+    purgeExpiredTrash(now: Date): number {
+      assertActive()
+      const expired = port.listRows('trash').map(decodeTrashRow).filter((item) => isTrashExpired(item.deletedAt, now))
+      if (expired.length === 0) return 0
+      for (const item of expired) port.deleteRow('trash', item.task.id)
+      port.allocateRevision()
+      return expired.length
     },
 
     updateTaskConditionally(
@@ -351,6 +516,7 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
     revertConditionally(
       preconditions: RevertPreconditions,
       restore: (current: Task) => Task,
+      now: Date,
     ): ConditionalRevertResult {
       assertActive()
       const { target, generated } = preconditions
@@ -374,11 +540,20 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       }
 
       const restored = runCallback(() => restore(current.task))
-      const encoded = encodeTaskPayload(preserveProcessedMarkers(current.task, restored))
+      // Conserva marcadores atuais da mesma ocorrência e liquida vencidos <= now de forma pura.
+      const encoded = encodeTaskPayload(settleElapsedReminders(preserveProcessedMarkers(current.task, restored), now))
       if (encoded.task.id !== target.id) throw new StorageFailure('INVALID_DATA')
 
       if (generated === undefined && isSameJsonValue(current.task, encoded.task)) {
         return { status: 'REVERTED', task: current.task, contentRevision: current.contentRevision, editRevision: current.editRevision }
+      }
+
+      // Portadora única no plano final: alvo substituído e gerada removida não contam.
+      const seriesId = encoded.task.seriesId
+      if (encoded.task.recurrence !== undefined && seriesId !== undefined && seriesId !== '') {
+        const ignoreTasks = new Set([target.id])
+        if (generated !== undefined) ignoreTasks.add(generated.id)
+        if (anotherCarrierExists(seriesId, ignoreTasks, new Set())) return { status: 'SERIES_CONFLICT' }
       }
 
       const revision = port.allocateRevision()

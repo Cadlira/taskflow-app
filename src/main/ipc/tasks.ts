@@ -1,3 +1,4 @@
+import type { UndoRegistry } from '../../application/undo/undo-registry.js'
 import { formatRevision, type Revision } from '../../application/storage/revisions.js'
 import type { StorageFailureReason } from '../../application/storage/task-storage-error.js'
 import type { TaskStorageReader, TaskStorageUnit, UnitResult } from '../../application/storage/unit-of-work.js'
@@ -9,6 +10,7 @@ import {
   type MutationTaskOutcome,
   type SubtaskDoneOutcome,
 } from '../../application/tasks/task-commands.js'
+import type { ReservedUndo, UndoFacts, UndoReservationPort } from '../../application/tasks/undo-types.js'
 import { validateSourceUrlForOpen } from '../../application/tasks/source-url.js'
 import {
   fitsResponseBudget,
@@ -50,6 +52,8 @@ export interface TaskCommandIpcOptions {
   generateId: () => string
   /** Porta de abertura externa do main; só recebe href já validado. */
   opener: { openExternal(href: string): Promise<void> }
+  /** Registro temporário de recibos/contexto por documento. */
+  undo: UndoRegistry
 }
 
 /**
@@ -84,10 +88,11 @@ type SourceReadOutcome =
   | { status: 'SOURCE_NOT_AVAILABLE' }
 
 /**
- * IPC dos cinco comandos: autoriza o remetente antes de olhar o request, valida schema e bytes
- * antes de qualquer leitura, decide dentro da unidade coordenada e nunca devolve erro de
- * implementação. A sessão é revalidada depois da unidade e antes do efeito/entrega.
- * Mutações são v2 (ack com conteúdo **e** edição); `openTaskSource` conserva v1.
+ * IPC dos cinco comandos v3: autoriza o remetente antes de olhar o request, valida schema e bytes
+ * antes de qualquer leitura, exige o contexto estabelecido próprio na admissão e na execução,
+ * decide dentro da unidade coordenada e nunca devolve erro de implementação. O recibo de undo é
+ * reservado antes da escrita e publicado somente depois do commit, com sessão/contexto válidos.
+ * `openTaskSource` conserva v1.
  */
 export class TaskCommandIpcService {
   readonly #sessions: TaskCommandSessions
@@ -95,6 +100,7 @@ export class TaskCommandIpcService {
   readonly #clock: () => Date
   readonly #generateId: () => string
   readonly #opener: { openExternal(href: string): Promise<void> }
+  readonly #undo: UndoRegistry
 
   constructor(options: TaskCommandIpcOptions) {
     this.#sessions = options.sessions
@@ -102,6 +108,7 @@ export class TaskCommandIpcService {
     this.#clock = options.clock
     this.#generateId = options.generateId
     this.#opener = options.opener
+    this.#undo = options.undo
   }
 
   async handleCreate(event: InvocationLike, request: unknown): Promise<TaskCreateResult> {
@@ -114,28 +121,30 @@ export class TaskCommandIpcService {
       if (parsed.kind === 'validation') {
         return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
       }
+      const { contextSequence, draft } = parsed.value
+      if (!this.#hasContext(ticket, contextSequence)) return taskMutationFailure('STALE_CONTEXT')
 
       const result = await this.#storage.run(
-        (unit) =>
-          createTaskInUnit(unit, {
-            draft: parsed.value.draft,
-            now: this.#clock(),
-            generateId: this.#generateId,
-          }),
+        (unit) => {
+          if (!this.#hasContext(ticket, contextSequence)) return { status: 'STALE_CONTEXT' } as const
+          return createTaskInUnit(unit, { draft, now: this.#clock(), generateId: this.#generateId })
+        },
         this.#options(ticket),
       )
       if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
       if (!result.ok) return taskMutationFailure(taskErrorCodeFor(result.reason))
 
       const outcome = result.value
+      if (outcome.status === 'STALE_CONTEXT') return taskMutationFailure('STALE_CONTEXT')
       if (outcome.status === 'VALIDATION_FAILED') {
         return { ...taskMutationFailure('VALIDATION_FAILED'), fields: outcome.fields }
       }
       if (outcome.status === 'IDENTITY_CONFLICT') return taskMutationFailure('IDENTITY_CONFLICT')
 
       return this.#budget({
-        version: 2,
+        version: 3,
         status: 'ok',
+        outcome: 'APPLIED',
         taskId: outcome.taskId,
         revision: formatRevision(result.revision),
         contentRevision: formatRevision(outcome.contentRevision),
@@ -156,22 +165,41 @@ export class TaskCommandIpcService {
       if (parsed.kind === 'validation') {
         return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
       }
+      const { contextSequence, taskId, expectedEditRevision, patch, cancellation } = parsed.value
+      if (!this.#hasContext(ticket, contextSequence)) return taskMutationFailure('STALE_CONTEXT')
 
-      const result = await this.#storage.run(
-        (unit) =>
-          updateTaskInUnit(unit, {
-            taskId: parsed.value.taskId,
-            expectedEditRevision: BigInt(parsed.value.expectedEditRevision),
-            patch: parsed.value.patch,
-            ...(parsed.value.cancellation !== undefined && { cancellation: parsed.value.cancellation }),
-            now: this.#clock(),
-            generateId: this.#generateId,
-          }),
-        this.#options(ticket),
-      )
-      if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
-      if (!result.ok) return taskMutationFailure(taskErrorCodeFor(result.reason))
-      return this.#mutationResponse(result.revision, result.value)
+      const reservation = this.#reservationPort(ticket, contextSequence)
+      let result: UnitResult<MutationTaskOutcome>
+      try {
+        result = await this.#storage.run(
+          (unit) => {
+            if (!this.#hasContext(ticket, contextSequence)) return { status: 'STALE_CONTEXT' }
+            return updateTaskInUnit(unit, {
+              taskId,
+              expectedEditRevision: BigInt(expectedEditRevision),
+              patch,
+              ...(cancellation !== undefined && { cancellation }),
+              now: this.#clock(),
+              generateId: this.#generateId,
+              reservations: reservation.port,
+            })
+          },
+          this.#options(ticket),
+        )
+      } catch {
+        reservation.releasePending()
+        return taskMutationFailure('STORAGE_UNAVAILABLE')
+      }
+      if (!result.ok) {
+        reservation.releasePending()
+        if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
+        return taskMutationFailure(taskErrorCodeFor(result.reason))
+      }
+      if (!this.#sessions.isCurrent(ticket)) {
+        reservation.releasePending()
+        return taskMutationFailure('SESSION_CLOSED')
+      }
+      return this.#mutationResponse(result, ticket, contextSequence, reservation.releasePending)
     } catch {
       return taskMutationFailure('STORAGE_UNAVAILABLE')
     }
@@ -187,22 +215,41 @@ export class TaskCommandIpcService {
       if (parsed.kind === 'validation') {
         return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
       }
+      const { contextSequence, taskId, expectedEditRevision, status, cancellation } = parsed.value
+      if (!this.#hasContext(ticket, contextSequence)) return taskMutationFailure('STALE_CONTEXT')
 
-      const result = await this.#storage.run(
-        (unit) =>
-          changeTaskStatusInUnit(unit, {
-            taskId: parsed.value.taskId,
-            expectedEditRevision: BigInt(parsed.value.expectedEditRevision),
-            status: parsed.value.status,
-            ...(parsed.value.cancellation !== undefined && { cancellation: parsed.value.cancellation }),
-            now: this.#clock(),
-            generateId: this.#generateId,
-          }),
-        this.#options(ticket),
-      )
-      if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
-      if (!result.ok) return taskMutationFailure(taskErrorCodeFor(result.reason))
-      return this.#mutationResponse(result.revision, result.value)
+      const reservation = this.#reservationPort(ticket, contextSequence)
+      let result: UnitResult<MutationTaskOutcome>
+      try {
+        result = await this.#storage.run(
+          (unit) => {
+            if (!this.#hasContext(ticket, contextSequence)) return { status: 'STALE_CONTEXT' }
+            return changeTaskStatusInUnit(unit, {
+              taskId,
+              expectedEditRevision: BigInt(expectedEditRevision),
+              status,
+              ...(cancellation !== undefined && { cancellation }),
+              now: this.#clock(),
+              generateId: this.#generateId,
+              reservations: reservation.port,
+            })
+          },
+          this.#options(ticket),
+        )
+      } catch {
+        reservation.releasePending()
+        return taskMutationFailure('STORAGE_UNAVAILABLE')
+      }
+      if (!result.ok) {
+        reservation.releasePending()
+        if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
+        return taskMutationFailure(taskErrorCodeFor(result.reason))
+      }
+      if (!this.#sessions.isCurrent(ticket)) {
+        reservation.releasePending()
+        return taskMutationFailure('SESSION_CLOSED')
+      }
+      return this.#mutationResponse(result, ticket, contextSequence, reservation.releasePending)
     } catch {
       return taskMutationFailure('STORAGE_UNAVAILABLE')
     }
@@ -218,16 +265,20 @@ export class TaskCommandIpcService {
       if (parsed.kind === 'validation') {
         return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
       }
+      const { contextSequence, taskId, expectedEditRevision, subtaskId, done } = parsed.value
+      if (!this.#hasContext(ticket, contextSequence)) return taskMutationFailure('STALE_CONTEXT')
 
       const result = await this.#storage.run(
-        (unit) =>
-          setSubtaskDoneInUnit(unit, {
-            taskId: parsed.value.taskId,
-            expectedEditRevision: BigInt(parsed.value.expectedEditRevision),
-            subtaskId: parsed.value.subtaskId,
-            done: parsed.value.done,
+        (unit) => {
+          if (!this.#hasContext(ticket, contextSequence)) return { status: 'STALE_CONTEXT' } as const
+          return setSubtaskDoneInUnit(unit, {
+            taskId,
+            expectedEditRevision: BigInt(expectedEditRevision),
+            subtaskId,
+            done,
             now: this.#clock(),
-          }),
+          })
+        },
         this.#options(ticket),
       )
       if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
@@ -288,28 +339,93 @@ export class TaskCommandIpcService {
     }
   }
 
+  #hasContext(ticket: DocumentTicket, sequence: number): boolean {
+    return this.#undo.contextSequence(ticket.key) === sequence
+  }
+
   #options(ticket: DocumentTicket): UnitOptions {
     return { owner: ticket.key, admit: () => this.#sessions.isCurrent(ticket) }
   }
 
-  #mutationResponse(revision: Revision, outcome: MutationTaskOutcome): TaskMutationResult {
+  /**
+   * Porta de reserva usada pela unidade: captura a reserva para publicá-la/liberá-la após o
+   * commit. `releasePending` cobre rollback/erro/resultado incerto sem vazar charge.
+   */
+  #reservationPort(ticket: DocumentTicket, sequence: number): {
+    port: UndoReservationPort
+    releasePending: () => void
+  } {
+    let pending: ReservedUndo | undefined
+    const port: UndoReservationPort = {
+      reserve: (facts: UndoFacts) => {
+        const result = this.#undo.reserve(ticket.key, sequence, facts)
+        if (result.status !== 'ok') return undefined
+        pending = result.reservation
+        return result.reservation
+      },
+      release: (reservation) => {
+        this.#undo.release(reservation)
+        if (pending?.id === reservation.id) pending = undefined
+      },
+    }
+    return {
+      port,
+      releasePending: () => {
+        if (pending !== undefined) this.#undo.release(pending)
+        pending = undefined
+      },
+    }
+  }
+
+  /**
+   * Publica o recibo após o commit somente com sessão e contexto ainda correntes; fora disso a
+   * reserva é liberada e nenhum token é entregue. O banco conserva o commit.
+   */
+  #publishUndo(
+    ticket: DocumentTicket,
+    sequence: number,
+    outcome: MutationTaskOutcome,
+  ): string | undefined {
+    if (outcome.status !== 'UPDATED') return undefined
+    const { reserved, undo } = outcome
+    if (reserved === undefined) return undefined
+    if (!this.#sessions.isCurrent(ticket) || !this.#hasContext(ticket, sequence)) {
+      this.#undo.release(reserved)
+      return undefined
+    }
+    return this.#undo.publish(reserved, undo) ?? undefined
+  }
+
+  #mutationResponse(
+    result: Extract<UnitResult<MutationTaskOutcome>, { ok: true }>,
+    ticket: DocumentTicket,
+    sequence: number,
+    releasePending: () => void,
+  ): TaskMutationResult {
+    const outcome = result.value
     if (outcome.status === 'UPDATED' || outcome.status === 'UNCHANGED') {
+      const undoToken = result.committed ? this.#publishUndo(ticket, sequence, outcome) : undefined
+      releasePending()
       return this.#budget({
-        version: 2,
+        version: 3,
         status: 'ok',
-        revision: formatRevision(revision),
+        outcome: outcome.status === 'UPDATED' ? 'APPLIED' : 'UNCHANGED',
+        revision: formatRevision(result.revision),
         contentRevision: formatRevision(outcome.contentRevision),
         editRevision: formatRevision(outcome.editRevision),
+        ...(undoToken !== undefined && { undoToken }),
       })
     }
+    releasePending()
     return this.#mutationFailure(outcome)
   }
 
   #subtaskResponse(revision: Revision, outcome: SubtaskDoneOutcome): TaskMutationResult {
     if (outcome.status === 'UPDATED' || outcome.status === 'UNCHANGED') {
       return this.#budget({
-        version: 2,
+        version: 3,
         status: 'ok',
+        outcome: outcome.status === 'UPDATED' ? 'APPLIED' : 'UNCHANGED',
         revision: formatRevision(revision),
         contentRevision: formatRevision(outcome.contentRevision),
         editRevision: formatRevision(outcome.editRevision),
@@ -318,7 +434,9 @@ export class TaskCommandIpcService {
     return this.#mutationFailure(outcome)
   }
 
-  #mutationFailure(outcome: Exclude<MutationTaskOutcome, { status: 'UPDATED' | 'UNCHANGED' }> | Exclude<SubtaskDoneOutcome, { status: 'UPDATED' | 'UNCHANGED' }>): TaskMutationResult {
+  #mutationFailure(
+    outcome: Exclude<MutationTaskOutcome, { status: 'UPDATED' | 'UNCHANGED' }> | Exclude<SubtaskDoneOutcome, { status: 'UPDATED' | 'UNCHANGED' }>,
+  ): TaskMutationResult {
     switch (outcome.status) {
       case 'VALIDATION_FAILED':
         return { ...taskMutationFailure('VALIDATION_FAILED'), fields: outcome.fields }
@@ -340,6 +458,8 @@ export class TaskCommandIpcService {
         return taskMutationFailure('IDENTITY_CONFLICT')
       case 'INVALID_REQUEST':
         return taskMutationFailure('INVALID_REQUEST')
+      case 'STALE_CONTEXT':
+        return taskMutationFailure('STALE_CONTEXT')
       case 'CONFLICT':
         return {
           ...taskMutationFailure('CONFLICT'),

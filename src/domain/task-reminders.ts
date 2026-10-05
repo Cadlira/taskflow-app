@@ -124,6 +124,49 @@ export function claimReminderOccurrence(task: Task, reminderId: string, processe
 }
 
 /**
+ * Liquidação pura (recorte desktop da TFA-006): marca como processado todo gatilho pendente
+ * representável <= now, sem aviso retroativo. Futuros permanecem pendentes; gatilho não
+ * representável permanece íntegro. Não depende de status ativo (terminal também liquida) e não
+ * agenda/notifica nada.
+ */
+export function settleElapsedReminders(task: Task, now: Date): Task {
+  const { dueAt } = task
+
+  if (dueAt === undefined || task.reminders.length === 0) {
+    return task
+  }
+
+  const nowMs = now.getTime()
+  let changed = false
+  const reminders = task.reminders.map((reminder) => {
+    const triggerAt = resolveReminderTriggerAt(reminder, dueAt)
+
+    if (!isRepresentableInstant(triggerAt) || triggerAt > nowMs) {
+      return reminder
+    }
+
+    const processedFor = instantIso(triggerAt)
+
+    if (reminder.processedFor === processedFor) {
+      return reminder
+    }
+
+    changed = true
+    return { ...reminder, processedFor }
+  })
+
+  return changed ? { ...task, reminders } : task
+}
+
+/**
+ * Ordem da restauração/reversão: conserva primeiro os marcadores atuais de mesmo
+ * lembrete/instante (preserveProcessedMarkers) e só então liquida os vencidos <= now.
+ */
+export function settleElapsedRemindersPreservingMarkers(current: Task, restored: Task, now: Date): Task {
+  return settleElapsedReminders(preserveProcessedMarkers(current, restored), now)
+}
+
+/**
  * Conserva o marcador `processedFor` atual das ocorrências que a nova versão não alterou:
  * mesmo lembrete e mesmo instante efetivo. Ocorrência alterada fica com o que `next` trouxer.
  * (Acréscimo desktop da TFA-003: o claim não muda a revisão de conteúdo, então uma edição
