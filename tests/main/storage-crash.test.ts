@@ -15,6 +15,7 @@ import { buildFictitiousTask, buildFictitiousTasks } from '../../src/main/harnes
 import { ProductDatabase, type StorageFaultPoint } from '../../src/main/storage/product-database.js'
 import { PRODUCT_STORAGE_DEFINITION, PRODUCT_V1_DEFINITION } from '../../src/main/storage/product-schema.js'
 import { CRASH_CLAIM } from '../support/crash-fixture.js'
+import { processReminder } from '../../src/main/reminders/processor.js'
 import { cleanupStorage, createProductFile, createTempRoot, expectOk, openCoordinator } from '../support/storage.js'
 
 const BARRIER_TIMEOUT_MS = 30_000
@@ -98,7 +99,7 @@ async function seedV1(): Promise<Seeded> {
 }
 
 /** Inicia o filho, espera a barreira, confere o PID e encerra somente esse processo. */
-async function interruptAt(seeded: Seeded, point: StorageFaultPoint, unit: 'save' | 'claim' | 'migrate'): Promise<void> {
+async function interruptAt(seeded: Seeded, point: StorageFaultPoint | 'reminder:before-submit' | 'reminder:after-submit', unit: 'save' | 'claim' | 'migrate' | 'reminder'): Promise<number> {
   const barrierFile = path.join(createTempRoot('taskflow-crash-barrier-'), 'barrier.json')
   const child = spawn(process.execPath, [childScript, seeded.file, point, unit, barrierFile, seeded.processedFor], {
     stdio: 'ignore',
@@ -114,7 +115,7 @@ async function interruptAt(seeded: Seeded, point: StorageFaultPoint, unit: 'save
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 
-  const barrier = JSON.parse(readFileSync(barrierFile, 'utf8')) as { pid: number; point: string; reached?: boolean }
+  const barrier = JSON.parse(readFileSync(barrierFile, 'utf8')) as { pid: number; point: string; reached?: boolean; attempts?: number }
   expect(barrier.reached).toBeUndefined()
   expect(barrier.point).toBe(point)
   // Só o PID validado do harness é encerrado; nenhum outro processo é tocado.
@@ -124,6 +125,7 @@ async function interruptAt(seeded: Seeded, point: StorageFaultPoint, unit: 'save
   expect(child.kill('SIGKILL')).toBe(true)
   await exited
   children.delete(child)
+  return barrier.attempts ?? 0
 }
 
 async function reopen(file: string): Promise<{ revision: bigint; taskIds: string[]; claimed: string | undefined }> {
@@ -142,6 +144,24 @@ async function reopen(file: string): Promise<{ revision: bigint; taskIds: string
 }
 
 describe('interrupção de processo em barreiras da unidade', () => {
+  it.each(['unit:before-commit', 'unit:after-commit', 'reminder:before-submit', 'reminder:after-submit'] as const)(
+    'M04 crash %s: marker e contador fictício limitam tentativas na recuperação', async (point) => {
+      const seeded = await seed()
+      const attempts = await interruptAt(seeded, point, 'reminder')
+      const state = await reopen(seeded.file)
+      expect(state.claimed).toBe(point === 'unit:before-commit' ? undefined : seeded.processedFor)
+      expect(attempts).toBe(point === 'reminder:after-submit' ? 1 : 0)
+      const coordinator = openCoordinator(seeded.file)
+      let nextAttempts = 0
+      await processReminder(coordinator, { ...CRASH_CLAIM, triggerISO: seeded.processedFor }, {
+        ready: () => true, epoch: () => 1, now: () => new Date(seeded.processedFor),
+        completed: () => undefined, report: () => undefined,
+      }, { valid: () => true, release: () => undefined, submit: () => { nextAttempts++ } })
+      expect(attempts + nextAttempts).toBeLessThanOrEqual(1)
+      expect(nextAttempts).toBe(point === 'unit:before-commit' ? 1 : 0)
+      coordinator.shutdown()
+    }, 60000,
+  )
   it.each<[StorageFaultPoint]>([['unit:before-begin'], ['unit:in-transaction'], ['unit:before-commit']])(
     'encerrado em %s: reopen encontra o estado anterior inteiro',
     async (point) => {

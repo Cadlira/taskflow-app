@@ -7,6 +7,7 @@ import type {
   TaskCancellation,
   TaskCommandErrorCode,
   TaskMutationResult,
+  TaskUpdateResult,
   TaskCheckResult,
 } from '../../../contracts/tasks.js'
 import type { TrashErrorCode } from '../../../contracts/trash.js'
@@ -44,7 +45,6 @@ export type TaskCommandStoreResult =
   | { status: 'conflict'; currentContentRevision?: string; currentEditRevision?: string }
   | { status: 'not-found' }
   | { status: 'subtask-not-found' }
-  | { status: 'restricted' }
   | { status: 'choice-required' }
   | { status: 'series-conflict' }
   | { status: 'identity-conflict' }
@@ -156,6 +156,10 @@ export const useTasksStore = defineStore('tasks', () => {
   const selectedTaskId = ref<string | null>(null)
   const now = ref(new Date())
   const submitting = ref(false)
+  const surfaceSuspended = ref(false)
+  const surfaceEpoch = ref(0)
+  const locatedTask = shallowRef<TaskRecord | null>(null)
+  const locationMessage = ref<string | null>(null)
   const awaitingConfirmation = ref(false)
   /** Ack confirmado, mas o snapshot de revisão >= ack ainda não chegou. */
   const updatePending = ref(false)
@@ -217,7 +221,7 @@ export const useTasksStore = defineStore('tasks', () => {
   /** Conflito/resultado incerto exigem decisão explícita antes de uma nova escrita. */
   const submissionBlocked = computed(() => conflict.value !== null || outcomeUnknown.value !== null)
   const commandsBlocked = computed(
-    () => presentation.value === 'loading' || presentation.value === 'blocked' || submissionBlocked.value,
+    () => surfaceSuspended.value || presentation.value === 'stale' || presentation.value === 'loading' || presentation.value === 'blocked' || submissionBlocked.value,
   )
   /** Apresentação da lixeira: filtra vencidos pelo relógio local, sem gravar nem mutar o snapshot. */
   const trashVisible = computed(() => {
@@ -334,10 +338,14 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** Inscrição idempotente: uma única subscription por superfície, com o cliente existente. */
   async function connect(): Promise<void> {
-    if (subscriptionId !== undefined) return
+    if (surfaceSuspended.value || subscriptionId !== undefined) return
+    const epoch = surfaceEpoch.value
     startClock()
 
-    const result = await window.taskflowDesktop.subscribeState({ version: 3 }, handleUpdate)
+    const result = await window.taskflowDesktop.subscribeState({ version: 3 }, update => {
+      if (!surfaceSuspended.value && epoch === surfaceEpoch.value) handleUpdate(update)
+    })
+    if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return
     if (result.status !== 'ok') {
       initialError.value = result.code
       return
@@ -355,7 +363,10 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** Ressincronização por snapshot; nunca regride nem converte erro em lista vazia. */
   async function refresh(): Promise<boolean> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return false
     const result = await window.taskflowDesktop.getStateSnapshot({ version: 3 })
+    if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return false
     if (result.status !== 'ok') {
       resyncError.value = result.code
       return false
@@ -397,8 +408,6 @@ export const useTasksStore = defineStore('tasks', () => {
         return { status: 'not-found' }
       case 'SUBTASK_NOT_FOUND':
         return { status: 'subtask-not-found' }
-      case 'ADVANCED_TASK_RESTRICTED':
-        return { status: 'restricted' }
       case 'RECURRENCE_CHOICE_REQUIRED':
         return { status: 'choice-required' }
       case 'SERIES_CONFLICT':
@@ -494,6 +503,8 @@ export const useTasksStore = defineStore('tasks', () => {
    * o ack do clear antes do comando dependente. `false` bloqueia a ação (sem comando).
    */
   async function startAction(): Promise<boolean> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return false
     offer.value = null
     deleteNotice.value = null
     const next = contextSequence + 1
@@ -503,6 +514,7 @@ export const useTasksStore = defineStore('tasks', () => {
     if (pendingAck !== undefined) delete pendingAck.undoToken
     try {
       const result = await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: next })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return false
       if (result.status !== 'ok') return false
       return true
     } catch {
@@ -512,6 +524,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** Gates comuns: estado válido, sem incerteza pendente e sem escrita em andamento. */
   function gateBeforeWrite(taskId: string | undefined): TaskCommandStoreResult | null {
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     if (presentation.value === 'loading' || presentation.value === 'blocked') {
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     }
@@ -533,6 +546,7 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function runCreate(draft: CreateTaskDraft): Promise<TaskCommandStoreResult> {
+    const epoch = surfaceEpoch.value
     const blocked = gateBeforeWrite(undefined)
     if (blocked !== null) return blocked
 
@@ -540,29 +554,32 @@ export const useTasksStore = defineStore('tasks', () => {
     try {
       if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
       const response = await window.taskflowDesktop.createTask({
-        version: 3,
+        version: 4,
         contextSequence,
         draft: { ...draft },
       })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (response.status === 'error') return mapFailure(response, undefined)
       acceptAck('create', response.taskId, response)
       return { status: 'accepted', kind: 'create', taskId: response.taskId }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (error instanceof TaskCommandTransportError) {
         outcomeUnknown.value = { kind: 'create' }
         return { status: 'uncertain' }
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
   async function runMutation(
     kind: Exclude<TaskCommandKind, 'create'>,
     taskId: string,
-    operation: () => Promise<TaskMutationResult | TaskCheckResult>,
+    operation: () => Promise<TaskMutationResult | TaskUpdateResult | TaskCheckResult>,
   ): Promise<TaskCommandStoreResult> {
+    const epoch = surfaceEpoch.value
     const blocked = gateBeforeWrite(taskId)
     if (blocked !== null) return blocked
 
@@ -570,17 +587,19 @@ export const useTasksStore = defineStore('tasks', () => {
     try {
       if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
       const response = await operation()
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (response.status === 'error') return mapFailure(response, taskId)
       acceptAck(kind, taskId, response, 'undoEpoch' in response ? response.undoEpoch : undefined)
       return { status: 'accepted', kind }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (error instanceof TaskCommandTransportError) {
         outcomeUnknown.value = { kind, taskId }
         return { status: 'uncertain' }
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
@@ -596,7 +615,7 @@ export const useTasksStore = defineStore('tasks', () => {
   ): Promise<TaskCommandStoreResult> {
     return runMutation('update', taskId, () =>
       window.taskflowDesktop.updateTask({
-        version: 4,
+        version: 5,
         contextSequence,
         taskId,
         expectedEditRevision,
@@ -637,6 +656,8 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function openSource(taskId: string, expectedContentRevision: string): Promise<OpenSourceStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     if (presentation.value === 'loading' || presentation.value === 'blocked') {
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     }
@@ -646,6 +667,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
     try {
       const result = await window.taskflowDesktop.openTaskSource({ version: 1, taskId, expectedContentRevision })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (result.status === 'ok') return { status: 'requested' }
       switch (result.code) {
         case 'NOT_FOUND':
@@ -668,6 +690,7 @@ export const useTasksStore = defineStore('tasks', () => {
           return { status: 'blocked', code: result.code }
       }
     } catch {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       // Efeito pode ter sido solicitado; não repetimos automaticamente.
       return { status: 'failed' }
     }
@@ -704,20 +727,25 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** Manutenção explícita (expurgo por idade) seguida de snapshot; leitura pura não expurga. */
   async function runTrashMaintenance(): Promise<TrashCommandStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     trashMaintenance.value = 'running'
     trashError.value = null
     submitting.value = true
     try {
       const response = await window.taskflowDesktop.prepareTrashView({ version: 1, contextSequence })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (response.status === 'error') {
         trashError.value = response.code
         trashMaintenance.value = 'failed'
         return mapTrashFailure(response.code)
       }
       await refresh()
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       trashMaintenance.value = 'idle'
       return { status: 'accepted', kind: 'maintenance', revision: response.revision }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       trashMaintenance.value = 'failed'
       if (error instanceof TrashCommandTransportError) {
         outcomeUnknown.value = { kind: 'maintenance' }
@@ -725,7 +753,7 @@ export const useTasksStore = defineStore('tasks', () => {
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
@@ -734,6 +762,8 @@ export const useTasksStore = defineStore('tasks', () => {
     kind: 'MOVE' | 'PERMANENT' | 'EMPTY',
     target: { taskId?: string; expectedContentRevision?: string; entry?: { taskId: string; contentRevision: string; deletedAt: string } },
   ): Promise<TrashCommandStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     if (presentation.value === 'loading' || presentation.value === 'blocked') {
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     }
@@ -755,13 +785,16 @@ export const useTasksStore = defineStore('tasks', () => {
             ? { version: 1 as const, contextSequence, kind: 'PERMANENT' as const, entry: target.entry! }
             : { version: 1 as const, contextSequence, kind: 'EMPTY' as const }
       const response = await window.taskflowDesktop.prepareTrashConfirmation(request)
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (response.status === 'error') return mapTrashFailure(response.code)
       // Diálogo só habilita com snapshot completo igual/superior à revisão preparada.
       const current = await refresh()
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (!current || revision.value === undefined || BigInt(revision.value) < BigInt(response.revision)) {
         resyncError.value = 'SNAPSHOT_STALE'
         return { status: 'blocked', code: 'SNAPSHOT_STALE' }
       }
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       const view: TrashConfirmationView = {
         kind,
         token: response.confirmationToken,
@@ -773,13 +806,14 @@ export const useTasksStore = defineStore('tasks', () => {
       confirmation.value = view
       return { status: 'confirmation', kind: kind === 'MOVE' ? 'move' : kind === 'PERMANENT' ? 'permanent' : 'empty' }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (error instanceof TrashCommandTransportError) {
         outcomeUnknown.value = { kind: 'maintenance' }
         return { status: 'uncertain' }
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
@@ -789,6 +823,8 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** Confirma a exclusão recuperável; ack informa retained e pode trazer a oferta de Desfazer. */
   async function confirmMove(): Promise<TrashCommandStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     const current = confirmation.value
     if (current === null || current.kind !== 'MOVE') return { status: 'confirmation-invalid' }
     submitting.value = true
@@ -798,12 +834,14 @@ export const useTasksStore = defineStore('tasks', () => {
         contextSequence,
         confirmationToken: current.token,
       })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       confirmation.value = null
       if (response.status === 'error') return mapTrashFailure(response.code)
       acceptTrashAck('move', current.taskId, response, response.undoEpoch)
       deleteNotice.value = { retained: response.retained, discarded: 0 }
       return { status: 'accepted', kind: 'move', retained: response.retained, revision: response.revision }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       confirmation.value = null
       if (error instanceof TrashCommandTransportError) {
         outcomeUnknown.value = { kind: 'move', ...(current.taskId !== undefined && { taskId: current.taskId }) }
@@ -811,28 +849,32 @@ export const useTasksStore = defineStore('tasks', () => {
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
   /** Restore normal: sem confirmação adicional e sem oferta de desfazer. */
   async function restoreTrash(entry: { taskId: string; contentRevision: string; deletedAt: string }): Promise<TrashCommandStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     if (submitting.value) return { status: 'blocked', code: 'BUSY' }
     submitting.value = true
     try {
       if (!(await startAction())) return { status: 'blocked', code: 'BUSY' }
       const response = await window.taskflowDesktop.restoreTrashItem({ version: 1, contextSequence, entry })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (response.status === 'error') return mapTrashFailure(response.code)
       acceptTrashAck('restore', entry.taskId, response)
       return { status: 'accepted', kind: 'restore', revision: response.revision }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (error instanceof TrashCommandTransportError) {
         outcomeUnknown.value = { kind: 'restore', taskId: entry.taskId }
         return { status: 'uncertain' }
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
@@ -845,6 +887,8 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function confirmPermanentDelete(): Promise<TrashCommandStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     const current = confirmation.value
     if (current === null || current.kind !== 'PERMANENT') return { status: 'confirmation-invalid' }
     submitting.value = true
@@ -854,11 +898,13 @@ export const useTasksStore = defineStore('tasks', () => {
         contextSequence,
         confirmationToken: current.token,
       })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       confirmation.value = null
       if (response.status === 'error') return mapTrashFailure(response.code)
       acceptTrashAck('delete', current.entry?.taskId, response)
       return { status: 'accepted', kind: 'delete', revision: response.revision }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       confirmation.value = null
       if (error instanceof TrashCommandTransportError) {
         outcomeUnknown.value = { kind: 'delete' }
@@ -866,7 +912,7 @@ export const useTasksStore = defineStore('tasks', () => {
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
@@ -875,6 +921,8 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function confirmEmptyTrash(): Promise<TrashCommandStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     const current = confirmation.value
     if (current === null || current.kind !== 'EMPTY') return { status: 'confirmation-invalid' }
     submitting.value = true
@@ -884,11 +932,13 @@ export const useTasksStore = defineStore('tasks', () => {
         contextSequence,
         confirmationToken: current.token,
       })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       confirmation.value = null
       if (response.status === 'error') return mapTrashFailure(response.code)
       acceptTrashAck('empty', undefined, response)
       return { status: 'accepted', kind: 'empty', removedCount: response.removedCount, revision: response.revision }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       confirmation.value = null
       if (error instanceof TrashCommandTransportError) {
         outcomeUnknown.value = { kind: 'empty' }
@@ -896,12 +946,14 @@ export const useTasksStore = defineStore('tasks', () => {
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
   /** Desfaz a última ação própria consumindo o token uma única vez, na sequência da oferta. */
   async function undoLastAction(): Promise<TrashCommandStoreResult> {
+    const epoch = surfaceEpoch.value
+    if (surfaceSuspended.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
     const current = offer.value
     if (current === null) return { status: 'undo-not-available' }
     offer.value = null
@@ -912,17 +964,19 @@ export const useTasksStore = defineStore('tasks', () => {
         contextSequence: current.sequence,
         undoToken: current.token,
       })
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (response.status === 'error') return mapTrashFailure(response.code)
       acceptTrashAck('undo', current.taskId, response)
       return { status: 'accepted', kind: 'undo', revision: response.revision }
     } catch (error) {
+      if (surfaceSuspended.value || epoch !== surfaceEpoch.value) return { status: 'blocked', code: 'SESSION_CLOSED' }
       if (error instanceof TrashCommandTransportError) {
         outcomeUnknown.value = { kind: 'undo', ...(current.taskId !== undefined && { taskId: current.taskId }) }
         return { status: 'uncertain' }
       }
       return { status: 'blocked', code: 'STORAGE_UNAVAILABLE' }
     } finally {
-      submitting.value = false
+      if (epoch === surfaceEpoch.value) submitting.value = false
     }
   }
 
@@ -1002,7 +1056,53 @@ export const useTasksStore = defineStore('tasks', () => {
     return requestPermanentDelete(entry)
   }
 
+  function suspendSurface(): void {
+    if (surfaceSuspended.value) return
+    surfaceSuspended.value = true; surfaceEpoch.value += 1
+    subscriptionId = undefined; stopClock(); stale.value = true
+    offer.value = null; confirmation.value = null; deleteNotice.value = null
+    pendingAck = undefined; awaitingConfirmation.value = false; updatePending.value = false
+    lastConfirmed.value = null; outcomeUnknown.value = null; submitting.value = false
+    // IDs/filters/base do formulário permanecem; a sessão nova exige outra inscrição/snapshot.
+  }
+  async function resumeSurface(): Promise<void> {
+    if (!surfaceSuspended.value) return
+    surfaceSuspended.value = false; surfaceEpoch.value += 1
+    contextSequence = 0
+    try { await connect() } catch { stale.value = true; resyncError.value = 'STORAGE_UNAVAILABLE' }
+  }
+
+  async function locateReminder(tag: string): Promise<void> {
+    const epoch = surfaceEpoch.value
+    locatedTask.value = null; locationMessage.value = null
+    if (!await startAction()) { locationMessage.value = 'Não foi possível localizar agora. Abra a lista novamente.'; return }
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const result = await window.taskflowDesktop.resolveReminderActivation({ version: 1, tag })
+        if (epoch !== surfaceEpoch.value || surfaceSuspended.value) return
+        if (result.status !== 'ok') {
+          if (result.code !== 'BUSY') { locationMessage.value = 'Este lembrete não corresponde mais a uma tarefa disponível.'; return }
+          if (!await refresh()) break
+          continue
+        }
+        if (!await refresh()) break
+        if (epoch !== surfaceEpoch.value || surfaceSuspended.value) return
+        if (revision.value !== result.revision) continue
+        const target = records.value[result.taskOrdinal]
+        if (target !== undefined) { locatedTask.value = target; return }
+      }
+    } catch {
+      if (epoch !== surfaceEpoch.value || surfaceSuspended.value) return
+      locationMessage.value = 'Não foi possível consultar o lembrete agora.'
+      return
+    }
+    locationMessage.value = 'Os dados estão mudando. Não foi possível localizar agora.'
+  }
+
   return {
+    surfaceSuspended, surfaceEpoch, suspendSurface, resumeSurface,
+    locatedTask, locationMessage, locateReminder,
+    clearLocation: () => { locatedTask.value = null; locationMessage.value = null },
     records,
     trashRecords,
     revision,

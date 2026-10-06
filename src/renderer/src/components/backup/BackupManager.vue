@@ -35,6 +35,10 @@ const confirmPanel = ref<HTMLElement | null>(null)
 
 const busy = computed(() => phase.value === 'previewing' || phase.value === 'restoring')
 const previewLocked = computed(() => previewStale.value !== null)
+watch(() => store.surfaceEpoch, () => {
+  preview.value = null; previewStale.value = null; phase.value = 'idle'
+  feedback.value = null; actionError.value = null; issueLines.value = []
+})
 
 watch(titleElement, (element) => element?.focus())
 watch(successElement, (element) => element?.focus())
@@ -160,6 +164,8 @@ function resetMessages(): void {
 }
 
 async function runExport(source: 'area' | 'preview'): Promise<void> {
+  const epoch = store.surfaceEpoch
+  if (store.surfaceSuspended) return
   if (busy.value) return
   resetMessages()
   phase.value = 'previewing'
@@ -170,6 +176,7 @@ async function runExport(source: 'area' | 'preview'): Promise<void> {
       return
     }
     const result = await window.taskflowDesktop.exportBackup({ version: 1, contextSequence: store.currentContext() })
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     if (result.status === 'cancelled') {
       feedback.value = { tone: 'success', text: 'Seleção cancelada. Nada foi gravado.' }
       phase.value = preview.value === null ? 'idle' : 'preview'
@@ -193,12 +200,15 @@ async function runExport(source: 'area' | 'preview'): Promise<void> {
     phase.value = preview.value === null ? 'idle' : 'preview'
     void exportButton.value?.focus()
   } catch {
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     actionError.value = errorText('STORAGE_UNAVAILABLE')
     phase.value = preview.value === null ? 'idle' : 'preview'
   }
 }
 
 async function chooseBackup(): Promise<void> {
+  const epoch = store.surfaceEpoch
+  if (store.surfaceSuspended) return
   if (busy.value) return
   resetMessages()
   phase.value = 'previewing'
@@ -212,6 +222,7 @@ async function chooseBackup(): Promise<void> {
       version: 1,
       contextSequence: store.currentContext(),
     })
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     if (result.status === 'cancelled') {
       feedback.value = { tone: 'success', text: 'Seleção cancelada. Nada foi alterado.' }
       phase.value = 'idle'
@@ -229,6 +240,7 @@ async function chooseBackup(): Promise<void> {
     phase.value = 'preview'
     void titleElement.value?.focus()
   } catch {
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     actionError.value = errorText('STORAGE_UNAVAILABLE')
     phase.value = 'idle'
   }
@@ -249,6 +261,8 @@ function abandonConfirmation(): void {
 }
 
 async function confirmRestore(): Promise<void> {
+  const epoch = store.surfaceEpoch
+  if (store.surfaceSuspended) return
   const current = preview.value
   if (current === null || previewLocked.value || phase.value !== 'confirm') return
   phase.value = 'restoring'
@@ -258,6 +272,7 @@ async function confirmRestore(): Promise<void> {
       contextSequence: store.currentContext(),
       restoreToken: current.restoreToken,
     })
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     if (result.status === 'error') {
       const recoverable = result.code === 'BACKUP_BASE_CHANGED' || result.code === 'BACKUP_PREVIEW_EXPIRED' || result.code === 'BACKUP_PREVIEW_INVALID'
       if (recoverable) {
@@ -270,6 +285,7 @@ async function confirmRestore(): Promise<void> {
       return
     }
     await store.refresh()
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     preview.value = null
     previewStale.value = null
     phase.value = 'success'
@@ -287,6 +303,7 @@ async function confirmRestore(): Promise<void> {
     await nextTick()
     successElement.value?.focus()
   } catch {
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     actionError.value = errorText('STORAGE_UNAVAILABLE')
     phase.value = 'preview'
   }
@@ -294,6 +311,8 @@ async function confirmRestore(): Promise<void> {
 
 /** Cancelar a prévia consome/libera o token no main; abandonar o modal não. */
 async function cancelPreview(): Promise<void> {
+  const epoch = store.surfaceEpoch
+  if (store.surfaceSuspended) return
   const current = preview.value
   if (current === null || busy.value) return
   try {
@@ -303,8 +322,10 @@ async function cancelPreview(): Promise<void> {
       restoreToken: current.restoreToken,
     })
   } catch {
+    if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
     // O cancelamento local continua liberando a prévia visível.
   }
+  if (epoch !== store.surfaceEpoch || store.surfaceSuspended) return
   preview.value = null
   previewStale.value = null
   phase.value = 'idle'

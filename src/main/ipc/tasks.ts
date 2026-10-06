@@ -22,6 +22,7 @@ import {
   taskCheckFailure,
   taskCreateFailure,
   taskMutationFailure,
+  taskUpdateFailure,
   taskSourceFailure,
   type TaskCheckAck,
   type TaskCheckFailure,
@@ -32,6 +33,7 @@ import {
   type TaskMutationErrorCode,
   type TaskMutationFailure,
   type TaskMutationResult,
+  type TaskUpdateResult,
   type TaskOpenSourceResult,
   type TaskSourceErrorCode,
 } from '../../contracts/tasks.js'
@@ -149,7 +151,7 @@ export class TaskCommandIpcService {
       if (outcome.status === 'IDENTITY_CONFLICT') return taskCreateFailure('IDENTITY_CONFLICT')
 
       const ack: TaskCreateAck = {
-        version: 3,
+        version: 4,
         status: 'ok',
         outcome: 'APPLIED',
         taskId: outcome.taskId,
@@ -163,18 +165,18 @@ export class TaskCommandIpcService {
     }
   }
 
-  async handleUpdate(event: InvocationLike, request: unknown): Promise<TaskMutationResult> {
+  async handleUpdate(event: InvocationLike, request: unknown): Promise<TaskUpdateResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return taskMutationFailure('UNAUTHORIZED')
+      if (ticket === null) return taskUpdateFailure('UNAUTHORIZED')
 
       const parsed = parseTaskUpdateRequest(request)
-      if (parsed.kind === 'invalid-request') return taskMutationFailure('INVALID_REQUEST')
+      if (parsed.kind === 'invalid-request') return taskUpdateFailure('INVALID_REQUEST')
       if (parsed.kind === 'validation') {
-        return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
+        return { ...taskUpdateFailure('VALIDATION_FAILED'), fields: parsed.fields }
       }
       const { contextSequence, taskId, expectedEditRevision, patch, cancellation } = parsed.value
-      if (!this.#hasContext(ticket, contextSequence)) return taskMutationFailure('STALE_CONTEXT')
+      if (!this.#hasContext(ticket, contextSequence)) return taskUpdateFailure('STALE_CONTEXT')
 
       const reservation = this.#reservationPort(ticket, contextSequence)
       let result: UnitResult<MutationTaskOutcome>
@@ -196,20 +198,21 @@ export class TaskCommandIpcService {
         )
       } catch {
         reservation.releasePending()
-        return taskMutationFailure('STORAGE_UNAVAILABLE')
+        return taskUpdateFailure('STORAGE_UNAVAILABLE')
       }
       if (!result.ok) {
         reservation.releasePending()
-        if (!this.#sessions.isCurrent(ticket)) return taskMutationFailure('SESSION_CLOSED')
-        return taskMutationFailure(taskErrorCodeFor(result.reason))
+        if (!this.#sessions.isCurrent(ticket)) return taskUpdateFailure('SESSION_CLOSED')
+        return taskUpdateFailure(taskErrorCodeFor(result.reason))
       }
       if (!this.#sessions.isCurrent(ticket)) {
         reservation.releasePending()
-        return taskMutationFailure('SESSION_CLOSED')
+        return taskUpdateFailure('SESSION_CLOSED')
       }
-      return this.#mutationResponse(result, ticket, contextSequence, reservation.releasePending)
+      const response = this.#mutationResponse(result, ticket, contextSequence, reservation.releasePending)
+      return { ...response, version: 5 }
     } catch {
-      return taskMutationFailure('STORAGE_UNAVAILABLE')
+      return taskUpdateFailure('STORAGE_UNAVAILABLE')
     }
   }
 
@@ -460,8 +463,6 @@ export class TaskCommandIpcService {
         return { code: 'NOT_FOUND' }
       case 'SUBTASK_NOT_FOUND':
         return { code: 'SUBTASK_NOT_FOUND' }
-      case 'ADVANCED_TASK_RESTRICTED':
-        return { code: 'ADVANCED_TASK_RESTRICTED' }
       case 'RECURRENCE_CHOICE_REQUIRED':
         return { code: 'RECURRENCE_CHOICE_REQUIRED' }
       case 'RECURRENCE_OUT_OF_RANGE':

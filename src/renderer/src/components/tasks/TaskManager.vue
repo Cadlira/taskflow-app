@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Adaptação revisada de taskflow-extension@a763e7a src/components/tasks/TaskManager.vue
 // (MIT, mesmo autor). Preserva fluxo lista/criar/editar, estados, foco pós-ação e live regions.
-// Acrescenta diálogo SKIP/END, marcação de subtarefa e mensagens D8; não monta captura, lixeira,
-// backup, IA, undo nem lembretes.
+// Acrescenta diálogo SKIP/END, marcação de subtarefa e consulta temporária de lembrete; não
+// monta captura, lixeira, backup, IA nem undo (o formulário-filho edita lembretes).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { TaskRecord } from '../../../../contracts/state.js'
 import type { TaskCancellation } from '../../../../contracts/tasks.js'
@@ -15,7 +15,7 @@ import TaskCancellationDialog from './TaskCancellationDialog.vue'
 import TaskFilters from './TaskFilters.vue'
 import TaskForm, { type TaskFormSubmission } from './TaskForm.vue'
 import TaskList from './TaskList.vue'
-import { REMINDERS_RESTRICTED_HINT, STATUS_LABELS } from './task-labels.js'
+import { STATUS_LABELS } from './task-labels.js'
 import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin.js'
 
 type Feedback = { tone: 'success' | 'warning' | 'error'; text: string }
@@ -65,6 +65,13 @@ const formMessageAlert = ref<HTMLElement | null>(null)
 const conflictPanel = ref<HTMLElement | null>(null)
 const taskList = ref<InstanceType<typeof TaskList> | null>(null)
 const taskForm = ref<InstanceType<typeof TaskForm> | null>(null)
+const locationHeading = ref<HTMLElement | null>(null)
+watch(() => [store.locatedTask, store.locationMessage], () => { void nextTick(() => locationHeading.value?.focus()) })
+watch(() => store.surfaceSuspended, suspended => {
+  if (!suspended) return
+  pendingCancellation.value = null; pendingAction.value = null; deleteTarget.value = null
+  busyTaskId.value = null; reloadConfirm.value = false
+})
 
 const conflictForEditing = computed(
   () => store.conflict !== null && editingRecord.value !== null && store.conflict.taskId === editingRecord.value.task.id,
@@ -214,8 +221,6 @@ function errorText(code: string): string {
 /** Mensagens específicas de recorrência/subtarefas; nunca refletem payload do main. */
 function mutationFailureText(result: TaskCommandStoreResult): string {
   switch (result.status) {
-    case 'restricted':
-      return REMINDERS_RESTRICTED_HINT
     case 'choice-required':
       return 'Escolha como tratar as próximas ocorrências antes de continuar.'
     case 'series-conflict':
@@ -648,6 +653,39 @@ async function closeBackup(): Promise<void> {
 
 <template>
   <main class="task-manager">
+    <section
+      v-if="store.locatedTask || store.locationMessage"
+      class="form-notice"
+      aria-labelledby="located-reminder-title"
+    >
+      <h2
+        id="located-reminder-title"
+        ref="locationHeading"
+        tabindex="-1"
+      >
+        {{ store.locatedTask?.task.title ?? 'Lembrete indisponível' }}
+      </h2>
+      <template v-if="store.locatedTask">
+        <p>Consulta do lembrete · {{ STATUS_LABELS[store.locatedTask.task.status] }}</p>
+        <p v-if="store.locatedTask.task.description">
+          {{ store.locatedTask.task.description }}
+        </p>
+        <p v-if="store.locatedTask.task.dueAt">
+          Prazo: {{ new Date(store.locatedTask.task.dueAt).toLocaleString('pt-BR') }}
+        </p>
+        <p>O formulário e os filtros atuais foram conservados.</p>
+      </template>
+      <p v-else>
+        {{ store.locationMessage }}
+      </p>
+      <button
+        type="button"
+        class="button-secondary"
+        @click="store.clearLocation(); mode === 'form' ? taskForm?.focusSubmit() : newTaskButton?.focus()"
+      >
+        Voltar à lista
+      </button>
+    </section>
     <TrashManager v-if="store.trashMode" />
     <BackupManager
       v-else-if="store.backupMode"

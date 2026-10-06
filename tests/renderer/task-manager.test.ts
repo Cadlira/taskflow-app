@@ -6,6 +6,7 @@ import type { TaskFlowDesktopApi } from '../../src/contracts/desktop-api.js'
 import type { StateSnapshot, StateUpdate, TaskRecord } from '../../src/contracts/state.js'
 import type { Task } from '../../src/domain/task.js'
 import TaskManager from '../../src/renderer/src/components/tasks/TaskManager.vue'
+import { useTasksStore } from '../../src/renderer/src/stores/tasks.js'
 import { buildTask } from '../support/task-fixtures.js'
 
 let wrapper: VueWrapper | undefined
@@ -39,6 +40,7 @@ interface Harness {
     emptyTrash: Mock
     prepareTrashView: Mock
     undoLastTaskAction: Mock
+    resolveReminderActivation: Mock
   }
   emit(update: StateUpdate): void
   setSnapshot(next: StateSnapshot): void
@@ -74,6 +76,7 @@ function setupHarness(initial: StateSnapshot, subscribeFails = false): Harness {
     emptyTrash: vi.fn(),
     prepareTrashView: vi.fn(),
     undoLastTaskAction: vi.fn(),
+    resolveReminderActivation: vi.fn(),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api as unknown as TaskFlowDesktopApi })
 
@@ -152,7 +155,7 @@ describe('TaskManager: estados e fluxo básico', () => {
     await flushPromises()
 
     expect(harness.api.createTask).toHaveBeenCalledTimes(1)
-    expect(harness.api.createTask.mock.calls[0]?.[0]).toMatchObject({ version: 3, draft: { title: 'Comprar leite' } })
+    expect(harness.api.createTask.mock.calls[0]?.[0]).toMatchObject({ version: 4, draft: { title: 'Comprar leite' } })
     // Ack confirmado: formulário permanece com mensagem de sincronização até o snapshot chegar.
     expect(view.find('form').exists()).toBe(true)
     expect(view.text()).toContain('sincronizando a lista')
@@ -402,8 +405,8 @@ describe('TaskManager: cancelamento recorrente SKIP/END', () => {
   })
 })
 
-describe('TaskManager: D8, subtarefas e foco', () => {
-  it('guarda D8 bloqueia prazo/status com motivo e libera edição independente', async () => {
+describe('TaskManager: lembretes integrados, subtarefas e foco', () => {
+  it('mudança de status/prazo com lembretes segue o ack e o snapshot, sem motivo provisório', async () => {
     const task = buildTask({
       id: 'lem',
       title: 'Com lembretes',
@@ -412,32 +415,39 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     const harness = setupHarness(snapshot('2', [record(task, '2', '2')]))
     const view = await mountManager()
 
-    // Status com lembretes: recusa do main vira o motivo D8 no aviso da lista.
-    harness.api.changeTaskStatus.mockResolvedValueOnce({ version: 4, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
+    harness.api.changeTaskStatus.mockResolvedValueOnce({
+      version: 4,
+      status: 'ok',
+      outcome: 'APPLIED',
+      revision: '3',
+      contentRevision: '3',
+      editRevision: '3',
+      undoEpoch: 1,
+    })
     await view.get('button[data-action="complete"]').trigger('click')
     await flushPromises()
-    expect(view.text()).toContain('Esta tarefa tem lembretes. Alterar prazo ou status e gerar outra ocorrência depende da integração de lembretes.')
-    expect((view.get('select[data-action="status"]').element as HTMLSelectElement).value).toBe('TODO')
-
-    // Edição independente (título) é aceita pelo main e conclui normalmente.
-    await view.get('button[data-action="edit"]').trigger('click')
-    await view.get('input[name="title"]').setValue('Título novo')
-    harness.api.updateTask.mockResolvedValueOnce({ version: 4, status: 'ok', outcome: 'APPLIED', revision: '3', contentRevision: '3', editRevision: '3', undoEpoch: 1 })
-    await view.get('form').trigger('submit')
+    harness.emit({ type: 'snapshot', snapshot: snapshot('3', [record(buildTask({ ...task, status: 'DONE' }), '3', '3')]) })
     await flushPromises()
-    harness.emit({ type: 'snapshot', snapshot: snapshot('3', [record(buildTask({ id: 'lem', title: 'Título novo', reminders: task.reminders }), '3', '3')]) })
-    await flushPromises()
-    expect(view.find('form').exists()).toBe(false)
-    expect(view.text()).toContain('Título novo')
+    expect(view.text()).toContain('Status de “Com lembretes” alterado para Concluída.')
+    expect(view.text()).not.toContain('depende da integração de lembretes')
 
-    // Mudança efetiva de prazo no formulário recebe o mesmo motivo D8.
     await view.get('button[data-action="edit"]').trigger('click')
     await view.get('input[name="dueAt"]').setValue('2026-10-10T10:00')
-    harness.api.updateTask.mockResolvedValueOnce({ version: 4, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
+    harness.api.updateTask.mockResolvedValueOnce({
+      version: 5,
+      status: 'ok',
+      outcome: 'APPLIED',
+      revision: '4',
+      contentRevision: '4',
+      editRevision: '4',
+      undoEpoch: 1,
+      undoToken: 'token-ficticio',
+    })
     await view.get('form').trigger('submit')
     await flushPromises()
-    expect(view.text()).toContain('Esta tarefa tem lembretes.')
-    expect((view.get('input[name="dueAt"]').element as HTMLInputElement).value).toBe('2026-10-10T10:00')
+    harness.emit({ type: 'snapshot', snapshot: snapshot('4', [record(buildTask({ ...task, status: 'DONE', dueAt: '2026-10-10T13:00:00.000Z' }), '4', '4')]) })
+    await flushPromises()
+    expect(view.find('form').exists()).toBe(false)
   })
 
   it('marcação de subtarefa confirma pelo snapshot e falha de item ausente recupera o controle', async () => {
@@ -558,5 +568,67 @@ describe('TaskManager: D8, subtarefas e foco', () => {
     expect(view.find('[data-task-id="a"]').exists()).toBe(false)
     expect(view.text()).toContain('Rotina (próxima)')
     expect(document.activeElement).toBe(view.get('[data-task-id="b"] button[data-action="edit"]').element)
+  })
+})
+
+describe('TaskManager: consulta temporária de lembrete', () => {
+  it('suspender limpa confirmação transiente e preserva filtros e rascunho do formulário', async () => {
+    const task = buildTask({ id: 'a', title: 'Alvo', dueAt: '2026-10-08T12:00:00.000Z' })
+    const harness = setupHarness(snapshot('2', [record(task, '2', '2')]))
+    const view = await mountManager()
+    const store = useTasksStore()
+    store.setFilters({ search: 'alvo' })
+
+    harness.api.prepareTrashConfirmation.mockResolvedValueOnce({
+      version: 1, status: 'ok', confirmationToken: 'C'.repeat(32), revision: '2', itemCount: 1, hasRecurrence: false,
+    })
+    await view.get('[data-task-id="a"] button[data-action="delete"]').trigger('click')
+    await flushPromises()
+    expect(view.find('[role="alertdialog"]').exists()).toBe(true)
+
+    store.suspendSurface()
+    await flushPromises()
+    expect(view.find('[role="alertdialog"]').exists()).toBe(false)
+    expect(store.filters.search).toBe('alvo')
+
+    await store.resumeSurface()
+    await flushPromises()
+    await view.get('button[data-action="edit"]').trigger('click')
+    await view.get('input[name="title"]').setValue('Rascunho vivo')
+    store.suspendSurface()
+    await flushPromises()
+    expect((view.get('input[name="title"]').element as HTMLInputElement).value).toBe('Rascunho vivo')
+    expect(store.filters.search).toBe('alvo')
+  })
+
+  it('conserva filtros e rascunho, mostra o alvo fora do filtro e Voltar devolve o foco sem mutar', async () => {
+    const task = buildTask({ id: 'alvo', title: 'Fora do filtro', dueAt: '2026-10-08T12:00:00.000Z' })
+    const harness = setupHarness(snapshot('2', [record(task, '2', '2')]))
+    const view = await mountManager()
+    const store = useTasksStore()
+    store.setFilters({ search: 'sem-resultado' })
+    harness.api.resolveReminderActivation.mockResolvedValueOnce({ version: 1, status: 'ok', revision: '2', taskOrdinal: 0 })
+
+    await view.get('button[data-action="edit"]').trigger('click')
+    const titleInput = view.get('input[name="title"]')
+    await titleInput.setValue('Rascunho preservado')
+
+    await store.locateReminder('c'.repeat(64))
+    await flushPromises()
+    expect(view.text()).toContain('Consulta do lembrete')
+    expect(view.text()).toContain('Fora do filtro')
+    expect(view.text()).toContain('Consulta do lembrete · A fazer')
+    expect(view.get('section[aria-labelledby="located-reminder-title"]').attributes('aria-labelledby')).toBe('located-reminder-title')
+    expect(view.text()).toContain('O formulário e os filtros atuais foram conservados.')
+    expect((view.get('input[name="title"]').element as HTMLInputElement).value).toBe('Rascunho preservado')
+    expect(store.filters.search).toBe('sem-resultado')
+    expect(document.activeElement).toBe(view.get('#located-reminder-title').element)
+    expect(harness.api.updateTask).not.toHaveBeenCalled()
+    expect(harness.api.createTask).not.toHaveBeenCalled()
+
+    await view.findAll('button').find(button => button.text().includes('Voltar à lista'))?.trigger('click')
+    await flushPromises()
+    expect(view.find('#located-reminder-title').exists()).toBe(false)
+    expect(store.filters.search).toBe('sem-resultado')
   })
 })

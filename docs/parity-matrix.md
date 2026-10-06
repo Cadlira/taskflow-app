@@ -163,3 +163,15 @@ apresentada como nativa); D10 herdado (688,3/760,5/141,7 ms; números 700/700/25
 prova humana de acessibilidade e campanha de before-images extremas continuam pendentes e não são
 resolvidos por esta Change. Detalhes em [backup-migration-guide.md](backup-migration-guide.md) e
 [backup-format.md](backup-format.md).
+
+## TFA-008 — composição em validação (2026-10-06)
+
+P07 agora inclui edição OFFSET/AT, presets, liquidação atômica, agenda recuperável e
+prevenção de duplicidade por marker persistido. A guarda temporária D8 de prazo/status
+com reminders foi retirada. A composição inclui close para bandeja, Sair, suspend/resume,
+localização temporária por aviso e startup opcional. O núcleo, contratos e composição
+passam testes automatizados; notificações/COM/tray/login/logoff/upgrade/uninstall instalados
+e M12 completo permanecem pendentes de evidência. As limitações históricas TFA-004–007
+sobre ausência de scheduler descrevem aquelas Changes; o estado corrente e as diferenças
+estão no [guia desktop](desktop-reminders-and-lifecycle.md). Backup continua codec 4 e
+transporta tarefas, sem migrar lixeira, credenciais ou desfazer transitório.

@@ -25,6 +25,9 @@
 !include "WinVer.nsh"
 
 !define TFA_INSTALL_DIR_NAME "TaskFlowApp"
+!define TFA_NATIVE_KEY "Software\TaskFlow App\NativeIdentity\v1"
+!define TFA_TOAST_CLSID "{8B9BA547-6778-4F8E-873F-C3171C4EE08D}"
+!define TFA_STARTUP_NAME "taskflow.app.startup.v1"
 !define TFA_APP_CONTAINER_SID "S-1-15-2-1"
 !define TFA_FILE_ATTRIBUTE_REPARSE_POINT 0x400
 !define TFA_INVALID_FILE_ATTRIBUTES 0xFFFFFFFF
@@ -446,4 +449,56 @@ Var tfaRegistryValue
 
 !macro customInstall
   Call TFA_GrantAppContainerReadExecute
+  ReadRegStr $tfaValue HKCU "${TFA_NATIVE_KEY}" "AUMID"
+  ${If} $tfaValue != ""
+  ${AndIf} $tfaValue != "${APP_ID}"
+    !insertmacro TFA_FAIL "A identidade nativa existente pertence a outro aplicativo. O cadastro foi preservado."
+  ${EndIf}
+  ReadRegStr $tfaValue HKCU "${TFA_NATIVE_KEY}" "InstalledExecutable"
+  ${If} $tfaValue != ""
+  ${AndIf} $tfaValue != "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+    !insertmacro TFA_FAIL "A identidade nativa existente pertence a outro destino. O cadastro foi preservado."
+  ${EndIf}
+  ReadRegStr $tfaValue HKCU "${TFA_NATIVE_KEY}" "CLSID"
+  ${If} $tfaValue != ""
+  ${AndIf} $tfaValue != "${TFA_TOAST_CLSID}"
+    !insertmacro TFA_FAIL "A identidade nativa existente não é reconhecida. O cadastro foi preservado."
+  ${EndIf}
+  ClearErrors
+  WriteRegStr HKCU "${TFA_NATIVE_KEY}" "AUMID" "${APP_ID}"
+  WriteRegStr HKCU "${TFA_NATIVE_KEY}" "CLSID" "${TFA_TOAST_CLSID}"
+  WriteRegStr HKCU "${TFA_NATIVE_KEY}" "InstalledExecutable" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  WriteRegStr HKCU "${TFA_NATIVE_KEY}" "StartMenuLink" "$newStartMenuLink"
+  ${If} ${Errors}
+    !insertmacro TFA_FAIL "Não foi possível registrar a identidade nativa do aplicativo para este usuário."
+  ${EndIf}
+!macroend
+
+!macro customUnInstall
+  # O uninstall usado pelo upgrade mantém identidade e preferência/aprovação externa.
+  ${IfNot} ${isUpdated}
+    ReadRegStr $tfaValue HKCU "${TFA_NATIVE_KEY}" "InstalledExecutable"
+    ${If} $tfaValue == "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+      ReadRegStr $tfaCurrent HKCU "${TFA_NATIVE_KEY}" "CLSID"
+      ${If} $tfaCurrent == "${TFA_TOAST_CLSID}"
+        ReadRegStr $tfaCurrent HKCU "Software\Classes\CLSID\${TFA_TOAST_CLSID}\LocalServer32" ""
+        ${If} $tfaCurrent == "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+          DeleteRegKey HKCU "Software\Classes\CLSID\${TFA_TOAST_CLSID}"
+        ${EndIf}
+        ReadRegStr $tfaCurrent HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${TFA_STARTUP_NAME}"
+        ${If} $tfaCurrent == '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --taskflow-login'
+          DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${TFA_STARTUP_NAME}"
+          DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${TFA_STARTUP_NAME}"
+        ${ElseIf} $tfaCurrent == ""
+          DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${TFA_STARTUP_NAME}"
+        ${EndIf}
+        DeleteRegValue HKCU "${TFA_NATIVE_KEY}" "AUMID"
+        DeleteRegValue HKCU "${TFA_NATIVE_KEY}" "CLSID"
+        DeleteRegValue HKCU "${TFA_NATIVE_KEY}" "InstalledExecutable"
+        DeleteRegValue HKCU "${TFA_NATIVE_KEY}" "StartMenuLink"
+        DeleteRegKey /ifempty HKCU "${TFA_NATIVE_KEY}"
+        DeleteRegKey /ifempty HKCU "Software\TaskFlow App\NativeIdentity"
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
 !macroend

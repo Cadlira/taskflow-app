@@ -1,6 +1,6 @@
 // Subconjunto revisado de taskflow-extension@a763e7a src/components/tasks/task-labels.ts
 // (MIT, mesmo autor). Sem rótulos de lembretes mutáveis, IA ou unidades. Acrescenta rótulos e
-// mensagens finitas de recorrência/subtarefas e o texto da guarda de lembretes (D8).
+// mensagens finitas de recorrência/subtarefas.
 import type { Recurrence, RecurrenceFrequency } from '../../../../domain/task-recurrence.js'
 import type { SubtaskItemErrors } from '../../../../domain/task-subtasks.js'
 import type { TaskPriority, TaskStatus } from '../../../../domain/task.js'
@@ -83,12 +83,9 @@ export function recurrenceSummaryLabel(recurrence: Recurrence): string {
 /** Nome do controle que remove a regra de recorrência da ocorrência portadora. */
 export const REMOVE_RECURRENCE_LABEL = 'Remover recorrência'
 
-/** Aviso exibido após pedir a retirada da regra; a mensagem D8 própria é parte do texto. */
+/** Aviso exibido após pedir a retirada da regra; a retirada conserva status, prazo e lembretes. */
 export const RECURRENCE_REMOVAL_HINT =
   'Remover a recorrência mantém o status, o prazo e os lembretes desta tarefa. As próximas ocorrências deixam de ser geradas.'
-
-export const REMINDERS_RESTRICTED_HINT =
-  'Esta tarefa tem lembretes. Alterar prazo ou status e gerar outra ocorrência depende da integração de lembretes.'
 
 /** Mensagens pt-BR dos códigos finitos de erro por campo básico. */
 export function fieldErrorMessage(field: string, code: string): string {

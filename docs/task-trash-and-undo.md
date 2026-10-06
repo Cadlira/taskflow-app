@@ -78,8 +78,11 @@ ocorrência nova**. Entrada vencida é recusada em todo caminho (mesmo sem abrir
 ## Lembretes (recorte delimitado)
 
 Restore/revert apenas preservam `processedFor` atual e liquidam gatilhos pendentes representáveis
-`<= now`; futuros permanecem pendentes. Não há scheduler/notifier nem mensagem de alarme
-agendado; a guarda D8 de prazo/status/fechamento com lembretes continua valendo até a TFA-008.
+`<= now`; futuros permanecem pendentes. Não há mensagem de alarme durante o restore.
+**Atualizado na TFA-008:** scheduler/notifier foram compostos no main, a guarda D8 de
+prazo/status/fechamento foi retirada e as mutações passaram a liquidar/reconciliar na mesma
+unidade; a evidência instalada de toast/COM ainda está pendente
+([guia desktop](desktop-reminders-and-lifecycle.md)).
 
 ## Verificação humana pendente
 

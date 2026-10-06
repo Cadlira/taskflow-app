@@ -7,12 +7,12 @@ Permitir que documentos desktop autorizados leiam e acompanhem estado local coer
 
 ### Requirement: Catálogo de estado mínimo e versionado
 
-Bridge SHALL oferecer21 wrappers: estado3; diagnóstico/origem1; create/check3, update/status4, move2, outros contexto/trash/undo1; quatro backup1. Schemas runtime SHALL ser exatos. Versões anteriores dos contratos alterados, SQL/path/Task/plano/callback remoto e IPC livre SHALL ser recusados.
+Bridge SHALL oferecer26 wrappers: estado3; diagnóstico/origem1; create4/check3, update5/status4, move2, outros contexto/trash/undo1; quatro backup1 e cinco desktop1. Schemas runtime SHALL ser exatos. Versões anteriores dos contratos alterados, SQL/path/Task/plano/callback remoto e IPC livre SHALL ser recusados.
 
 #### Scenario: Operações disponíveis
 - **WHEN** documento autorizado inspeciona preload
-- **THEN** encontra21 wrappers: verifyFoundation/getStateSnapshot/subscribeState/unsubscribeState/createTask/updateTask/changeTaskStatus/setSubtaskDone/openTaskSource/clearUndoOffer/prepareTrashConfirmation/moveTaskToTrash/restoreTrashItem/deleteTrashItem/emptyTrash/prepareTrashView/undoLastTaskAction/exportBackup/prepareBackupRestore/confirmBackupRestore/cancelBackupRestore, sem canal livre
-- **AND** versões de main/preload/renderer são coerentes no mesmo pacote, sem fallback para estado1/2, update/status1/2/3, move1 ou versões antigas de create/check
+- **THEN** encontra26 wrappers: verifyFoundation/getStateSnapshot/subscribeState/unsubscribeState/createTask/updateTask/changeTaskStatus/setSubtaskDone/openTaskSource/clearUndoOffer/prepareTrashConfirmation/moveTaskToTrash/restoreTrashItem/deleteTrashItem/emptyTrash/prepareTrashView/undoLastTaskAction/exportBackup/prepareBackupRestore/confirmBackupRestore/cancelBackupRestore/getDesktopStatus/setStartAtLogin/requestQuit/subscribeDesktopEvents/resolveReminderActivation, sem canal livre
+- **AND** versões de main/preload/renderer são coerentes no mesmo pacote, sem fallback para estado1/2, update1/2/3/4, status1/2/3, create1/2/3, move1 ou versões antigas de check
 
 #### Scenario: Request malformado
 - **WHEN** chega versão errada, objeto inválido, campo extra, cursor/ID/revisão inválido ou request acima do orçamento de sua operação
@@ -195,7 +195,7 @@ Resultados SHALL ser uniões versionadas/códigos fechados com campos/índices f
 #### Scenario: Erros funcionais dos comandos
 - **WHEN** comando tem campos inválidos, base antiga, tarefa/item ausente, recurso bloqueado, escolha faltante, cálculo impossível, série/identidade conflitante ou origem recusada
 - **THEN** usa VALIDATION_FAILED, CONFLICT, NOT_FOUND, SUBTASK_NOT_FOUND, ADVANCED_TASK_RESTRICTED, RECURRENCE_CHOICE_REQUIRED, RECURRENCE_OUT_OF_RANGE, SERIES_CONFLICT, IDENTITY_CONFLICT, SOURCE_NOT_AVAILABLE, SOURCE_NOT_ALLOWED, SOURCE_TOO_LONG ou EXTERNAL_OPEN_FAILED conforme operação
-- **AND** VALIDATION_FAILED usa apenas campos/códigos e índices 0–19 pertinentes; CONFLICT pode informar revisões atuais sem Task ou reflexão do payload
+- **AND** VALIDATION_FAILED usa apenas campos/códigos e índices 0–19 pertinentes, com reminders em0–9; CONFLICT pode informar revisões atuais sem Task ou reflexão do payload
 
 #### Scenario: Recusas da lixeira e undo
 - **WHEN** contexto/token/base/entrada/idade/ID/recibo/alvo/gerada torna-se inaplicável
@@ -214,7 +214,7 @@ Resultados SHALL ser uniões versionadas/códigos fechados com campos/índices f
 
 ### Requirement: IPC de estado é comprovado no pacote
 
-Validação SHALL exercitar bridge21/isolamento/negativas/sessões e uma inscrição de tasks+trash+época no pacote fictício. I/O real de backup SHALL usar serviço de produto; escolha stub SHALL ser distinta de diálogo nativo Windows. Runtime/kill/reopen/recursos SHALL não substituir prova de instalação nem resolver D10.
+Validação SHALL exercitar bridge26/isolamento/negativas/sessões e uma inscrição de tasks+trash+época no pacote fictício. I/O real de backup SHALL usar serviço de produto; escolha stub SHALL ser distinta de diálogo nativo Windows. Runtime/kill/reopen/recursos SHALL não substituir prova de instalação nem resolver D10.
 
 #### Scenario: Harness de produto e bridge
 - **WHEN** teste empacotado abre duas superfícies autorizadas e provoca alterações fictícias de campos/checks/fechamento/lixeira/undo
@@ -229,7 +229,7 @@ Validação SHALL exercitar bridge21/isolamento/negativas/sessões e uma inscri�
 #### Scenario: Ações novas e oferta própria
 - **WHEN** duas superfícies disputam restore/empty/undo e há reload/clear/resposta atrasada
 - **THEN** snapshots convergem por uma inscrição por documento, somente decisão aplicável confirma e oferta nunca é transferida/ressuscitada
-- **AND** hooks de teste não aparecem na bridge normal e ausência de Setup/scheduler e limites da evidência nativa de backup são identificados
+- **AND** hooks de teste não aparecem na bridge normal e scheduler de produto é exercitado e ausência de Setup/prova nativa de notificações/login e limites da evidência nativa de backup são identificados
 
 #### Scenario: Backup no pacote em duas sessões
 - **WHEN** harness usa arquivo real por escolha determinística e confirma APPLIED/UNCHANGED/base stale/epoch perdida/late ack
@@ -238,17 +238,17 @@ Validação SHALL exercitar bridge21/isolamento/negativas/sessões e uma inscri�
 
 ### Requirement: Comandos aceitam somente intenções de tarefas autorizadas
 
-Create/check3 e update/status4 SHALL conservar intenções e contexto próprio; edit CAS permanece. Move2/demais trash1 SHALL usar referência/token e undo1 só token próprio. Backup1 SHALL aceitar somente contexto/token conforme operação, sem path/bytes/JSON/Task/clock/opções nativas. Limpeza/omissão SHALL manter regras.
+Create4/check3 e update5/status4 SHALL conservar intenções e contexto próprio; edit CAS permanece. Drafts de reminders SHALL aceitar apenas AT/OFFSET, configuração e ID existente no update, sem autoridade de processamento. Move2/demais trash1 SHALL usar referência/token e undo1 só token próprio. Backup1 SHALL aceitar somente contexto/token conforme operação, sem path/bytes/JSON/Task/clock/opções nativas. Limpeza/omissão SHALL manter regras.
 
 #### Scenario: Draft e patch fechados
 - **WHEN** criação/edição contém somente campos autorizados e tipos corretos
 - **THEN** criação normaliza e edição muda somente campos presentes, preservando demais
-- **AND** null limpa só opcionais básicos, regra ou until; [] limpa tags/subtarefas; título/status/prioridade não aceitam null
+- **AND** null limpa só opcionais básicos, regra ou until; [] limpa tags/subtarefas/reminders; título/status/prioridade/reminders não aceitam null
 - **AND** regra omite until conservando o existente; subtarefas do form contêm títulos/IDs, nunca done
 
 #### Scenario: Campos de autoridade indevidos
-- **WHEN** request inclui id em criação, createdAt/updatedAt/completedAt, anchorAt/seriesId, done em draft, reminders/processedFor, filhos, path, UndoPlan ou opções do shell
-- **THEN** é recusado antes de ler/modificar dados; regra/subtarefas fora dos shapes autorizados também falham
+- **WHEN** request inclui id em criação, createdAt/updatedAt/completedAt, anchorAt/seriesId, done em draft, processedFor em reminder, ID de reminder novo/criação ou estranho no update, filhos, path, UndoPlan ou opções do shell
+- **THEN** é recusado antes de ler/modificar dados; regra/subtarefas/reminders fora dos shapes autorizados também falham
 
 #### Scenario: Escolha e intenção explícitas
 - **WHEN** plano CANCELLED recorrente não recebe SKIP/END, escolha é extrínseca ou toggle recebe inversão sem boolean desejado
@@ -281,7 +281,7 @@ Proprietário SHALL decidir/validar/confirmar atual coordenado. Tarefas conserva
 #### Scenario: Conteúdo independente e avançados
 - **WHEN** outra tarefa muda, há claim/check isolado ou são editados campos independentes de tarefa com recorrência/lembretes/subtarefas
 - **THEN** global/claim/check apenas não conflitam com revisão de edição e campos/marks atuais são conservados
-- **AND** recorrência segue seus contratos; com lembretes, mudança efetiva de prazo/status e fechamento/geração são recusados até integração funcional
+- **AND** recorrência segue seus contratos; prazo/status/fechamento com reminders seguem liquidação atômica e reconciliação funcional sem guard D8; falha externa não reverte commit
 
 #### Scenario: Confirmação stale ou reserva insuficiente
 - **WHEN** base completa/identidade/composição muda ou não há recurso para recibo prometido antes do efeito
@@ -295,7 +295,7 @@ Proprietário SHALL decidir/validar/confirmar atual coordenado. Tarefas conserva
 
 ### Requirement: Confirmação de comando converge com snapshot
 
-Acks create/check3 e update/status4 SHALL conservar outcome/revisões; ofertas update/status4 e move2 SHALL carregar undoEpoch. Demais trash/undo1 e backup1 SHALL ser curtos. Oferta exige contexto/época atual e snapshot>=ack; resposta antiga SHALL não fazer upsert/replay/ressuscitar oferta.
+Acks create4/check3 e update5/status4 SHALL conservar outcome/revisões; ofertas update5/status4 e move2 SHALL carregar undoEpoch. Demais trash/undo1 e backup1 SHALL ser curtos. Oferta exige contexto/época atual e snapshot>=ack; resposta antiga SHALL não fazer upsert/replay/ressuscitar oferta.
 
 #### Scenario: Resposta chega depois de snapshot novo
 - **WHEN** resposta confirmada antiga chega após snapshot mais recente
@@ -357,3 +357,35 @@ Backup v1 SHALL oferecer exportBackup/prepareBackupRestore com contextSequence e
 - **WHEN** export confirma ou confirm completa/recusa
 - **THEN** export retorna SAVED/SAVED_WITH_WARNING com taskCount/revision; confirm ok retorna outcome APPLIED/UNCHANGED,revision,restoredCount,verification VERIFIED/PENDING,undoEpoch
 - **AND** confirm error distingue commitState NOT_APPLIED/UNKNOWN;cancels próprios são neutros/idempotentes sem consumir token alheio
+
+### Requirement: Eventos desktop controlam somente superfície e intenção limitada
+
+Desktopv1 SHALL oferecer status, startup boolean, saída, inscrição de callbacks locais com disposer e resolução por tag64hex. Eventos<=1KiB SHALL ter sequência monotônica/kinds finitos e até uma intenção pendente, sem Task/path/clock/notifier livre. Produto e efeitos nativos SHALL não ser admitidos enquanto superfície oculta/suspensa.
+
+#### Scenario: Shapes e versões desktop
+- **WHEN** getDesktopStatus/setStartAtLogin/requestQuit/subscribeDesktopEvents/resolveReminderActivation recebe request/evento com versão/shape/remetente/tamanho inválido
+- **THEN** operação é recusada antes de efeito; setter só aceita desired boolean e resolução só tag opaca limitada
+- **AND** callbacks/disposer são locais, uma inscrição por documento; requests/acks mantêm64KiB/8KiB e erros são seguros
+
+#### Scenario: Controle sobre documento oculto
+- **WHEN** close retira sessão de produto mas documento local vivo mantém listener de controle
+- **THEN** somente suspensão/ativação/status/locate-reminder finitos podem chegar pela guarda específica; produto/setter continua sem autoridade
+- **AND** reload/crash remove listener e evento antigo não reativa sessão ou transientes
+
+### Requirement: Ativação resolve seleção sobre snapshot coerente
+
+Resolução SHALL retornar somente ausência ou revisão global/ordinal da tarefa na ordem canônica do snapshot antes de filtros. Cliente SHALL selecionar somente sobre snapshot da mesma revisão, sem truncar IDs históricos. Churn após três tentativas SHALL retornar BUSY/stale, sem selecionar tarefa incorreta.
+
+#### Scenario: ID longo e mudança concorrente
+- **WHEN** alvo válido tem ID histórico maior que evento curto ou coleção muda entre resolução e snapshot
+- **THEN** referência curta/ordinal conserva identidade sem refletir ID no evento; seleção aguarda revisão coerente
+- **AND** alvo ausente/ambíguo não produz mutação ou seleção arbitrária
+
+### Requirement: Reabertura cria sessão sem resposta herdada
+
+Close para bandeja SHALL retirar admissão e invalidar cursores/tokens/jobs/requests de produto. Abrir SHALL reconciliar e criar nova sessão/inscrição/snapshot antes de escritas, conservando draft/filtros apenas em memória. Ack antigo SHALL não ser entregue, repetido ou reconstruído como oferta na sessão nova.
+
+#### Scenario: Cliente ignora suspensão e resposta chega tarde
+- **WHEN** renderer oculto tenta autorizar novamente ou ack da sessão encerrada chega depois de Abrir
+- **THEN** oculto continua recusado e ack antigo não publica dados/oferta na nova sessão
+- **AND** ressync conserva commits, aponta conflito de base quando pertinente e não reenvia escrita

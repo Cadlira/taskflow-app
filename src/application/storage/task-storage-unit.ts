@@ -1,5 +1,5 @@
 import type { Task } from '../../domain/task.js'
-import { claimReminderOccurrence, preserveProcessedMarkers, settleElapsedReminders } from '../../domain/task-reminders.js'
+import { claimReminderOccurrence, classifyReminderOccurrence, markReminderProcessed, preserveProcessedMarkers, settleElapsedReminders } from '../../domain/task-reminders.js'
 import { setSubtaskDone } from '../../domain/task-subtasks.js'
 import {
   isTrashExpired,
@@ -575,6 +575,23 @@ export function createTaskStorageUnit(port: StorageRowPort): ActiveTaskStorageUn
       writeTask(encodeTaskPayload(claimed), current.contentRevision, current.editRevision)
       port.allocateRevision()
       return true
+    },
+
+    processReminderOccurrence(occurrence, now, allowEligible = true) {
+      assertActive()
+      const row = port.readRow('tasks', occurrence.taskId)
+      if (row === undefined) return { status: 'INAPPLICABLE' }
+      const current = decodeTaskRow(row)
+      const classification = classifyReminderOccurrence(current.task, occurrence, now)
+      if (classification === 'FUTURE' || classification === 'INAPPLICABLE') return { status: classification }
+      if (classification === 'ELIGIBLE' && !allowEligible) return { status: 'DEFERRED' }
+      const processed = markReminderProcessed(current.task, occurrence.reminderId, occurrence.triggerISO)
+      writeTask(encodeTaskPayload(processed), current.contentRevision, current.editRevision)
+      port.allocateRevision()
+      if (classification === 'EXPIRED') return { status: 'EXPIRED' }
+      const dueAt = current.task.dueAt
+      if (dueAt === undefined) throw new StorageFailure('INVALID_DATA')
+      return { status: 'CLAIMED', candidate: { ...occurrence, title: current.task.title, dueAt } }
     },
   }
 

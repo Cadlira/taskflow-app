@@ -37,7 +37,7 @@ O store fala o estado/mutações v2 e usa **a revisão de edição** (`editRevis
 | `CONFLICT` | Painel de conflito com revisões atuais; draft/base preservados; recarga só com confirmação. |
 | `NOT_FOUND` | Aviso de tarefa ausente; nada é recriado. |
 | `SUBTASK_NOT_FOUND` | Aviso no cartão; nenhuma marcação é confirmada e o foco volta ao cartão. |
-| `ADVANCED_TASK_RESTRICTED` | Motivo D8 (abaixo) no formulário ou na lista. |
+| `ADVANCED_TASK_RESTRICTED` (histórico) | Motivo D8 abaixo no formulário ou na lista; código removido do catálogo corrente pela TFA-008. |
 | `RECURRENCE_CHOICE_REQUIRED` | Diálogo SKIP/END; nada gravado até a escolha. |
 | `SERIES_CONFLICT` / `IDENTITY_CONFLICT` / `RECURRENCE_OUT_OF_RANGE` / `RESOURCE_LIMIT` | Mensagens finitas; banco/regra/draft preservados. |
 
@@ -111,28 +111,26 @@ O store fala o estado/mutações v2 e usa **a revisão de edição** (`editRevis
   abre diálogo, não emite comando e não rouba o foco válido que o usuário já moveu. Setas,
   Home/End, PageUp/PageDown, Enter e Escape continuam valendo para o status simples.
 
-## Guarda de lembretes (D8)
+## Lembretes (estado corrente — TFA-008)
 
-Com lembretes presentes, o main recusa — e o renderer explica — mudança efetiva de prazo ou status e
-qualquer fechamento/geração (DONE/SKIP/END), inclusive retirar a regra combinada com mudar
-prazo/status:
+O formulário edita até 10 lembretes OFFSET/AT com presets, unidades e erro por item; o main valida,
+gera IDs, preserva ISO/markers e integra prazo/status/fechamento/geração com liquidação `<= now` e
+reconciliação na mesma unidade. A consulta temporária por aviso conserva formulário e filtros; ver
+[guia desktop](desktop-reminders-and-lifecycle.md).
 
-> Esta tarefa tem lembretes. Alterar prazo ou status e gerar outra ocorrência depende da integração
-> de lembretes.
-
-A retirada isolada da regra é permitida e tem mensagem própria (“Remover a recorrência mantém o
-status, o prazo e os lembretes desta tarefa.”). Título, descrição, tags, pessoas, prioridade,
-origem, estrutura/marcações de subtarefas e edição de regra que não mude prazo/status nem feche a
-ocorrência continuam permitidos. Nenhum scheduler, notificação ou reconciliação é entregue.
+Estado histórico (TFA-005, superado): com lembretes presentes, o main recusava mudança efetiva de
+prazo/status e fechamento/geração; o renderer exibia “Esta tarefa tem lembretes. Alterar prazo ou
+status e gerar outra ocorrência depende da integração de lembretes.” A TFA-008 removeu o código e a
+mensagem; a retirada isolada da regra continua permitida e mantém status, prazo e lembretes.
 
 ## Limitações transitórias
 
 - Expansão de cartão, draft do formulário e escolha de diálogo são estados de interface **não
   persistidos**; fechar a janela/crash os descarta (o estado confirmado vem sempre do snapshot).
-- A guarda D8 permanece até a Change de lembretes; os limites de 32.768 passos e de recurso
-  (`RESOURCE_LIMIT`) são erros finitos sem alteração parcial.
-- Persistem fora desta entrega: undo, lixeira funcional, backup/restauração, notificações, edição de
-  lembretes, captura/Quick Add/atalhos e IA.
+- A guarda D8 foi retirada pela TFA-008 (lembretes integrados); os limites de 32.768 passos e de
+  recurso (`RESOURCE_LIMIT`) continuam erros finitos sem alteração parcial.
+- Persistem fora desta entrega: undo, lixeira funcional, backup/restauração, notificações nativas
+  instaladas, captura/Quick Add/atalhos e IA.
 
 ## Testes de renderer
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell, Tray, nativeImage, powerMonitor, Notification } from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,30 +47,65 @@ import { isTrustedRendererUrl, parseAppAssetRequest, readPackagedAsset } from '.
 import { StorageCoordinator, type ShutdownReport } from './storage/coordinator.js'
 import { ProductDatabase, type StorageFaults } from './storage/product-database.js'
 import { PRODUCT_STORAGE_DEFINITION } from './storage/product-schema.js'
+import { DESKTOP_CHANNELS, DESKTOP_RESOLVE_CHANNEL, type ReminderCapability } from '../contracts/desktop.js'
+import type { ReminderServiceStatus } from '../application/reminders/reminder-ports.js'
+import { DesktopIpcService } from './ipc/desktop.js'
+import { DesktopLifecycle, type DesktopWindow } from './desktop/lifecycle.js'
+import { createDesktopTray, type DesktopTray } from './desktop/tray.js'
+import { NATIVE_IDENTITIES, LOGIN_ARGUMENT, STARTUP_NAME, prepareNativeIdentity } from './desktop/native-identity.js'
+import { createWindowsRegistry } from './desktop/windows-registry.js'
+import { StartupService } from './desktop/startup.js'
+import { parseNativeActivation, parseActivationRelay, ReminderActivationRoute } from './desktop/activation.js'
+import { createReminderRuntime, resetForBackup } from './reminders/runtime.js'
+import { createNativeNotifier, fakeReminderSubmit } from './reminders/notifier.js'
+import { REMINDER_OWNER } from './reminders/processor.js'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'taskflow', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false } },
 ])
 
-app.setName('TaskFlow App')
-app.setAppUserModelId('taskflow.app')
-
 const profile = selectFoundationProfile(app.isPackaged, process.argv, process.env)
+const identity = NATIVE_IDENTITIES[profile]
+app.setName(identity.name)
+app.setAppUserModelId(identity.aumid)
 const paths = resolveProfilePaths(process.env['LOCALAPPDATA'], profile)
 app.setPath('userData', paths.userData)
 app.setPath('sessionData', paths.sessionData)
 
 // Ownership do perfil antes de qualquer banco: a segunda instância encerra sem abrir a prova
-// nem o produto e sem criar janela.
-const ownsProfile = app.requestSingleInstanceLock()
-if (!ownsProfile) {
-  app.quit()
-} else {
+// nem o produto e sem criar janela. O relay COM (-Embedding) NÃO pede o lock sem dados:
+// isso dispararia o owner antes do callback e consumiria a rota; ele só pede com
+// `additionalData` depois de um callback validado (D8).
+const coldLaunch = process.argv.includes('-Embedding')
+const relayMode = coldLaunch && profile === 'prod' && app.isPackaged
+const ownsProfile = relayMode ? false : app.requestSingleInstanceLock()
+const registry = createWindowsRegistry(process.env['SystemRoot'] ?? '')
+const nativeIdentityPorts = {
+  profile, packaged: app.isPackaged, executable: process.execPath,
+  localAppData: process.env['LOCALAPPDATA'] ?? '', appData: process.env['APPDATA'] ?? '', registry,
+  shortcut: (file: string) => shell.readShortcutLink(file),
+  updateShortcut: (file: string, clsid: string, cwd: string) => shell.writeShortcutLink(file, 'update', { target: process.execPath, toastActivatorClsid: clsid, cwd }),
+}
+let activationHandler: (tag: string) => void = () => undefined
+let activationRegistered = false
+let nativeBootstrap: Notification | undefined
+app.on('will-quit', () => { nativeBootstrap?.removeAllListeners(); nativeBootstrap = undefined })
+function registerActivation(): void {
+  if (activationRegistered || profile !== 'prod' || !app.isPackaged) return
+  activationRegistered = true
+  Notification.handleActivation(details => {
+    const tag = parseNativeActivation(details)
+    if (tag !== undefined) activationHandler(tag)
+  })
+}
+
+function startOwner(): void {
   const packagedOrigin = 'taskflow://app'
   const devOrigin = 'http://127.0.0.1:5173'
   const expectedOrigin = app.isPackaged ? packagedOrigin : devOrigin
   const busyGate = new FoundationBusyGate()
   const sessions = new DocumentSessions(expectedOrigin)
+  const controls = new DocumentSessions(expectedOrigin)
   // Recibos/confirmações/contexto são temporários e por documento: sessão invalidada limpa tudo.
   const undo = new UndoRegistry({ randomToken: () => randomBytes(24).toString('base64url') })
   const backupLedger = new BackupResourceLedger()
@@ -139,6 +174,69 @@ if (!ownsProfile) {
   const backupIpc = new BackupCommandIpcService({ sessions, services: backupServices })
   let mainWindow: BrowserWindow | null = null
   let shutdownStarted = false
+  let tray: DesktopTray | undefined
+  let runtime: ReturnType<typeof createReminderRuntime> | undefined
+  let reminderState: ReminderServiceStatus = 'RECOVERING'
+  let reminderCapability: ReminderCapability = profile === 'prod' ? 'UNAVAILABLE' : 'FAKE'
+  let nativeIdentityReady = false
+  let started = false
+  let pendingActivation: string | undefined
+  let startupTimer: ReturnType<typeof setInterval> | undefined
+  let coldTimer: ReturnType<typeof setTimeout> | undefined
+  const startup = new StartupService({
+    installed: () => profile === 'prod' && app.isPackaged && nativeIdentityReady,
+    validate: () => prepareNativeIdentity({ ...nativeIdentityPorts, readonlyOnly: true }), executable: process.execPath, registry,
+    get: () => app.getLoginItemSettings({ path: process.execPath, args: [LOGIN_ARGUMENT] }),
+    // Windows: o interruptor é `openAtLogin`; `enabled` é macOS-only e não grava o Run.
+    set: enabled => app.setLoginItemSettings({ name: STARTUP_NAME, path: process.execPath, args: [LOGIN_ARGUMENT], openAtLogin: enabled }),
+    changed: () => desktopIpc.emit('desktop-status-changed'),
+  })
+  function windowPort(window: BrowserWindow): DesktopWindow {
+    return { destroyed: () => window.isDestroyed(), hide: () => window.hide(), show: () => window.show(),
+      focus: () => window.focus(), restore: () => { if (window.isMinimized()) window.restore() } }
+  }
+  const lifecycle = new DesktopLifecycle({
+    window: () => mainWindow === null ? undefined : windowPort(mainWindow),
+    create: () => {
+      mainWindow = createMainWindow()
+      void mainWindow.loadURL(resolveDevelopmentUrl())
+      return windowPort(mainWindow)
+    },
+    admit: () => { if (mainWindow !== null && !mainWindow.isDestroyed()) sessions.register(mainWindow.webContents) },
+    withdraw: () => {
+      for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) sessions.unregister(window.webContents.id)
+      if (startupTimer !== undefined) clearInterval(startupTimer)
+      startupTimer = undefined
+    },
+    suspended: () => desktopIpc.emit('surface-suspended'),
+    active: () => {
+      desktopIpc.emit('surface-active')
+      void startup.read()
+      startupTimer ??= setInterval(() => { void startup.read() }, 60000)
+    },
+    pauseReminders: () => { runtime?.service.suspend(); coordinator.cancelOwner(REMINDER_OWNER) },
+    resumeReminders: () => runtime?.service.resume(),
+    stop: () => { runtime?.dispose(); void shutdownStorage(); tray?.destroy(); tray = undefined },
+    quit: () => app.quit(),
+  })
+  const desktopIpc = new DesktopIpcService({
+    control: controls, product: sessions, storage: coordinator, reminders: () => runtime?.service,
+    status: () => ({ surfaceSequence: 1, visibility: lifecycle.visibility, recovery: lifecycle.power,
+      reminders: reminderState, reminderCapability, startup: startup.state }),
+    startup: (desired, current) => startup.set(desired, current), quit: () => lifecycle.quit(),
+  })
+  const activation = new ReminderActivationRoute(() => Date.now(), () => lifecycle.open(), tag => desktopIpc.locate(tag))
+  activationHandler = tag => {
+    if (!started) { pendingActivation = tag; return }
+    if (coldTimer !== undefined) clearTimeout(coldTimer)
+    coldTimer = undefined
+    if (activation.accept(tag)) activation.ready()
+  }
+  app.on('second-instance', (_event, _argv, _cwd, data: unknown) => {
+    const tag = parseActivationRelay(data)
+    if (tag !== undefined) activationHandler(tag)
+    else if (started) lifecycle.open()
+  })
 
   async function serveAssets(): Promise<void> {
     protocol.handle('taskflow', async (request) => {
@@ -193,6 +291,7 @@ if (!ownsProfile) {
       window.destroy()
       return null
     }
+    if (options.register && !controls.register(contents)) { window.destroy(); return null }
 
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     contents.on('will-navigate', (event, url) => {
@@ -205,22 +304,33 @@ if (!ownsProfile) {
     // Navegação e reload (inclusive da mesma URL) trocam o documento: a sessão anterior, seus
     // cursores, inscrição e respostas pendentes deixam de valer no início e na conclusão.
     contents.on('did-start-navigation', (details) => {
-      if (details.isMainFrame && !details.isSameDocument) sessions.invalidate(contentsId)
+      if (details.isMainFrame && !details.isSameDocument) { sessions.invalidate(contentsId); controls.invalidate(contentsId) }
     })
-    contents.on('did-navigate', () => sessions.invalidate(contentsId))
-    contents.on('render-process-gone', () => sessions.invalidate(contentsId))
-    contents.once('destroyed', () => sessions.unregister(contentsId))
+    contents.on('did-navigate', () => { sessions.invalidate(contentsId); controls.invalidate(contentsId) })
+    contents.on('render-process-gone', () => {
+      sessions.unregister(contentsId); controls.unregister(contentsId)
+      if (mainWindow === window && !shutdownStarted) { window.destroy(); mainWindow = null; lifecycle.rendererGone() }
+    })
+    contents.once('destroyed', () => { sessions.unregister(contentsId); controls.unregister(contentsId) })
     if (options.show) window.once('ready-to-show', () => window.show())
     return window
   }
 
   function createMainWindow(): BrowserWindow {
-    const window = createSurface({ show: true, register: true })
+    const window = createSurface({ show: !coldLaunch, register: true })
     if (window === null) throw new Error('Main window could not be registered')
     window.once('closed', () => {
       if (mainWindow === window) mainWindow = null
-      app.quit()
+      if (!lifecycle.trayValid && !shutdownStarted) lifecycle.quit()
     })
+    window.on('close', event => {
+      // Falha conhecida posterior da bandeja não pode reter a única superfície sem saída.
+      lifecycle.setTray(tray?.valid() === true)
+      if (lifecycle.close()) event.preventDefault()
+    })
+    window.on('query-session-end', () => lifecycle.quit())
+    window.on('session-end', () => lifecycle.quit())
+    window.on('focus', () => { if (lifecycle.visibility === 'VISIBLE' && lifecycle.power === 'ACTIVE') void startup.read() })
     return window
   }
 
@@ -257,6 +367,12 @@ if (!ownsProfile) {
     ipcMain.handle(BACKUP_PREPARE_CHANNEL, (event, request: unknown) => backupIpc.handlePrepare(event, request))
     ipcMain.handle(BACKUP_CONFIRM_CHANNEL, (event, request: unknown) => backupIpc.handleConfirm(event, request))
     ipcMain.handle(BACKUP_CANCEL_CHANNEL, (event, request: unknown) => backupIpc.handleCancel(event, request))
+    ipcMain.handle(DESKTOP_CHANNELS.status, (event, request: unknown) => desktopIpc.status(event, request))
+    ipcMain.handle(DESKTOP_CHANNELS.startup, (event, request: unknown) => desktopIpc.startup(event, request))
+    ipcMain.handle(DESKTOP_CHANNELS.quit, (event, request: unknown) => desktopIpc.quit(event, request))
+    ipcMain.handle(DESKTOP_CHANNELS.subscribe, (event, request: unknown) => desktopIpc.subscribe(event, request))
+    ipcMain.handle(DESKTOP_CHANNELS.unsubscribe, (event, request: unknown) => desktopIpc.unsubscribe(event, request))
+    ipcMain.handle(DESKTOP_RESOLVE_CHANNEL, (event, request: unknown) => desktopIpc.resolve(event, request))
   }
 
   /**
@@ -267,6 +383,9 @@ if (!ownsProfile) {
   function shutdownStorage(): ShutdownReport | undefined {
     if (shutdownStarted) return undefined
     shutdownStarted = true
+    runtime?.dispose()
+    if (coldTimer !== undefined) clearTimeout(coldTimer)
+    if (startupTimer !== undefined) clearInterval(startupTimer)
     for (const channel of [
       FOUNDATION_CHANNEL,
       STATE_SNAPSHOT_CHANNEL,
@@ -289,6 +408,7 @@ if (!ownsProfile) {
       BACKUP_PREPARE_CHANNEL,
       BACKUP_CONFIRM_CHANNEL,
       BACKUP_CANCEL_CHANNEL,
+      ...Object.values(DESKTOP_CHANNELS), DESKTOP_RESOLVE_CHANNEL,
     ]) {
       ipcMain.removeHandler(channel)
     }
@@ -296,6 +416,7 @@ if (!ownsProfile) {
       if (!window.isDestroyed()) sessions.unregister(window.webContents.id)
     }
     stateIpc.dispose()
+    desktopIpc.dispose()
     return coordinator.shutdown()
   }
 
@@ -303,6 +424,31 @@ if (!ownsProfile) {
     await serveAssets()
     configureSession()
     Menu.setApplicationMenu(null)
+    registerActivation()
+    const icon = app.isPackaged ? path.join(process.resourcesPath, 'taskflow.ico') : path.join(app.getAppPath(), 'build', 'icons', 'taskflow.ico')
+    let submit = fakeReminderSubmit
+    nativeIdentityReady = profile === 'prod' && await prepareNativeIdentity(nativeIdentityPorts)
+    if (nativeIdentityReady && Notification.isSupported()) {
+      // Bootstrap cria o presenter/COM sem show, claim ou toast fictício.
+      nativeBootstrap = new Notification({ title: identity.name })
+      reminderCapability = 'NATIVE'
+      submit = createNativeNotifier({ supported: () => Notification.isSupported(), create: options => new Notification(options) }, icon, () => {
+        reminderState = 'UNAVAILABLE'; desktopIpc.emit('desktop-status-changed')
+      }, tag => activationHandler(tag))
+    } else if (profile === 'prod') {
+      reminderState = 'UNAVAILABLE'
+      submit = (_candidate, completed) => { completed(); return () => undefined }
+    }
+    tray = createDesktopTray({
+      name: identity.name,
+      icon: () => nativeImage.createFromPath(icon),
+      create: image => new Tray(image),
+      menu: items => Menu.buildFromTemplate([...items]),
+      open: () => lifecycle.open(),
+      quit: () => lifecycle.quit(),
+    })
+    // Falha inicial (ícone/menu/criação) mantém a janela visível e o fechamento seguro.
+    lifecycle.setTray(tray?.valid() === true)
     // Indisponibilidade do banco de produto não vira estado vazio: o IPC devolve o código.
     // Cenários de migração (seed SQL1, inspeção e kill antes/durante/depois do commit) precisam
     // do arquivo intocado: nem o coordenador abre nem o IPC de estado/comandos é registrado,
@@ -310,9 +456,31 @@ if (!ownsProfile) {
     if (harnessScenario === null || !harnessSkipsCoordinatorStart(harnessScenario)) {
       coordinator.start()
       registerIpc()
+      runtime = createReminderRuntime({ storage: coordinator,
+        active: () => lifecycle.remindersActive && (profile !== 'prod' || reminderCapability === 'NATIVE'), submit,
+        statusChanged: status => { reminderState = status; desktopIpc.emit('desktop-status-changed') },
+        effect: code => { if (code === 'NATIVE_NOTIFICATION_FAILED') { reminderState = 'UNAVAILABLE'; desktopIpc.emit('desktop-status-changed') } },
+      })
+      undo.onInvalidated(event => {
+        if (event.reason === 'BACKUP_RESTORED') resetForBackup(runtime)
+      })
+      // Cenários explícitos de harness suspendem o scheduler para manter probes de
+      // revisão/digest determinísticas; `reminders` mantém a agenda real (com notifier fake) e
+      // o fluxo normal (foundation) também. Cenários futuros de lembrete devem declarar-se aqui.
+      if (harnessScenario === null || harnessScenario.name === 'reminders') runtime.service.wake()
+      else runtime.service.suspend()
     }
     mainWindow = createMainWindow()
     await mainWindow.loadURL(resolveDevelopmentUrl())
+    started = true
+    if (coldLaunch || (profile === 'prod' && process.argv.includes(LOGIN_ARGUMENT))) {
+      if (lifecycle.trayValid) lifecycle.hide()
+      else lifecycle.open()
+    }
+    if (pendingActivation !== undefined) { activationHandler(pendingActivation); pendingActivation = undefined }
+    else if (coldLaunch) coldTimer = setTimeout(() => lifecycle.open(), 10000)
+    powerMonitor.on('suspend', () => lifecycle.suspend())
+    powerMonitor.on('resume', () => lifecycle.resume())
     if (harnessScenario !== null) {
       await runProductHarness(harnessScenario, {
         app,
@@ -321,6 +489,7 @@ if (!ownsProfile) {
         stateIpc,
         faults: harnessFaults,
         mainWindow,
+        lifecycle,
         createSurface: (register) => createSurface({ show: false, register }),
         surfaceUrl: resolveDevelopmentUrl(),
         expectedOrigin,
@@ -370,8 +539,28 @@ if (!ownsProfile) {
     }
   }
 
-  app.on('window-all-closed', () => app.quit())
-  app.on('before-quit', () => void shutdownStorage())
+  app.on('window-all-closed', () => {
+    lifecycle.windowAllClosed(tray?.valid() === true)
+  })
+  app.on('before-quit', () => lifecycle.quit())
 
   void app.whenReady().then(startApplication).catch(() => app.quit())
 }
+
+if (ownsProfile) startOwner()
+else if (relayMode) {
+  // Relay transitório: nenhum coordenador, banco, janela ou agenda foi criado.
+  void app.whenReady().then(async () => {
+    if (!await prepareNativeIdentity(nativeIdentityPorts)) { app.quit(); return }
+    const deadline = setTimeout(() => app.quit(), 10000)
+    activationHandler = tag => {
+      clearTimeout(deadline)
+      const owned = app.requestSingleInstanceLock({ version: 1, kind: 'reminder-activation', tag })
+      if (!owned) { app.quit(); return }
+      startOwner()
+      activationHandler(tag)
+    }
+    registerActivation()
+    nativeBootstrap = new Notification({ title: identity.name })
+  }).catch(() => app.quit())
+} else app.quit()

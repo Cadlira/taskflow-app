@@ -932,88 +932,26 @@ describe('comandos de tarefas na unidade: subtarefas e guarda D8', () => {
     if (stale.value.status === 'CONFLICT') expect(stale.value.currentEditRevision).toBeGreaterThan(base.editRevision)
   })
 
-  it('D8: lembretes bloqueiam prazo/status/fechamento-geração e permitem independentes/retirada', async () => {
+  it('M05: prazo/status e geração com OFFSET conservam marcadores e identidades próprias', async () => {
     const coordinator = openCoordinator(createProductFile())
-    const rule = { frequency: 'DAILY', intervalDays: 1 } as const
-    expectOk(
-      await coordinator.run((unit) =>
-        unit.saveTask(
-          buildTask({
-            id: 'lem',
-            dueAt: DUE,
-            seriesId: 'serie-l',
-            recurrence: rule,
-            reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 10 }],
-          }),
-        ),
-      ),
-    )
+    const original = buildTask({ id: 'lem', dueAt: DUE, seriesId: 'serie-l', recurrence: { frequency: 'DAILY', intervalDays: 1 }, reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 10 }] })
+    expectOk(await coordinator.run(unit => unit.saveTask(original)))
     let base = await revisionsOf(coordinator, 'lem')
-
-    const dueBlocked = expectOk(
-      await coordinator.run((unit) =>
-        updateTaskInUnit(unit, { taskId: 'lem', expectedEditRevision: base.editRevision, patch: { dueAt: '2026-10-11T10:00:00.000Z' }, now: NOW, generateId: idGenerator() }),
-      ),
-    )
-    expect(dueBlocked.value).toEqual({ status: 'ADVANCED_TASK_RESTRICTED' })
-
-    const statusBlocked = expectOk(
-      await coordinator.run((unit) =>
-        changeTaskStatusInUnit(unit, { taskId: 'lem', expectedEditRevision: base.editRevision, status: 'DONE', now: NOW, generateId: idGenerator() }),
-      ),
-    )
-    expect(statusBlocked.value).toEqual({ status: 'ADVANCED_TASK_RESTRICTED' })
-
-    // Edição independente e retirada isolada da regra são permitidas, preservando tudo.
-    const independent = expectOk(
-      await coordinator.run((unit) =>
-        updateTaskInUnit(unit, { taskId: 'lem', expectedEditRevision: base.editRevision, patch: { title: 'Novo', assignee: 'Ana' }, now: NOW, generateId: idGenerator() }),
-      ),
-    )
-    expect(independent.value.status).toBe('UPDATED')
-
+    const edited = expectOk(await coordinator.run(unit => updateTaskInUnit(unit, { taskId: 'lem', expectedEditRevision: base.editRevision, patch: { dueAt: '2026-10-11T10:00:00.000Z' }, now: NOW, generateId: idGenerator() })))
+    expect(edited.value.status).toBe('UPDATED')
     base = await revisionsOf(coordinator, 'lem')
-    const removed = expectOk(
-      await coordinator.run((unit) =>
-        updateTaskInUnit(unit, { taskId: 'lem', expectedEditRevision: base.editRevision, patch: { recurrence: null }, now: NOW, generateId: idGenerator() }),
-      ),
-    )
-    expect(removed.value.status).toBe('UPDATED')
-    const stored = expectOk(await coordinator.read((reader) => reader.getTask('lem')))
-    expect(stored.value?.task.reminders).toEqual([{ id: 'r', type: 'OFFSET', offsetMinutes: 10 }])
-    expect(stored.value?.task.seriesId).toBe('serie-l')
-    expect(stored.value?.task.recurrence).toBeUndefined()
-    expect(stored.value?.task.status).toBe('TODO')
-  })
-
-  it('D8: AT impede adicionar regra sem remover o lembrete; regra novaremove permitida', async () => {
-    const coordinator = openCoordinator(createProductFile())
-    expectOk(
-      await coordinator.run((unit) =>
-        unit.saveTask(
-          buildTask({ id: 'at', dueAt: DUE, reminders: [{ id: 'r', type: 'AT', at: '2026-10-10T09:00:00.000Z' }] }),
-        ),
-      ),
-    )
-    const base = await revisionsOf(coordinator, 'at')
-    const blocked = expectOk(
-      await coordinator.run((unit) =>
-        updateTaskInUnit(unit, {
-          taskId: 'at',
-          expectedEditRevision: base.editRevision,
-          patch: { recurrence: { frequency: 'DAILY', intervalDays: 1 } },
-          now: NOW,
-          generateId: idGenerator('serie-at'),
-        }),
-      ),
-    )
-    expect(blocked.value).toEqual({
-      status: 'VALIDATION_FAILED',
-      fields: { recurrence: { frequency: 'ABSOLUTE_REMINDER_INCOMPATIBLE' } },
-    })
-    const stored = expectOk(await coordinator.read((reader) => reader.getTask('at')))
-    expect(stored.value?.task.reminders).toEqual([{ id: 'r', type: 'AT', at: '2026-10-10T09:00:00.000Z' }])
-    expect(stored.value?.task.recurrence).toBeUndefined()
+    const closed = expectOk(await coordinator.run(unit => changeTaskStatusInUnit(unit, { taskId: 'lem', expectedEditRevision: base.editRevision, status: 'DONE', now: NOW, generateId: idGenerator('new-task', 'new-reminder') })))
+    expect(closed.value.status).toBe('UPDATED')
+    const rows = expectOk(await coordinator.read(reader => [...reader.iterateTasks(undefined)]))
+    expect(rows.value).toHaveLength(2)
+    const old = rows.value.find(row => row.task.id === 'lem')?.task
+    const generated = rows.value.find(row => row.task.id !== 'lem')?.task
+    expect(old?.recurrence).toBeUndefined()
+    expect(old?.reminders).toEqual(original.reminders)
+    expect(generated?.status).toBe('TODO')
+    expect(generated?.reminders[0]?.id).not.toBe('r')
+    expect(generated?.reminders[0]?.processedFor).toBeUndefined()
+    expect(generated?.reminders[0]).toMatchObject({ type: 'OFFSET', offsetMinutes: 10 })
   })
 
   it('mudar outra tarefa não gera falso conflito', async () => {

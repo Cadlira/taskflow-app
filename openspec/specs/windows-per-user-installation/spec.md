@@ -66,7 +66,7 @@ O instalador SHALL recusar `/allusers`, inclusive combinado com `/currentuser` o
 
 ### Requirement: Efeitos registrados somente no usuário atual
 
-Instalação e manutenção SHALL limitar registro e atalhos ao usuário atual, sem gravar HKLM, Program Files ou atalhos globais. Elas SHALL documentar paths/chaves/atalhos efetivos e falhar de forma segura quando o destino estiver inacessível, sem elevar ou redirecionar para root global.
+Instalação/manutenção/integrações nativas SHALL limitar registro/atalhos ao usuário atual, incluindo AUMID/CLSID/ativação e startup opcional, sem HKLM, Program Files ou atalhos globais. Elas SHALL documentar paths/chaves/atalhos efetivos e falhar de forma segura quando o destino estiver inacessível, sem elevar ou redirecionar para root global.
 
 #### Scenario: Efeitos da instalação
 - **WHEN** os efeitos do Setup são comparados antes/depois no ambiente de prova
@@ -84,7 +84,7 @@ Instalação e manutenção SHALL limitar registro e atalhos ao usuário atual, 
 
 ### Requirement: Manutenção preserva identidade e dados
 
-Upgrade manual, desinstalação padrão e reinstalação SHALL manter identidade estável e preservar a raiz de dados/marcador da prova. Uninstall SHALL remover somente binários, chaves e atalhos próprios do usuário. Instalação de máquina preexistente SHALL ser recusada sem migração ou elevação.
+Upgrade manual, desinstalação padrão e reinstalação SHALL manter identidade estável e preservar a raiz de dados/marcador da prova. Uninstall SHALL remover somente binários, chaves, atalhos e entrada/aprovação de startup próprios, com ownership verificado, conservando registros estranhos. Upgrade SHALL preservar preferência/desativação externa no caminho estável. Instalação de máquina preexistente SHALL ser recusada sem migração ou elevação.
 
 #### Scenario: Atualização manual fictícia
 - **WHEN** o app é fechado com segurança e a versão fictícia seguinte é instalada para o mesmo usuário
@@ -100,3 +100,8 @@ Upgrade manual, desinstalação padrão e reinstalação SHALL manter identidade
 #### Scenario: Instalação all-users legada
 - **WHEN** uma instalação de máquina conflitante é detectada
 - **THEN** o instalador recusa com orientação segura, sem alterar HKLM ou tentar elevá-la/migrá-la
+
+#### Scenario: Identidade notificações e cleanup próprios
+- **WHEN** instalação/primeira execução prepara atalho AUMID+CLSID/COM por usuário e uninstall remove recursos
+- **THEN** target/LocalServer32/ícone/activation são provados com espaços/acentos; cleanup confere cadastro próprio e não remove outro perfil/conta ou CLSID/entrada estrangeiros
+- **AND** COM usa executável próprio, sem serviço/helper/elevação; dev/test não altera cadastro prod

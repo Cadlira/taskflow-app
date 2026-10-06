@@ -36,12 +36,13 @@
     "typecheck:tests": "tsc --project tsconfig.tests.json --noEmit",
     "typecheck": "npm run typecheck:contracts && npm run typecheck:main && npm run typecheck:preload && npm run typecheck:renderer && npm run typecheck:tests",
     "test": "vitest run",
+    "test:volume": "vitest run --config vitest.volume.config.ts",
     "build": "electron-vite build",
     "icon:win": "node scripts/generate-windows-icon.mjs",
     "package:win": "npm run build && npm run icon:win && electron-builder --win nsis --x64 --publish never",
     "verify:package": "node scripts/verify-package.mjs",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
-    "validate": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "validate": "npm run lint && npm run typecheck && npm run test && npm run test:volume && npm run build"
   },
   "dependencies": {},
   "devDependencies": {
@@ -73,6 +74,9 @@
     "executableName": "TaskFlowApp",
     "publish": null,
     "asar": true,
+    "extraResources": [
+      { "from": "build/icons/taskflow.ico", "to": "taskflow.ico" }
+    ],
     "files": [
       "out/**/*",
       "LICENSE"

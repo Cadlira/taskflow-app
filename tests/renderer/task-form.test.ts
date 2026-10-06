@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { afterEach, describe, expect, it } from 'vitest'
 import TaskForm from '../../src/renderer/src/components/tasks/TaskForm.vue'
 import { toLocalDateTimeInput } from '../../src/renderer/src/components/tasks/date-time.js'
@@ -107,12 +108,84 @@ describe('TaskForm: campos básicos, erro e foco', () => {
     expect(withUrl.text()).toContain('valor salvo')
   })
 
-  it('lembretes presentes exibem o motivo D8 para prazo/status e geração', () => {
-    const task = buildTask({ id: 'lem', reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 60 }] })
-    const wrapper = mountForm({ props: { task } })
-    expect(wrapper.get('[data-test="reminders-hint"]').text()).toContain(
-      'Alterar prazo ou status e gerar outra ocorrência depende da integração de lembretes.',
-    )
+  it('presets e unidade compõem minutos exatos; antecedência vazia não vira zero', async () => {
+    const wrapper = mountForm({ props: { task: buildTask({ id: 'a', dueAt: '2026-10-10T12:00:00.000Z' }) } })
+    await wrapper.get('[data-action="add-reminder"]').trigger('click')
+    await wrapper.get('[aria-label="Lembrete 1: 60 minutos antes do prazo"]').trigger('click')
+    await wrapper.get('[aria-label="Lembrete 1: 1440 minutos antes do prazo"]').trigger('click')
+    await wrapper.get('select[id$="-reminder-0-unit"]').setValue('60')
+    await wrapper.get('input[id$="-reminder-0-offset"]').setValue('2')
+    await wrapper.get('form').trigger('submit')
+    const patch = submissionOf(wrapper).patch ?? {}
+    expect(patch['reminders']).toEqual([{ type: 'OFFSET', offsetMinutes: 120 }])
+
+    const empty = mountForm({ props: { task: buildTask({ id: 'b', dueAt: '2026-10-10T12:00:00.000Z' }) } })
+    await empty.get('[data-action="add-reminder"]').trigger('click')
+    await empty.get('input[id$="-reminder-0-offset"]').setValue('')
+    await empty.get('form').trigger('submit')
+    const drafts = (submissionOf(empty).patch ?? {})['reminders'] as Array<{ offsetMinutes: number }>
+    expect(Number.isNaN(drafts[0]?.offsetMinutes)).toBe(true)
+  })
+
+  it('preserva AT intacto e normaliza ISO somente quando alterado', async () => {
+    const task = buildTask({
+      id: 'a',
+      dueAt: '2026-10-10T12:00:00.000Z',
+      reminders: [{ id: 'r', type: 'AT', at: '2026-10-06T10:00:00.000Z' }],
+    })
+    const intact = mountForm({ props: { task } })
+    await intact.get('input[name="title"]').setValue('Editada')
+    await intact.get('form').trigger('submit')
+    expect('reminders' in (submissionOf(intact).patch ?? {})).toBe(false)
+
+    const changed = mountForm({ props: { task } })
+    await changed.get('input[id$="-reminder-0-at"]').setValue(toLocalDateTimeInput('2026-10-06T11:00:00.000Z'))
+    await changed.get('form').trigger('submit')
+    expect((submissionOf(changed).patch ?? {})['reminders']).toEqual([
+      { id: 'r', type: 'AT', at: '2026-10-06T11:00:00.000Z' },
+    ])
+  })
+
+  it('erro por item associa mensagem/aria-invalid; excesso na lista tem texto finito', async () => {
+    const wrapper = mountForm({
+      props: {
+        task: buildTask({ id: 'a', reminders: [{ id: 'r', type: 'OFFSET', offsetMinutes: 10 }] }),
+        errors: { reminders: { items: [{ index: 0, code: 'AFTER_DUE' }] } },
+      },
+    })
+    expect(wrapper.text()).toContain('O lembrete deve ocorrer até o prazo.')
+    expect(wrapper.get('select[id$="-reminder-0-type"]').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('input[id$="-reminder-0-offset"]').attributes('aria-describedby'))
+      .toBe(wrapper.get('[id$="-reminder-0-error"]').attributes('id'))
+
+    const tooMany = mountForm({
+      props: { task: buildTask({ id: 'b' }), errors: { reminders: { list: 'TOO_MANY' } } },
+    })
+    expect(tooMany.text()).toContain('O limite é 10 lembretes.')
+  })
+
+  it('limite de 10 é visível, bloqueia adição e remover devolve o foco à linha vizinha', async () => {
+    const reminders = Array.from({ length: 10 }, (_, index) => ({
+      id: `r${index}`, type: 'OFFSET' as const, offsetMinutes: index,
+    }))
+    const wrapper = mountForm({ props: { task: buildTask({ id: 'a', reminders }) } })
+    const add = wrapper.get('[data-action="add-reminder"]')
+    expect(add.attributes('aria-disabled')).toBe('true')
+    await add.trigger('click')
+    expect(wrapper.findAll('[data-reminder-row]')).toHaveLength(10)
+
+    await wrapper.findAll('button').find(button => button.text() === 'Remover lembrete 10')?.trigger('click')
+    await nextTick()
+    expect(wrapper.findAll('[data-reminder-row]')).toHaveLength(9)
+    expect(document.activeElement).toBe(wrapper.get('select[id$="-reminder-8-type"]').element)
+  })
+
+  it('adicionar move o foco para o novo seletor de tipo', async () => {
+    const wrapper = mountForm({ props: { task: buildTask({ id: 'a', reminders: [{ id: 'r0', type: 'OFFSET', offsetMinutes: 15 }] }) } })
+    await wrapper.get('[data-action="add-reminder"]').trigger('click')
+    await nextTick()
+    expect(wrapper.findAll('[data-reminder-row]')).toHaveLength(2)
+    expect(document.activeElement).toBe(wrapper.get('select[id$="-reminder-1-type"]').element)
   })
 
   it('erro de índice em subtarefa marca a linha, mostra a mensagem e foca o primeiro inválido', async () => {
@@ -353,6 +426,24 @@ describe('TaskForm: revisão de fuso e cancelamento', () => {
     await wrapper.get('form').trigger('submit')
     const patch = submissionOf(wrapper).patch ?? {}
     expect(patch['dueAt']).toBeDefined()
+  })
+
+  it('bloqueia save quando o fuso mudou com lembrete AT alterado e libera após confirmação', async () => {
+    const task = buildTask({
+      id: 'tz-r',
+      dueAt: '2026-10-10T18:30:00.000Z',
+      reminders: [{ id: 'r', type: 'AT', at: '2026-10-06T10:00:00.000Z' }],
+    })
+    const wrapper = mountForm({ props: { task, timeZoneConvert: () => '2026-10-06T06:00' } })
+
+    await wrapper.get('input[id$="-reminder-0-at"]').setValue('2026-10-06T08:00')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    expect(wrapper.get('[data-test="time-zone-review"]').text()).toContain('Lembrete salvo:')
+
+    await wrapper.get('[data-test="time-zone-review"] button').trigger('click')
+    await wrapper.get('form').trigger('submit')
+    expect((submissionOf(wrapper).patch ?? {})['reminders']).toBeDefined()
   })
 
   it('bloqueia save quando o fuso mudou com o limite da série alterado', async () => {

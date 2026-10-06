@@ -34,6 +34,7 @@ interface Harness {
     emptyTrash: ReturnType<typeof vi.fn>
     prepareTrashView: ReturnType<typeof vi.fn>
     undoLastTaskAction: ReturnType<typeof vi.fn>
+    resolveReminderActivation: ReturnType<typeof vi.fn>
   }
   emit(update: StateUpdate): void
   setSnapshot(next: StateSnapshot): void
@@ -78,6 +79,7 @@ function setupStore(): Harness {
     emptyTrash: vi.fn(),
     prepareTrashView: vi.fn(),
     undoLastTaskAction: vi.fn(),
+    resolveReminderActivation: vi.fn(),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api as unknown as TaskFlowDesktopApi })
   setActivePinia(createPinia())
@@ -208,7 +210,7 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     const store = useTasksStore()
     await store.connect()
     harness.api.createTask.mockResolvedValue({
-      version: 3,
+      version: 4,
       status: 'ok',
       outcome: 'APPLIED',
       taskId: 'novo',
@@ -220,7 +222,7 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     const result = await store.create({ title: 'Tarefa', subtasks: [{ title: 'Passo' }] })
     expect(result).toMatchObject({ status: 'accepted', kind: 'create', taskId: 'novo' })
     expect(harness.api.createTask.mock.calls[0]?.[0]).toMatchObject({
-      version: 3,
+      version: 4,
       draft: { title: 'Tarefa', subtasks: [{ title: 'Passo' }] },
     })
     expect(store.awaitingConfirmation).toBe(true)
@@ -281,7 +283,7 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     const result = await store.update('a', '6', { title: 'Nova' })
     expect(result).toMatchObject({ status: 'accepted', kind: 'update' })
     expect(harness.api.updateTask.mock.calls[0]?.[0]).toEqual({
-      version: 4,
+      version: 5,
       contextSequence: expect.any(Number),
       taskId: 'a',
       expectedEditRevision: '6',
@@ -309,7 +311,7 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
       () =>
         new Promise((resolve) => {
           release = () =>
-            resolve({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '2', contentRevision: '2', editRevision: '2' })
+            resolve({ version: 4, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '2', contentRevision: '2', editRevision: '2' })
         }),
     )
 
@@ -403,7 +405,7 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     expect(store.outcomeUnknown).toBeNull()
 
     harness.api.createTask.mockResolvedValueOnce({
-      version: 3,
+      version: 4,
       status: 'ok',
       outcome: 'APPLIED',
       taskId: 'nova',
@@ -415,12 +417,12 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
     expect(again).toMatchObject({ status: 'accepted' })
   })
 
-  it('validação posicional e restrição D8 são estados finitos sem alterar a lista', async () => {
+  it('validação posicional é estado finito sem alterar a lista', async () => {
     const harness = setupStore()
     const store = useTasksStore()
     await store.connect()
     harness.api.updateTask.mockResolvedValueOnce({
-      version: 4,
+      version: 5,
       status: 'error',
       code: 'VALIDATION_FAILED',
       fields: {
@@ -437,9 +439,6 @@ describe('store de tarefas: comandos, ack e snapshot', () => {
         subtasks: { items: [{ index: 1, title: 'TOO_LONG' }] },
       },
     })
-
-    harness.api.updateTask.mockResolvedValueOnce({ version: 4, status: 'error', code: 'ADVANCED_TASK_RESTRICTED' })
-    expect(await store.update('a', '1', { title: 'x' })).toEqual({ status: 'restricted' })
   })
 
   it('mapeia os códigos de série, identidade, escolha, limite e item ausente', async () => {
@@ -759,5 +758,105 @@ describe('store de tarefas: época transitória do undo', () => {
     expect(await store.confirmMove()).toMatchObject({ status: 'accepted', kind: 'move' })
     harness.emit({ type: 'snapshot', snapshot: snapshot('3', [], 2) })
     expect(store.offer).toBeNull()
+  })
+})
+
+
+describe('M07 sessões da superfície', () => {
+  it('conserva filtros e seleção, rejeita snapshot/ack antigo após ocultar e reinscreve uma vez', async () => {
+    const harness = setupStore(), store = useTasksStore()
+    const original = record(buildTask({ id: 'a', title: 'Original' }))
+    harness.setSnapshot(snapshot('1', [original])); await store.connect()
+    store.setFilters({ search: 'rascunho' }); store.select('a')
+    const oldListener = harness.api.subscribeState.mock.calls[0]?.[1] as ((update: StateUpdate) => void)
+    let resolve: ((value: unknown) => void) | undefined
+    harness.api.updateTask.mockImplementation(() => new Promise(done => { resolve = done }))
+    const pending = store.update('a', '1', { title: 'Novo' })
+    await vi.waitFor(() => expect(harness.api.updateTask).toHaveBeenCalledOnce())
+    store.suspendSurface(); expect(store.surfaceSuspended).toBe(true)
+    oldListener({ type: 'snapshot', snapshot: snapshot('99', []) })
+    expect(store.revision).toBe('1'); expect(store.offer).toBeNull()
+    harness.setSnapshot(snapshot('2', [record(buildTask({ id: 'a', title: 'Novo' }), '2')]))
+    await store.resumeSurface(); await store.connect()
+    resolve?.({ version: 5, status: 'ok', outcome: 'APPLIED', revision: '2', contentRevision: '2', editRevision: '2', undoEpoch: 1, undoToken: 'A'.repeat(32) })
+    expect(await pending).toEqual({ status: 'blocked', code: 'SESSION_CLOSED' })
+    expect(harness.api.subscribeState).toHaveBeenCalledTimes(2)
+    expect(store.filters.search).toBe('rascunho'); expect(store.selectedTaskId).toBe('a')
+    expect(store.offer).toBeNull(); expect(store.lastConfirmed).toBeNull()
+  })
+  it('resposta de confirmação da lixeira após ocultar não ressuscita token ou resultado incerto', async () => {
+    const harness = setupStore(), store = useTasksStore()
+    harness.setSnapshot(snapshot('1', [record(buildTask({ id: 'a' }))])); await store.connect()
+    let resolve: ((value: unknown) => void) | undefined
+    harness.api.prepareTrashConfirmation.mockImplementation(() => new Promise(done => { resolve = done }))
+    const pending = store.requestDelete('a')
+    await vi.waitFor(() => expect(harness.api.prepareTrashConfirmation).toHaveBeenCalledOnce())
+    store.suspendSurface(); await store.resumeSurface()
+    resolve?.({ version: 1, status: 'ok', confirmationToken: 'A'.repeat(32), revision: '1', itemCount: 1, hasRecurrence: false })
+    expect(await pending).toEqual({ status: 'blocked', code: 'SESSION_CLOSED' })
+    expect(store.confirmation).toBeNull(); expect(store.outcomeUnknown).toBeNull()
+  })
+})
+
+describe('M09 localização de lembrete no renderer', () => {
+  const tag = 'a'.repeat(64)
+  it('BUSY relê o snapshot e localiza pelo ordinal da revisão estável', async () => {
+    const harness = setupStore(), store = useTasksStore()
+    harness.setSnapshot(snapshot('2', [record(buildTask({ id: 'antes' })), record(buildTask({ id: 'alvo', title: 'Alvo' }), '2', '2')]))
+    await store.connect()
+    harness.api.resolveReminderActivation
+      .mockResolvedValueOnce({ version: 1, status: 'error', code: 'BUSY' })
+      .mockResolvedValueOnce({ version: 1, status: 'ok', revision: '2', taskOrdinal: 1 })
+    await store.locateReminder(tag)
+    expect(harness.api.resolveReminderActivation).toHaveBeenCalledTimes(2)
+    expect(store.locatedTask?.task.id).toBe('alvo')
+    expect(store.locationMessage).toBeNull()
+  })
+  it('revisão divergente converge na tentativa seguinte sem selecionar o alvo errado', async () => {
+    const harness = setupStore(), store = useTasksStore()
+    harness.setSnapshot(snapshot('2', [record(buildTask({ id: 'outro', title: 'Outro' }), '2', '2')]))
+    await store.connect()
+    harness.setSnapshot(snapshot('3', [record(buildTask({ id: 'a0' }), '3', '3'), record(buildTask({ id: 'alvo', title: 'Alvo' }), '3', '3')]))
+    harness.api.resolveReminderActivation
+      .mockResolvedValueOnce({ version: 1, status: 'ok', revision: '2', taskOrdinal: 0 })
+      .mockResolvedValueOnce({ version: 1, status: 'ok', revision: '3', taskOrdinal: 1 })
+    await store.locateReminder(tag)
+    expect(harness.api.resolveReminderActivation).toHaveBeenCalledTimes(2)
+    expect(store.locatedTask?.task.id).toBe('alvo')
+  })
+  it('três leituras sem revisão estável informam sem localizar; rejeição de transporte é segura', async () => {
+    const harness = setupStore(), store = useTasksStore()
+    harness.setSnapshot(snapshot('2', [record(buildTask({ id: 'a' }), '2', '2')]))
+    await store.connect()
+    harness.setSnapshot(snapshot('3', [record(buildTask({ id: 'a' }), '3', '3')]))
+    harness.api.resolveReminderActivation.mockResolvedValue({ version: 1, status: 'ok', revision: '2', taskOrdinal: 0 })
+    await store.locateReminder(tag)
+    expect(harness.api.resolveReminderActivation).toHaveBeenCalledTimes(3)
+    expect(store.locatedTask).toBeNull()
+    expect(store.locationMessage).toContain('Os dados estão mudando')
+
+    harness.api.resolveReminderActivation.mockRejectedValueOnce(new Error('transporte fictício'))
+    await store.locateReminder(tag)
+    expect(store.locatedTask).toBeNull()
+    expect(store.locationMessage).toBe('Não foi possível consultar o lembrete agora.')
+
+    harness.api.resolveReminderActivation.mockResolvedValueOnce({ version: 1, status: 'error', code: 'NOT_AVAILABLE' })
+    await store.locateReminder(tag)
+    expect(store.locatedTask).toBeNull()
+    expect(store.locationMessage).toBe('Este lembrete não corresponde mais a uma tarefa disponível.')
+  })
+  it('suspensão durante a consulta descarta resposta tardia e não localiza', async () => {
+    const harness = setupStore(), store = useTasksStore()
+    harness.setSnapshot(snapshot('1', [record(buildTask({ id: 'a' }))]))
+    await store.connect()
+    let resolve: ((value: unknown) => void) | undefined
+    harness.api.resolveReminderActivation.mockImplementation(() => new Promise(done => { resolve = done }))
+    const pending = store.locateReminder(tag)
+    await vi.waitFor(() => expect(harness.api.resolveReminderActivation).toHaveBeenCalledOnce())
+    store.suspendSurface()
+    resolve?.({ version: 1, status: 'ok', revision: '1', taskOrdinal: 0 })
+    await pending
+    expect(store.locatedTask).toBeNull()
+    expect(store.locationMessage).toBeNull()
   })
 })

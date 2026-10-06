@@ -15,6 +15,11 @@ type FoundationApi = Pick<TaskFlowDesktopApi, 'verifyFoundation'>
 function mountApp(foundation: FoundationApi): VueWrapper {
   const api: TaskFlowDesktopApi = {
     ...foundation,
+    getDesktopStatus: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAVAILABLE' }),
+    setStartAtLogin: vi.fn(),
+    requestQuit: vi.fn(),
+    subscribeDesktopEvents: vi.fn().mockResolvedValue({ dispose: () => undefined }),
+    resolveReminderActivation: vi.fn(),
     getStateSnapshot: vi.fn(),
     subscribeState: vi.fn().mockResolvedValue({ version: 3, status: 'error', code: 'STORAGE_UNAVAILABLE' }),
     unsubscribeState: vi.fn(),
