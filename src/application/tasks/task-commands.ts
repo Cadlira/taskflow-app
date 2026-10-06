@@ -13,6 +13,7 @@ import {
 } from '../../domain/task-recurrence.js'
 import type { IdGenerator, Task, TaskStatus } from '../../domain/task.js'
 import { applyStatus } from '../../domain/task-status.js'
+import { settleElapsedReminders } from '../../domain/task-reminders.js'
 import type { Revision } from '../storage/revisions.js'
 import type { TaskStorageUnit } from '../storage/unit-of-work.js'
 import type { ReservedUndo, RevertUndoFacts, UndoReservationPort } from './undo-types.js'
@@ -49,7 +50,6 @@ export type MutationTaskOutcome =
   | { status: 'VALIDATION_FAILED'; fields: TaskFieldErrors }
   | { status: 'NOT_FOUND' }
   | { status: 'CONFLICT'; currentContentRevision: Revision; currentEditRevision: Revision }
-  | { status: 'ADVANCED_TASK_RESTRICTED' }
   | { status: 'RECURRENCE_CHOICE_REQUIRED' }
   | { status: 'RECURRENCE_OUT_OF_RANGE' }
   | { status: 'RESOURCE_LIMIT' }
@@ -226,11 +226,11 @@ function planClosure(
         isIdTaken: (candidate) => isIdOccupied(unit, candidate),
       })
       if (!built.ok) return { status: 'IDENTITY_CONFLICT' }
-      generated = built.task
+      generated = settleElapsedReminders(built.task, input.now)
     }
   }
 
-  const closed: Task = { ...terminal }
+  const closed: Task = settleElapsedReminders({ ...terminal }, input.now)
   delete closed.recurrence
 
   return generated === undefined ? { status: 'CLOSE', closed } : { status: 'CLOSE', closed, generated }
@@ -296,8 +296,8 @@ function writeClosure(
  * Edita por patch condicional à revisão de **edição**. Existência, revisão, restrições e campos
  * alterados são verificados na mesma unidade; no-op não grava nem incrementa revisão. Uma edição
  * efetiva que resulte em terminal com regra segue o fechamento (DONE/SKIP geram no máximo uma
- * próxima TODO; END não gera). Com lembretes, a guarda D8 recusa mudança efetiva de prazo/status
- * ou fechamento/geração preservando dados; edições independentes e a retirada isolada da regra
+ * próxima TODO; END não gera). Mudanças efetivas de prazo/status/com coleção liquidam pendentes
+ * vencidas (`<= now`, sem graça) e reconciliam a geração na mesma unidade; edições independentes
  * continuam permitidas.
  */
 export function updateTaskInUnit(unit: TaskStorageUnit, input: UpdateTaskInput): MutationTaskOutcome {
@@ -339,11 +339,6 @@ export function updateTaskInUnit(unit: TaskStorageUnit, input: UpdateTaskInput):
   const terminal = next.status === 'DONE' || next.status === 'CANCELLED'
   const closes = terminal && next.recurrence !== undefined
   const dueChanged = next.dueAt !== stored.task.dueAt
-  const statusChanged = next.status !== stored.task.status
-  const hasReminders = stored.task.reminders.length > 0
-
-  if (hasReminders && (dueChanged || statusChanged)) return { status: 'ADVANCED_TASK_RESTRICTED' }
-  if (hasReminders && closes) return { status: 'ADVANCED_TASK_RESTRICTED' }
 
   if (closes) {
     const closure = planClosure(unit, next, input.cancellation, { now: input.now, generateId: input.generateId })
@@ -400,8 +395,8 @@ export function updateTaskInUnit(unit: TaskStorageUnit, input: UpdateTaskInput):
 
 /**
  * Muda o status com as mesmas barreiras. Status já atual é no-op quando a revisão de edição é
- * válida; CANCELLED de portadora exige SKIP/END; DONE/SKIP fecham/geram; com lembretes a mudança
- * efetiva é recusada (D8) preservando regra/dados/marcadores.
+ * válida; CANCELLED de portadora exige SKIP/END; DONE/SKIP fecham/geram e liquidam pendentes
+ * vencidas (`<= now`, sem graça) preservando regra/dados/marcadores.
  */
 export function changeTaskStatusInUnit(unit: TaskStorageUnit, input: ChangeStatusInput): MutationTaskOutcome {
   const stored = unit.getTask(input.taskId)
@@ -416,9 +411,7 @@ export function changeTaskStatusInUnit(unit: TaskStorageUnit, input: ChangeStatu
   if (stored.task.status === input.status) {
     return { status: 'UNCHANGED', contentRevision: stored.contentRevision, editRevision: stored.editRevision }
   }
-  if (stored.task.reminders.length > 0) return { status: 'ADVANCED_TASK_RESTRICTED' }
-
-  const changed = applyStatus(stored.task, input.status, input.now)
+  const changed = settleElapsedReminders(applyStatus(stored.task, input.status, input.now), input.now)
   const terminal = input.status === 'DONE' || input.status === 'CANCELLED'
 
   if (stored.task.recurrence !== undefined && terminal) {

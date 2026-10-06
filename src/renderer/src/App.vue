@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import TaskManager from './components/tasks/TaskManager.vue'
+import DesktopSettings from './components/DesktopSettings.vue'
 import { useFoundationStore } from './stores/foundation'
 
 const foundation = useFoundationStore()
@@ -73,5 +74,6 @@ const { state, diagnostic, isRunning } = storeToRefs(foundation)
         </dl>
       </section>
     </details>
+    <DesktopSettings />
   </div>
 </template>

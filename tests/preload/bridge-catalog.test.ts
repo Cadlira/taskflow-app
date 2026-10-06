@@ -12,14 +12,19 @@ const ALLOWED_OPERATIONS = [
   'deleteTrashItem',
   'emptyTrash',
   'exportBackup',
+  'getDesktopStatus',
   'getStateSnapshot',
   'moveTaskToTrash',
   'openTaskSource',
   'prepareBackupRestore',
   'prepareTrashConfirmation',
   'prepareTrashView',
+  'requestQuit',
+  'resolveReminderActivation',
   'restoreTrashItem',
+  'setStartAtLogin',
   'setSubtaskDone',
+  'subscribeDesktopEvents',
   'subscribeState',
   'undoLastTaskAction',
   'unsubscribeState',
@@ -45,6 +50,7 @@ vi.mock('electron', () => ({
 let api: TaskFlowDesktopApi
 let listenersAtLoad: unknown[] = []
 let invocationsAtLoad = -1
+let desktopEventListener: ((event: unknown, payload: unknown) => void) | undefined
 
 beforeAll(async () => {
   await import('../../src/preload/index.js')
@@ -52,6 +58,9 @@ beforeAll(async () => {
   // Capturado na carga: os mocks são limpos antes de cada teste.
   listenersAtLoad = electron.on.mock.calls.map((call) => call[0])
   invocationsAtLoad = electron.invoke.mock.calls.length
+  desktopEventListener = electron.on.mock.calls.find((call) => call[0] === 'desktop:event:v1')?.[1] as
+    | ((event: unknown, payload: unknown) => void)
+    | undefined
 })
 
 const ENTRY = { taskId: 'tarefa-1', contentRevision: '2', deletedAt: '2026-10-04T12:00:00.000Z' }
@@ -60,7 +69,7 @@ describe('catálogo da bridge', () => {
   it('expõe um único objeto congelado com exatamente as vinte e uma operações', () => {
     expect([...electron.exposed.keys()]).toEqual(['taskflowDesktop'])
     expect(Object.keys(api).sort()).toEqual([...ALLOWED_OPERATIONS])
-    expect(Object.keys(api)).toHaveLength(21)
+    expect(Object.keys(api)).toHaveLength(26)
     expect(Object.isFrozen(api)).toBe(true)
     expect(Object.values(api).every((operation) => typeof operation === 'function')).toBe(true)
   })
@@ -83,7 +92,7 @@ describe('catálogo da bridge', () => {
   })
 
   it('instala os listeners fixos de evento (v3 no estado, v1 na barreira de undo) uma única vez, antes de qualquer pedido', () => {
-    expect(listenersAtLoad).toEqual(['state:changed:v3', 'state:undo-invalidated:v1', 'state:unavailable:v3'])
+    expect(listenersAtLoad).toEqual(['desktop:event:v1', 'state:changed:v3', 'state:undo-invalidated:v1', 'state:unavailable:v3'])
     expect(invocationsAtLoad).toBe(0)
     expect(electron.on).not.toHaveBeenCalled()
   })
@@ -103,7 +112,9 @@ describe('catálogo da bridge', () => {
       if (String(channel).startsWith('trash:') || channel === 'task:undo:v1') {
         return Promise.resolve({ version: 1, status: 'error', code: 'UNAUTHORIZED' })
       }
-      if (channel === 'task:update:v4' || channel === 'task:status:v4') {
+      if (channel === 'task:update:v5') return Promise.resolve({ version: 5, status: 'error', code: 'UNAUTHORIZED' })
+      if (channel === 'task:create:v4') return Promise.resolve({ version: 4, status: 'error', code: 'UNAUTHORIZED' })
+      if (channel === 'task:status:v4') {
         return Promise.resolve({ version: 4, status: 'error', code: 'UNAUTHORIZED' })
       }
       if (String(channel).startsWith('task:')) {
@@ -115,8 +126,8 @@ describe('catálogo da bridge', () => {
     await api.getStateSnapshot({ version: 3 })
     await api.subscribeState({ version: 3 }, () => undefined)
     await api.unsubscribeState({ version: 3, subscriptionId: 'A'.repeat(32) })
-    await api.createTask({ version: 3, contextSequence: 1, draft: { title: 'x' } })
-    await api.updateTask({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} })
+    await api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })
+    await api.updateTask({ version: 5, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} })
     await api.changeTaskStatus({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', status: 'DONE' })
     await api.setSubtaskDone({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', subtaskId: 's1', done: true })
     await api.openTaskSource({ version: 1, taskId: 'a', expectedContentRevision: '1' })
@@ -139,8 +150,8 @@ describe('catálogo da bridge', () => {
       'state:snapshot:v3',
       'state:subscribe:v3',
       'state:unsubscribe:v3',
-      'task:create:v3',
-      'task:update:v4',
+      'task:create:v4',
+      'task:update:v5',
       'task:status:v4',
       'task:subtask-done:v3',
       'task:source:open:v1',
@@ -174,15 +185,15 @@ describe('catálogo da bridge', () => {
       { run: () => api.getStateSnapshot({ version: 1 } as never), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
       { run: () => api.getStateSnapshot({ version: 2 } as never), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
       { run: () => api.unsubscribeState({ version: 1, subscriptionId: 'A'.repeat(32) } as never), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
-      { run: () => api.createTask({ version: 1, draft: { title: 'x' } } as never), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
-      { run: () => api.createTask({ version: 2, contextSequence: 1, draft: { title: 'x' } } as never), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
-      { run: () => api.updateTask({ version: 2, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} } as never), expected: { version: 4, status: 'error', code: 'INVALID_REQUEST' } },
-      { run: () => api.updateTask({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} } as never), expected: { version: 4, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.createTask({ version: 1, draft: { title: 'x' } } as never), expected: { version: 4, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.createTask({ version: 2, contextSequence: 1, draft: { title: 'x' } } as never), expected: { version: 4, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.updateTask({ version: 2, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} } as never), expected: { version: 5, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.updateTask({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} } as never), expected: { version: 5, status: 'error', code: 'INVALID_REQUEST' } },
       { run: () => api.changeTaskStatus({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', status: 'DONE' } as never), expected: { version: 4, status: 'error', code: 'INVALID_REQUEST' } },
       { run: () => api.changeTaskStatus({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', status: 'NOPE' } as never), expected: { version: 4, status: 'error', code: 'VALIDATION_FAILED', fields: { status: 'INVALID_VALUE' } } },
       { run: () => api.setSubtaskDone({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', subtaskId: 's1', done: 'yes' as never }), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
       { run: () => api.getStateSnapshot({ version: 3, sql: 'SELECT 1' } as never), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
-      { run: () => api.createTask({ version: 3, contextSequence: 1, draft: { title: 'x', id: 'forjado' } } as never), expected: { version: 3, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x', id: 'forjado' } } as never), expected: { version: 4, status: 'error', code: 'INVALID_REQUEST' } },
       // A abertura da origem conserva a falha v1 mesmo com o request recusado.
       { run: () => api.openTaskSource({ version: 2, taskId: 'a', expectedContentRevision: '1' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
       // Lixeira/undo: contexto, tokens e referências têm schema exato no preload; move é v2.
@@ -212,8 +223,8 @@ describe('catálogo da bridge', () => {
     electron.invoke.mockClear()
     const invalid = await api.getStateSnapshot({ version: 3, sql: 'SELECT 1' } as never)
     expect(invalid).toEqual({ version: 3, status: 'error', code: 'INVALID_REQUEST' })
-    const forbiddenTask = await api.createTask({ version: 3, contextSequence: 1, draft: { title: 'x', id: 'forjado' } } as never)
-    expect(forbiddenTask).toEqual({ version: 3, status: 'error', code: 'INVALID_REQUEST' })
+    const forbiddenTask = await api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x', id: 'forjado' } } as never)
+    expect(forbiddenTask).toEqual({ version: 4, status: 'error', code: 'INVALID_REQUEST' })
     expect(electron.invoke).not.toHaveBeenCalled()
 
     electron.invoke.mockResolvedValueOnce({ version: 3, status: 'error', code: 'BUSY', stack: 'at C:\\x' } as never)
@@ -221,15 +232,15 @@ describe('catálogo da bridge', () => {
 
     // Saída malformada de comando vira falha local de transporte (resultado incerto), não sucesso.
     electron.invoke.mockResolvedValueOnce({ version: 3, status: 'ok', taskId: 'x' } as never)
-    await expect(api.createTask({ version: 3, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow('task-command-transport')
+    await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow('task-command-transport')
 
     // Ack v2 antigo de criação também é recusado, sem virar sucesso.
     electron.invoke.mockResolvedValueOnce({ version: 2, status: 'ok', taskId: 'x', revision: '1', contentRevision: '1', editRevision: '1' } as never)
-    await expect(api.createTask({ version: 3, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow('task-command-transport')
+    await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow('task-command-transport')
 
     // Ack v3 antigo de update/status e ack v4 sem época não passam: mutação exige v4 com undoEpoch.
     electron.invoke.mockResolvedValueOnce({ version: 3, status: 'ok', outcome: 'APPLIED', revision: '1', contentRevision: '1', editRevision: '1' } as never)
-    await expect(api.updateTask({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} })).rejects.toThrow(
+    await expect(api.updateTask({ version: 5, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', patch: {} })).rejects.toThrow(
       'task-command-transport',
     )
     electron.invoke.mockResolvedValueOnce({ version: 4, status: 'ok', outcome: 'APPLIED', revision: '1', contentRevision: '1', editRevision: '1' } as never)
@@ -261,9 +272,9 @@ describe('catálogo da bridge', () => {
   it('transporte falhou: falha local e nenhuma repetição automática', async () => {
     electron.invoke.mockClear()
     electron.invoke.mockRejectedValueOnce(new Error('transporte caiu'))
-    await expect(api.createTask({ version: 3, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow('task-command-transport')
+    await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow('task-command-transport')
     expect(electron.invoke).toHaveBeenCalledTimes(1)
-    expect(electron.invoke.mock.calls[0]?.[0]).toBe('task:create:v3')
+    expect(electron.invoke.mock.calls[0]?.[0]).toBe('task:create:v4')
 
     electron.invoke.mockRejectedValueOnce(new Error('transporte caiu'))
     await expect(api.setSubtaskDone({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: '1', subtaskId: 's1', done: false })).rejects.toThrow(
@@ -276,6 +287,27 @@ describe('catálogo da bridge', () => {
       'trash-command-transport',
     )
     expect(electron.invoke.mock.calls[2]?.[0]).toBe('task:undo:v1')
+  })
+
+  it('suspensão oculta dispensa clientes sem IPC e a retomada recria uma sessão nova', async () => {
+    electron.invoke.mockClear()
+    desktopEventListener?.({}, { version: 1, sequence: 9, kind: 'surface-suspended' })
+    await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow()
+    await expect(api.exportBackup({ version: 1, contextSequence: 1 })).rejects.toThrow()
+    expect(await api.getStateSnapshot({ version: 3 })).toEqual({ version: 3, status: 'error', code: 'STORAGE_UNAVAILABLE' })
+    expect(electron.invoke).not.toHaveBeenCalled()
+
+    electron.invoke.mockResolvedValue({ version: 3, status: 'error', code: 'UNAUTHORIZED' })
+    desktopEventListener?.({}, { version: 1, sequence: 10, kind: 'surface-active' })
+    expect(await api.getStateSnapshot({ version: 3 })).toEqual({ version: 3, status: 'error', code: 'UNAUTHORIZED' })
+    expect(electron.invoke).toHaveBeenCalledWith('state:snapshot:v3', { version: 3 })
+
+    // Suspensão repetida não acumula épocas observáveis: a operação volta a recusar localmente.
+    electron.invoke.mockClear()
+    desktopEventListener?.({}, { version: 1, sequence: 11, kind: 'surface-suspended' })
+    await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow()
+    expect(electron.invoke).not.toHaveBeenCalled()
+    desktopEventListener?.({}, { version: 1, sequence: 12, kind: 'surface-active' })
   })
 
   it('o código do preload não referencia Node, filesystem, SQLite, shell, canais livres ou canal de teste', () => {

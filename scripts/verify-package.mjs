@@ -189,8 +189,12 @@ function main() {
 
   const resourcesEntries = readdirSync(resourcesRoot)
   for (const entry of resourcesEntries) {
-    if (entry !== 'app.asar') problems.push(`recurso inesperado em resources: ${entry}`)
+    if (entry !== 'app.asar' && entry !== 'taskflow.ico') problems.push(`recurso inesperado em resources: ${entry}`)
   }
+  const runtimeIcon = path.join(resourcesRoot, 'taskflow.ico')
+  const sourceIcon = path.join(projectRoot, 'build', 'icons', 'taskflow.ico')
+  if (!existsSync(runtimeIcon) || !existsSync(sourceIcon)) problems.push('ícone runtime TaskFlow ausente')
+  else if (sha256(runtimeIcon) !== sha256(sourceIcon)) problems.push('ícone runtime diverge do recurso aprovado')
 
   const asarFiles = asar.listPackage(asarFile).map((file) => file.replace(/\\/g, '/'))
   problems.push(...findMissingFiles(asarFiles).map((file) => `arquivo obrigatório ausente no ASAR: ${file}`))

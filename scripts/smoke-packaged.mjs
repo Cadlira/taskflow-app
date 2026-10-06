@@ -24,6 +24,10 @@
 // abertura controlada de URL fictícia pelo shell real. Nada aqui substitui leitor de tela,
 // DPI humano, Setup ou instalação.
 //
+// TFA-008 — lifecycle: close com tray válida oculta e mantém o processo; Sair encerra sem
+// residual. O cenário `lifecycle` reporta a variante do ambiente (tray válido/inválido) e o
+// probe externo WM_CLOSE confirma que fechar não encerra quando há tray.
+//
 // Flag `--ci-runner` (runner hospedado, sem navegador garantido e sem a máquina de referência):
 // a abertura usa opener falso (`a11y|fake-opener`) e o orçamento D10 de 10.000, ainda pendente
 // de revisão formal, é medido e reportado como WARN sem reprovar o runner. Sem a flag — na
@@ -471,7 +475,7 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     record('produto: banco do benchmark reabre validado', true)
   }
 
-  // P7 — UI real, negativas, foco, reload sem duplicação e fechamento da janela principal
+  // P7 — UI real, negativas, foco, reload sem duplicação e Sair sem residual
   const tasks = await runScenario('tasks', 180_000)
   evidence.tasks = tasks.marker
   const tasksExit = await waitForExit(tasks.child, 30_000)
@@ -479,8 +483,8 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     .filter(([, ok]) => ok !== true)
     .map(([name]) => name)
   assert(tasks.marker.ok === true, `UI real de tarefas reprovou: ${failedTasks.join(', ') || 'sem resultado'}`)
-  assert(!tasksExit.timedOut && tasksExit.code === 0, `fechamento da janela principal não encerrou com saída 0 (${tasksExit.code})`)
-  record('produto: UI real, negativas, foco, reload e fechamento da janela', true)
+  assert(!tasksExit.timedOut && tasksExit.code === 0, `Sair do cenário tasks não encerrou com saída 0 (${tasksExit.code})`)
+  record('produto: UI real, negativas, foco, reload e Sair sem residual', true)
 
   // P7b — TFA-005: recorrência e subtarefas no pacote (UI+preload+main+SQLite, duas superfícies).
   const recurrence = await runScenario('recurrence', 180_000)
@@ -542,6 +546,33 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     'produto: backup export/prepare/confirm com serviços reais e diálogos stub',
     true,
     `${Object.keys(backup.marker.checks).length} verificações`,
+  )
+
+  // P7e — TFA-008: recuperação/claim de lembretes no startup real e corrida com mutação.
+  // O seed roda com o scheduler suspenso; o cenário `reminders` sobe um processo novo com a
+  // agenda ativa (notifier fake) e valida graça/expiração/terminal/futuro, at-most-once e CAS.
+  const remindersSeed = await runScenario('reminders-seed', 60_000)
+  const remindersSeedExit = await waitForExit(remindersSeed.child, 20_000)
+  assert(
+    remindersSeed.marker.ok === true && !remindersSeedExit.timedOut && remindersSeedExit.code === 0,
+    `reminders-seed falhou: ${JSON.stringify(remindersSeed.marker)} exit:${remindersSeedExit.code}`,
+  )
+  const reminders = await runScenario('reminders', 180_000)
+  evidence.reminders = reminders.marker
+  const remindersExit = await waitForExit(reminders.child, 30_000)
+  const failedReminders = Object.entries(reminders.marker.checks ?? {})
+    .filter(([, ok]) => ok !== true)
+    .map(([name]) => name)
+  out(`REMINDERS ${JSON.stringify(reminders.marker)}`)
+  assert(reminders.marker.ok === true, `lembretes reprovaram: ${failedReminders.join(', ') || 'sem resultado'}`)
+  assert(
+    !remindersExit.timedOut && remindersExit.code === 0,
+    `cenário reminders não encerrou com saída 0 (${remindersExit.code})`,
+  )
+  record(
+    'produto: recuperação/claim de lembretes e corrida com mutação',
+    true,
+    `${Object.keys(reminders.marker.checks).length} verificações`,
   )
 
   // P8 — acessibilidade/zoom/strings longas e abertura controlada (shell real na referência;
@@ -654,19 +685,39 @@ async function main() {
       killTree(overridden.child.pid)
       await waitForExit(overridden.child, 10_000)
 
-      // S8 — fechamento da janela provisória encerra sem processo residual
-      const closing = await positiveFlow({ exe, cwd, environment: testEnvironment, markerName: 'E' })
-      const closingPid = closing.child.pid
-      try {
-        execFileSync('taskkill', ['/PID', String(closingPid)], { stdio: 'ignore' })
-      } catch {
-        // Alguns ambientes não entregam WM_CLOSE; o timeout abaixo reprova.
+      // S8 — lifecycle empacotado (TFA-008): com tray válido, close real oculta sem encerrar e
+      // Sair encerra sem residual; sem tray, close leva à saída segura. O cenário reporta a
+      // variante do ambiente; o WM_CLOSE externo reforça o caminho com tray.
+      const lifecycleChild = launch(exe, ['--foundation-test', '--product-harness=lifecycle'], cwd, testEnvironment)
+      const lifecycleResult = await waitForMarker(lifecycleChild, launchTimeoutMs, productMarkerPrefix)
+      assert(lifecycleResult.reason === 'marker', `lifecycle não reportou resultado (${lifecycleResult.reason})`)
+      const lifecycleMarker = lifecycleResult.marker
+      assert(lifecycleMarker.ok === true, `lifecycle falhou: ${JSON.stringify(lifecycleMarker)}`)
+      const lifecycleExit = await waitForExit(lifecycleChild, 20_000)
+      assert(!lifecycleExit.timedOut, 'Sair do lifecycle não encerrou o processo')
+      const lifecycleResidual = execFileSync('tasklist', ['/FI', `PID eq ${lifecycleChild.pid}`, '/NH'], { encoding: 'utf8' })
+      assert(!lifecycleResidual.includes(String(lifecycleChild.pid)), 'processo residual após Sair')
+      record('lifecycle close/quit no pacote', true, `tray:${String(lifecycleMarker.trayValid)} ${JSON.stringify(lifecycleMarker.checks ?? {})}`)
+
+      if (lifecycleMarker.trayValid === true) {
+        // WM_CLOSE externo com tray válido: oculta e mantém o processo vivo; limpeza restrita à
+        // cópia de teste em seguida (o encerramento por Sair já foi comprovado acima).
+        const closing = await positiveFlow({ exe, cwd, environment: testEnvironment, markerName: 'E' })
+        const closingPid = closing.child.pid
+        try {
+          execFileSync('taskkill', ['/PID', String(closingPid)], { stdio: 'ignore' })
+        } catch {
+          // Alguns ambientes não entregam WM_CLOSE; a verificação abaixo reprova.
+        }
+        await sleep(3000)
+        const stillRunning = execFileSync('tasklist', ['/FI', `PID eq ${closingPid}`, '/NH'], { encoding: 'utf8' })
+        assert(stillRunning.includes(String(closingPid)), 'close com tray válido encerrou o processo')
+        record('close com tray oculta sem encerrar', true)
+        killTree(closingPid)
+        await waitForExit(closing.child, 10_000)
+      } else {
+        record('close com tray oculta sem encerrar', true, 'ambiente sem tray: saída segura coberta pelo cenário')
       }
-      const closingExit = await waitForExit(closing.child, 20_000)
-      assert(!closingExit.timedOut, 'janela fechada não encerrou o processo')
-      const stillRunning = execFileSync('tasklist', ['/FI', `PID eq ${closingPid}`, '/NH'], { encoding: 'utf8' })
-      assert(!stillRunning.includes(String(closingPid)), 'processo residual após fechamento')
-      record('fechamento da janela sem processo residual', true, `exit:${closingExit.code}`)
 
       // TFA-003 — produto e bridge de estado, antes dos cenários que adulteram o pacote
       await productFlow({ exe, cwd, smokeRoot, evidence })

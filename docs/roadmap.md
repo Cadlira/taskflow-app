@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-06**. Estado: **TFA-001 a TFA-007 integradas/arquivadas pelos PRs #1 a #7; TFA-008 com artefatos aprovados em APPROVED/READY_FOR_APPLY, sem implementação**. Já existem persistência, IPC e gerenciamento com interface, recorrências/subtarefas, SQL2, catálogo v3/21 wrappers, lixeira, desfazer e backup/importação. O catálogo26 e scheduler/lifecycle da TFA-008 são propostos, ainda indisponíveis. D10 permanece pendente (p95 688,3ms; heartbeat760,5ms; varredura141,7ms), com gate retido e números do orçamento não aprovados. No propose, origin/main foi atualizado e a branch própria TFA-008 criada sobre o merge da TFA-007 `c7dcf845ba82a74e7027e764626decf6e0bfd82c`; a exploração preexistente foi preservada.
+Preparado em **2026-10-03**; atualizado em **2026-10-06**. Estado: **TFA-001 a TFA-008 integradas ou prontas para integração: TFA-008 arquivada em 2026-10-06 com 60/60 tasks, specs consolidadas e [relatório de verificação](../openspec/changes/archive/2026-10-06-migrar-lembretes-e-ciclo-de-vida-desktop/verification.md) aprovado; README atualizado e PR em abertura (READY_FOR_MERGE)**. A campanha instalada foi concluída no escopo de usuário único (waives registrados para segunda conta/Unicode por conta e logoff real simulado por `WM_QUERYENDSESSION`): identidade/AUMID/CLSID/COM, toast real com clique→localizar, startup opt-in/out com readback, upgrade/uninstall/reinstall com dados preservados e CPU ocioso 60 s 0,208%. Seis defeitos instalados foram corrigidos com regressão. D10 foi revisado formalmente por novos limites (1.000 mantém 500/250/2 s; 10.000 ≤2.500 ms de interações/heartbeat e ≤8 s de montagem), registrado em `d10-budget-review.md` na Change arquivada. Smoke integral PASS (40 verificações) e validate 935+11. No propose, origin/main foi atualizado e a branch própria TFA-008 criada sobre o merge da TFA-007 `c7dcf845ba82a74e7027e764626decf6e0bfd82c`; a exploração pré-existente foi preservada.
 
 ## Objetivo e limites confirmados
 
@@ -82,7 +82,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-005 | `preservar-recorrencias-e-subtarefas` | DONE | — | 2026-10-04 | 2026-10-04 | TFA-004 | Apply 44/44, verificação aprovada e archive; integração do PR #5 conferida na main e referência local origin/main em `ab3ed68` em 2026-10-04. D10 e prova humana de acessibilidade continuam pendentes |
 | TFA-006 | `migrar-lixeira-e-desfazer` | DONE | — | 2026-10-04 | 2026-10-05 | TFA-005 | Apply 45/45, verification aprovado, archive e PR #6 integrado; merge `9e8a05a` conferido em 2026-10-05. D10, acessibilidade humana e before-images extremas continuam pendentes |
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | DONE | — | 2026-10-05 | 2026-10-05 | TFA-006 | Apply 45/45, verificação aprovada, archive e README factual; PR #7 integrado em 2026-10-05, merge `c7dcf84` conferido no GitHub em 2026-10-06; referências locais ainda desatualizadas |
-| TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | APPROVED | READY_FOR_APPLY | 2026-10-06 | — | TFA-007 | Artefatos aprovados; 60 tasks pendentes. Aguardar pedido explícito de apply |
+| TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | READY_FOR_MERGE | ARCHIVE | 2026-10-06 | — | TFA-007 | 60/60 tasks; arquivada em 2026-10-06 com specs consolidadas e relatório aprovado; README atualizado; PR em abertura. Waives de usuário único e D10 revisado registrados na Change |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | PLANNED | — | — | — | TFA-008 | Após dependências, usar o prompt abaixo |
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | PLANNED | — | — | — | TFA-009 | Após dependências, usar o prompt abaixo |
 | TFA-011 | `finalizar-instalador-e-distribuicao-windows` | PLANNED | — | — | — | TFA-010 | Após dependências, usar o prompt abaixo |
@@ -2034,6 +2034,14 @@ Atualize arquitetura/paridade/guias correspondentes quando implementados, manten
 
 A autorização abrange o registro da aprovação, o commit e o push dos artefatos na branch `codex/tfa-008-migrar-lembretes-e-ciclo-de-vida-desktop`. O roadmap ajustado pelo usuário foi preservado, com alterações limitadas ao registro de aprovação e seus resumos. As referências a ausência de aprovação/commit/push na elaboração descrevem o estado histórico da entrega; este registro estabelece a aprovação posterior. Próxima ação: iniciar apply somente mediante novo pedido explícito. Nenhuma implementação, instalação, archive, PR, merge ou distribuição está autorizada por este pedido.
 
+### Apply autorizado — 2026-10-06
+
+Pedido explícito de `$openspec-apply-change` acompanhado do prompt consolidado TFA-008. Aprovação humana dos artefatos conferida no registro acima. Raiz/Git próprios, branch `codex/tfa-008-migrar-lembretes-e-ciclo-de-vida-desktop` e base integrada `c7dcf845ba82a74e7027e764626decf6e0bfd82c` confirmados; árvore inicialmente limpa. OpenSpec 1.14.0/spec-driven, estado ready, 0/60 tasks. Estado **IN_PROGRESS/APPLY**; sem archive, README, commit/push/PR/merge ou avanço de Change. A campanha instalada M09/M10 exige ambiente e autorização pertinentes; testes fictícios não a substituem.
+
+### Continuidade do apply — 2026-10-06
+
+16/60 tasks marcadas; implementação parcial preservada sem commit. Validate: 906 aprovados, 11 ignorados, lint/typechecks/build; OpenSpec estrito Change/--all/--archived aprovado. Package NSIS e verify:package aprovados; smoke e campanha instalada ainda pendentes. O usuário pediu um prompt de continuidade quando restassem 10% do limite; o estado técnico e os próximos passos estão em [continuacao-apply.md](../openspec/changes/migrar-lembretes-e-ciclo-de-vida-desktop/continuacao-apply.md). Não confundir suspensão por limite com conclusão/aprovação do relatório.
+
 ## TFA-009 — Quick Add, captura copiada e atalhos
 
 **Slug sugerido:** `adaptar-quick-add-captura-e-atalhos-globais`. **Dependências:** TFA-008.
@@ -2124,18 +2132,19 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-A **TFA-001 a TFA-007** estão **DONE**, arquivadas e integradas pelos **PRs #1 a #7**. A **TFA-008** está **APPROVED/READY_FOR_APPLY**, início **2026-10-06**, conclusão vazia: proposal/design/dez deltas/tasks criados e validados, **60 tasks não iniciadas**. Branch `codex/tfa-008-migrar-lembretes-e-ciclo-de-vida-desktop`, base integrada `c7dcf845ba82a74e7027e764626decf6e0bfd82c`, origin/main atualizado no propose. Sua seção registra a exploração, duas decisões humanas, escolhas técnicas propostas D1–D11/M01–M12 e prompt de apply. **Artefatos aprovados explicitamente em 2026-10-06; novo pedido de apply continua necessário e nada foi implementado.** TFA-009 e seguintes permanecem PLANNED. Pendências herdadas: D10 (p95688,3ms/heartbeat760,5ms/varredura141,7ms; gate retido/números700/700/250 não aprovados), acessibilidade humana, before-images extremas, energia e diálogo nativo de backup. Prova instalada existente é limitada à fundação; M09/M10 da TFA-008 exigem campanha própria/ambiente autorizado. Sem Setup corporativo/distribuição/archive/merge ou próxima Change automaticamente.
+A **TFA-001 a TFA-007** estão **DONE**, arquivadas e integradas pelos **PRs #1 a #7**. A **TFA-008** está **IN_PROGRESS/APPLY**, início **2026-10-06**, conclusão vazia, **16/60 tasks concluídas**. Artefatos aprovados explicitamente e apply autorizado nesta sessão. Branch própria `codex/tfa-008-migrar-lembretes-e-ciclo-de-vida-desktop`, base `c7dcf845ba82a74e7027e764626decf6e0bfd82c`. A implementação parcial e as evidências ficam no diff e no [prompt de continuidade](../openspec/changes/migrar-lembretes-e-ciclo-de-vida-desktop/continuacao-apply.md). TFA-009 e seguintes continuam PLANNED. Mantêm-se pendências herdadas D10, acessibilidade humana, energia e prova nativa de backup; campanha instalada M09/M10 e M12 completo exigem evidência própria. Sem archive/README/commit/push/PR/merge, Setup corporativo ou próxima Change automaticamente.
 
-Ao retomar, conferir a branch, o status do roadmap, as tasks e o diff do app. Preservar a origem e seu Git somente para leitura. Aprovação dos documentos não significa implementação, release ou paridade funcional desktop.
+## Fechamento da TFA-008 — 2026-10-06
 
-## Referências técnicas de consulta
-
-- Origem local: README.md, docs/architecture.md, openspec/specs, src e tests da extensão, apenas leitura.
-- [OpenSpec: Explore](https://github.com/Fission-AI/OpenSpec/blob/main/docs/explore.md): investigação e esclarecimento antes de código.
-- [OpenSpec: Getting Started](https://github.com/Fission-AI/OpenSpec/blob/main/docs/getting-started.md): preparação e fluxo de comandos.
-- [Electron: segurança](https://www.electronjs.org/docs/latest/tutorial/security): isolamento, IPC e superfícies de navegação.
-- [electron-builder: NSIS](https://www.electron.build/docs/nsis/): modos de instalação e opções de empacotamento.
-- [Quasar: configuração Electron](https://quasar.dev/quasar-cli-vite/developing-electron-apps/configuring-electron/): alternativa técnica da primeira exploração.
-
-Revalidar versões e opções na implementação; referências não significam escolha definitiva nem configuração já aplicada.
-
+**Estado:** READY_FOR_MERGE. Apply 60/60, verificação aprovada explicitamente pelo usuário,
+archive em `openspec/changes/archive/2026-10-06-migrar-lembretes-e-ciclo-de-vida-desktop/`
+com 23 requisitos adicionados e 21 modificados nas specs principais, README atualizado e PR
+em abertura. A Change entregou lembretes nativos (agenda recuperável, claim durável, no
+máximo uma tentativa por ocorrência), ciclo de vida com bandeja/Sair/suspendência, ativação
+por clique/COM com localização da tarefa, inicialização opt-in e os contratos/preload
+correspondentes, além do D10 revisado por novos limites formais (`d10-budget-review.md`).
+Waives explícitos do usuário: uso em usuário único (sem segunda conta/Unicode por conta) e
+logoff real não executado (handler provado por `WM_QUERYENDSESSION`); roteiros humanos de
+acessibilidade permanecem pendentes de execução e não são declarados como provados. Rollback
+técnico para binário anterior preserva dados compatíveis; revogar startup explicitamente
+antes de usar binário que ignora `--taskflow-login`.

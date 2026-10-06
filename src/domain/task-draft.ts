@@ -1,10 +1,10 @@
 // Regras básicas revisadas de taskflow-extension@a763e7a src/domain/task-draft.ts (MIT, mesmo autor).
 // Mantidos: limites, trim de textos, tags distintas sem diferenciar caixa, defaults TODO/MEDIUM e
 // validação HTTP/HTTPS. Ampliado na TFA-005 com regra de recorrência (até inclusivo contra
-// dueAt combinado, âncora preservada) e lista de subtarefas id/título, sem lembretes, IA ou
-// campos de autoridade.
+// dueAt combinado, âncora preservada), subtarefas e lembretes sem campos de autoridade.
 import { isTaskPriority, isTaskStatus, type IdGenerator, type Task, type TaskPriority, type TaskStatus } from './task.js'
-import { isRepresentableInstant } from './task-reminders.js'
+import { isRepresentableInstant, preserveProcessedMarkers, settleElapsedReminders } from './task-reminders.js'
+import { resolveReminderDrafts, type TaskReminderDraft, type ReminderListErrors } from './reminder-draft.js'
 import {
   isRecurrence,
   isRecurrenceFrequency,
@@ -94,6 +94,7 @@ export interface TaskFieldErrors {
   sourceUrl?: TaskFieldErrorCode
   recurrence?: RecurrenceFieldErrors
   subtasks?: SubtaskListErrors
+  reminders?: ReminderListErrors
 }
 
 /** Entrada de criação tipada; o contrato de transporte já garantiu os tipos primitivos. */
@@ -140,12 +141,14 @@ export interface CreateTaskDraft extends BasicTaskDraft {
   recurrence?: TaskRecurrenceDraft
   /** Criação aceita somente título; IDs vêm da autoridade. */
   subtasks?: readonly SubtaskDraft[]
+  reminders?: readonly TaskReminderDraft[]
 }
 
 /** Patch de edição: básicos + regra (`null` retira) + lista id/título (ausente conserva, [] limpa). */
 export interface EditTaskPatch extends BasicTaskPatch {
   recurrence?: TaskRecurrenceDraft | null
   subtasks?: readonly SubtaskDraft[]
+  reminders?: readonly TaskReminderDraft[]
 }
 
 export interface NormalizedBasicDraft {
@@ -634,14 +637,21 @@ export function buildCreateTask(draft: CreateTaskDraft, context: CreateTaskConte
   }
 
   const created = createBasicTask(basic.value, { now: context.now, id: context.id })
+  const reminders = resolveReminderDrafts(draft.reminders ?? [], [], {
+    dueAt: created.dueAt, recurring: recurrence !== undefined, now: context.now,
+    generateId: context.generateId, mode: 'create',
+  })
+  if (!reminders.ok) return reminders.kind === 'identity' ? reminders :
+    { ok: false, kind: 'validation', fields: { reminders: reminders.errors } }
 
   return {
     ok: true,
-    task: {
+    task: settleElapsedReminders({
       ...created,
       subtasks,
+      reminders: reminders.reminders,
       ...(recurrence !== undefined && context.seriesId !== undefined && { seriesId: context.seriesId, recurrence }),
-    },
+    }, context.now),
   }
 }
 
@@ -693,9 +703,6 @@ export function planTaskUpdate(current: Task, patch: EditTaskPatch, context: Upd
         hadRule,
         fields,
       )
-      if (rule !== undefined && current.reminders.some((reminder) => reminder.type === 'AT')) {
-        fields.recurrence = { ...(fields.recurrence ?? {}), frequency: 'ABSOLUTE_REMINDER_INCOMPATIBLE' }
-      }
     }
   }
 
@@ -748,7 +755,28 @@ export function planTaskUpdate(current: Task, patch: EditTaskPatch, context: Upd
     }
   }
 
+  const drafts = patch.reminders ?? current.reminders.map((reminder): TaskReminderDraft =>
+    reminder.type === 'OFFSET'
+      ? { id: reminder.id, type: 'OFFSET', offsetMinutes: reminder.offsetMinutes }
+      : { id: reminder.id, type: 'AT', at: reminder.at })
+  if (patch.recurrence != null && rule !== undefined && drafts.some((reminder) => reminder.type === 'AT')) {
+    return { ok: false, kind: 'validation', fields: { recurrence: { frequency: 'ABSOLUTE_REMINDER_INCOMPATIBLE' } } }
+  }
+  const reminders = resolveReminderDrafts(drafts, current.reminders, {
+    dueAt: working.dueAt, recurring: rule !== undefined, now: context.now,
+    generateId: context.generateId, mode: 'edit',
+  })
+  if (!reminders.ok) return reminders.kind === 'identity' ? reminders :
+    { ok: false, kind: 'validation', fields: { reminders: reminders.errors } }
+  // Um patch omitido não reescreve a coleção; valida a coerência contra prazo/regra combinados.
+  if (JSON.stringify(reminders.reminders) !== JSON.stringify(current.reminders)) {
+    working = { ...working, reminders: reminders.reminders }
+    changed = true
+  }
+
   if (!changed) return { ok: true, next: undefined }
 
-  return { ok: true, next: { ...working, updatedAt: context.now.toISOString() } }
+  return { ok: true, next: settleElapsedReminders(
+    preserveProcessedMarkers(current, { ...working, updatedAt: context.now.toISOString() }), context.now,
+  ) }
 }

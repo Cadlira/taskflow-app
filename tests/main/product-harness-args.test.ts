@@ -14,6 +14,9 @@ describe('harness restrito de produto', () => {
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=inspect-sql1'])).toEqual({ name: 'inspect-sql1' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=recurrence'])).toEqual({ name: 'recurrence' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=trash'])).toEqual({ name: 'trash' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=lifecycle'])).toEqual({ name: 'lifecycle' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=reminders'])).toEqual({ name: 'reminders' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=reminders-seed'])).toEqual({ name: 'reminders-seed' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=backup'])).toEqual({ name: 'backup' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=backup|export-fail|temp:after-write'])).toEqual({
       name: 'backup',

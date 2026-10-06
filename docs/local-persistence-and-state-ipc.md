@@ -140,6 +140,7 @@ Regras verificadas por teste:
 - O claim altera a revisão **global** e conserva `updatedAt` e a revisão de **conteúdo**. Uma edição concorrente não é invalidada só porque um lembrete foi processado.
 - Edição e reversão condicionais conservam o marcador atual das ocorrências que não mudaram (mesmo lembrete, mesmo instante efetivo), mesmo quando a decisão partiu de uma leitura anterior ao claim. Ocorrência alterada não herda marcador antigo.
 - Não existe scheduler, notifier nem entrega: no máximo uma tentativa por ocorrência, **sem** promessa de exactly-once. A semântica de undo (comparar conteúdo/pré-condições, conservar o processamento) fica para a TFA-006.
+  **Atualizado na TFA-008:** o scheduler/notifier foram compostos no main com agenda única, claim na unidade e uma tentativa por pendência; a semântica de undo conserva markers e liquida `<= now`. Evidência instalada pendente.
 
 ## Falhas, recuperação e encerramento
 

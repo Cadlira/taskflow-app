@@ -14,6 +14,8 @@ import type {
 import { normalizeTags, TASK_LIMITS } from '../../../../domain/task-draft.js'
 import { RECURRENCE_LIMITS, type RecurrenceFrequency } from '../../../../domain/task-recurrence.js'
 import { MAX_SUBTASKS, SUBTASK_TITLE_LIMIT, type SubtaskDraft } from '../../../../domain/task-subtasks.js'
+import type { TaskReminderDraft, ReminderItemErrorCode } from '../../../../domain/reminder-draft.js'
+import { REMINDER_PRESETS } from '../../../../domain/task-reminders.js'
 import { TASK_PRIORITIES, TASK_STATUSES, type Task, type TaskStatus } from '../../../../domain/task.js'
 import {
   formatInstant,
@@ -29,7 +31,6 @@ import {
   RECURRENCE_FREQUENCY_LABELS,
   recurrenceErrorMessage,
   recurrenceSummaryLabel,
-  REMINDERS_RESTRICTED_HINT,
   REMOVE_RECURRENCE_LABEL,
   RECURRENCE_REMOVAL_HINT,
   STATUS_LABELS,
@@ -90,6 +91,56 @@ interface FormSubtask {
 }
 
 let nextSubtaskKey = 1
+interface ReminderRow {
+  key: number; id?: string; type: 'OFFSET' | 'AT'; offset: string; unit: string
+  at: string; originalAt: string | undefined; captured: string; dirty: boolean
+}
+let nextReminderKey = 1
+const reminderRows = ref<ReminderRow[]>((props.task?.reminders ?? []).map(item => ({
+  key: nextReminderKey++, id: item.id, type: item.type,
+  offset: item.type === 'OFFSET' ? String(item.offsetMinutes) : '15', unit: '1',
+  at: item.type === 'AT' ? toLocalDateTimeInput(item.at) : '',
+  originalAt: item.type === 'AT' ? item.at : undefined,
+  captured: item.type === 'AT' ? toLocalDateTimeInput(item.at) : '', dirty: false,
+})))
+const reminderMessages: Record<ReminderItemErrorCode, string> = {
+  INVALID_VALUE: 'Informe um valor inteiro válido.', INVALID_DATE: 'Informe data e hora válidas.',
+  DUPLICATE_ID: 'Este lembrete está repetido.', UNKNOWN_ID: 'O lembrete mudou; revise a tarefa.',
+  DUPLICATE_INSTANT: 'Dois lembretes não podem ocorrer no mesmo instante.',
+  OUT_OF_RANGE: 'O instante está fora do intervalo permitido.', AFTER_DUE: 'O lembrete deve ocorrer até o prazo.',
+  ELAPSED: 'Um lembrete novo ou alterado precisa ocorrer no futuro.',
+  ABSOLUTE_REMINDER_INCOMPATIBLE: 'Em recorrências, use uma antecedência relativa ao prazo.',
+}
+function reminderError(index: number): string | undefined {
+  const code = props.errors.reminders?.items?.find(item => item.index === index)?.code
+  return code === undefined ? undefined : reminderMessages[code]
+}
+function reminderId(index: number, field: string): string { return `${idPrefix}-reminder-${index}-${field}` }
+function buildRemindersIntent(): TaskReminderDraft[] | undefined {
+  const drafts: TaskReminderDraft[] = reminderRows.value.map(row => {
+    const id = row.id === undefined ? {} : { id: row.id }
+    const offsetText = row.offset === undefined || row.offset === null ? '' : String(row.offset)
+    return row.type === 'OFFSET' ? { ...id, type: 'OFFSET', offsetMinutes: (offsetText.trim() === '' ? Number.NaN : Number(offsetText)) * Number(row.unit) }
+      : { ...id, type: 'AT', at: !row.dirty && row.originalAt !== undefined ? row.originalAt : fromLocalDateTimeInput(row.at) ?? INVALID_DATE_INPUT }
+  })
+  const base = props.task?.reminders.map(item => item.type === 'OFFSET'
+    ? { id: item.id, type: item.type, offsetMinutes: item.offsetMinutes }
+    : { id: item.id, type: item.type, at: item.at }) ?? []
+  if (isEditing.value && JSON.stringify(drafts) === JSON.stringify(base)) return undefined
+  return !isEditing.value && drafts.length === 0 ? undefined : drafts
+}
+function addReminder(): void {
+  if (reminderRows.value.length >= 10) return
+  reminderRows.value.push({ key: nextReminderKey++, type: 'OFFSET', offset: '15', unit: '1', at: '', originalAt: undefined, captured: '', dirty: false })
+  void nextTick(() => formElement.value?.querySelector<HTMLElement>(`[data-reminder-row="${reminderRows.value.length - 1}"] select`)?.focus())
+}
+function removeReminder(index: number): void {
+  reminderRows.value.splice(index, 1)
+  void nextTick(() => {
+    const target = formElement.value?.querySelector<HTMLElement>(`[data-reminder-row="${Math.min(index, reminderRows.value.length - 1)}"] select`)
+    ;(target ?? formElement.value?.querySelector<HTMLElement>('[data-action="add-reminder"]'))?.focus()
+  })
+}
 const subtaskRows = ref<FormSubtask[]>(
   (props.task?.subtasks ?? []).map((subtask) => ({ key: nextSubtaskKey++, id: subtask.id, title: subtask.title })),
 )
@@ -117,7 +168,6 @@ const dueAtDirty = ref(false)
 let capturedUntilInput = toLocalDateTimeInput(props.task?.recurrence?.until)
 const untilDirty = ref(false)
 const timeZoneReview = ref(false)
-const hasReminders = computed(() => (props.task?.reminders.length ?? 0) > 0)
 const subtaskLimitReached = computed(() => subtaskRows.value.length >= MAX_SUBTASKS)
 
 function fieldId(field: BasicField): string {
@@ -279,6 +329,8 @@ function buildCreateDraft(): CreateTaskDraft {
 
   const subtasks = buildSubtasksIntent()
   if (subtasks !== undefined) draft.subtasks = subtasks
+  const reminders = buildRemindersIntent()
+  if (reminders !== undefined) draft.reminders = reminders
 
   return draft
 }
@@ -316,6 +368,8 @@ function buildPatch(): EditTaskPatch {
 
   const subtasks = buildSubtasksIntent()
   if (subtasks !== undefined) patch.subtasks = subtasks
+  const reminders = buildRemindersIntent()
+  if (reminders !== undefined) patch.reminders = reminders
 
   return patch
 }
@@ -408,7 +462,11 @@ function handleSubmit(): void {
       ...(props.timeZoneConvert !== undefined && { convert: props.timeZoneConvert }),
     })
 
-  if (dueReview || untilReview) {
+  const reminderReview = reminderRows.value.some(row => row.type === 'AT' && needsTimeZoneReview({
+    originalIso: row.originalAt, capturedInput: row.captured, nextInput: row.at, dirty: row.dirty,
+    ...(props.timeZoneConvert !== undefined && { convert: props.timeZoneConvert }),
+  }))
+  if (dueReview || untilReview || reminderReview) {
     timeZoneReview.value = true
     void nextTick(() => reviewPanel.value?.focus())
     return
@@ -422,6 +480,7 @@ function confirmTimeZone(): void {
   const convert = props.timeZoneConvert ?? toLocalDateTimeInput
   capturedDueInput = props.task?.dueAt ? convert(props.task.dueAt) : ''
   capturedUntilInput = props.task?.recurrence?.until ? convert(props.task.recurrence.until) : ''
+  for (const row of reminderRows.value) if (row.originalAt !== undefined) row.captured = convert(row.originalAt)
   timeZoneReview.value = false
 }
 
@@ -434,6 +493,7 @@ function restoreSavedDue(): void {
     untilDirty.value = false
   }
   timeZoneReview.value = false
+  for (const row of reminderRows.value) if (row.originalAt !== undefined) { row.at = toLocalDateTimeInput(row.originalAt); row.dirty = false }
 }
 
 function handleDueInput(): void {
@@ -641,7 +701,7 @@ onMounted(() => {
         O fuso horário do sistema mudou
       </h3>
       <p>
-        O prazo ou o limite da série foi alterado enquanto o fuso do sistema mudou. Revise os
+        Um prazo, limite da série ou lembrete foi alterado enquanto o fuso do sistema mudou. Revise os
         horários antes de salvar.
       </p>
       <ul class="time-zone-values">
@@ -659,6 +719,12 @@ onMounted(() => {
           </template>
         </li>
       </ul>
+      <p
+        v-for="row in reminderRows.filter(item => item.type === 'AT' && item.dirty && item.originalAt)"
+        :key="row.key"
+      >
+        Lembrete salvo: {{ formatInstant(row.originalAt as string) }} · novo: {{ newInstant(row.at) ? formatInstant(newInstant(row.at) as string) : 'data inválida' }}
+      </p>
       <div class="form-actions">
         <button
           type="button"
@@ -675,14 +741,6 @@ onMounted(() => {
         </button>
       </div>
     </section>
-
-    <div
-      v-if="hasReminders"
-      class="form-notice"
-      data-test="reminders-hint"
-    >
-      {{ REMINDERS_RESTRICTED_HINT }}
-    </div>
 
     <section
       class="field recurrence"
@@ -952,6 +1010,124 @@ onMounted(() => {
         Adicionar subtarefa
       </button>
     </section>
+
+    <fieldset
+      class="field recurrence"
+      :aria-describedby="`${idPrefix}-reminders-hint`"
+    >
+      <legend>Lembretes</legend>
+      <p
+        :id="`${idPrefix}-reminders-hint`"
+        class="field-hint"
+      >
+        Até 10 lembretes, com prazo definido. Em recorrências, use antecedência relativa.
+      </p>
+      <p
+        v-if="errors.reminders?.list"
+        class="field-error"
+        role="alert"
+      >
+        {{ errors.reminders.list === 'TOO_MANY' ? 'O limite é 10 lembretes.' : 'Defina um prazo para os lembretes.' }}
+      </p>
+      <div
+        v-for="(row, index) in reminderRows"
+        :key="row.key"
+        class="field"
+        :data-reminder-row="index"
+      >
+        <label :for="reminderId(index, 'type')">Lembrete {{ index + 1 }}</label>
+        <select
+          :id="reminderId(index, 'type')"
+          v-model="row.type"
+          :aria-invalid="Boolean(reminderError(index))"
+          :aria-describedby="reminderError(index) ? reminderId(index, 'error') : undefined"
+        >
+          <option value="OFFSET">
+            Antes do prazo
+          </option>
+          <option value="AT">
+            Em data e hora
+          </option>
+        </select>
+        <template v-if="row.type === 'OFFSET'">
+          <div class="field-row">
+            <div class="field">
+              <label :for="reminderId(index, 'offset')">Antecedência</label>
+              <input
+                :id="reminderId(index, 'offset')"
+                v-model="row.offset"
+                type="number"
+                min="0"
+                step="1"
+                :aria-invalid="Boolean(reminderError(index))"
+                :aria-describedby="reminderError(index) ? reminderId(index, 'error') : undefined"
+              >
+            </div>
+            <div class="field">
+              <label :for="reminderId(index, 'unit')">Unidade</label>
+              <select
+                :id="reminderId(index, 'unit')"
+                v-model="row.unit"
+              >
+                <option value="1">
+                  Minutos
+                </option><option value="60">
+                  Horas
+                </option><option value="1440">
+                  Dias
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="subtask-actions">
+            <button
+              v-for="preset in REMINDER_PRESETS"
+              :key="preset"
+              type="button"
+              class="button-small button-secondary"
+              :aria-label="`Lembrete ${index + 1}: ${preset} minutos antes do prazo`"
+              @click="row.offset = String(preset); row.unit = '1'"
+            >
+              {{ preset === 0 ? 'No prazo' : preset === 60 ? '1 hora' : preset === 1440 ? '1 dia' : '15 minutos' }}
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <label :for="reminderId(index, 'at')">Data e hora do lembrete {{ index + 1 }}</label>
+          <input
+            :id="reminderId(index, 'at')"
+            v-model="row.at"
+            type="datetime-local"
+            :aria-invalid="Boolean(reminderError(index))"
+            :aria-describedby="reminderError(index) ? reminderId(index, 'error') : undefined"
+            @input="row.dirty = true"
+          >
+        </template>
+        <p
+          v-if="reminderError(index)"
+          :id="reminderId(index, 'error')"
+          class="field-error"
+        >
+          {{ reminderError(index) }}
+        </p>
+        <button
+          type="button"
+          class="button-secondary"
+          @click="removeReminder(index)"
+        >
+          Remover lembrete {{ index + 1 }}
+        </button>
+      </div>
+      <button
+        type="button"
+        class="button-secondary"
+        data-action="add-reminder"
+        :aria-disabled="reminderRows.length >= 10 ? 'true' : undefined"
+        @click="addReminder"
+      >
+        Adicionar lembrete
+      </button>
+    </fieldset>
 
     <div class="field">
       <label :for="fieldId('tags')">Tags</label>

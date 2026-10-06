@@ -107,19 +107,35 @@ Ownership de instância única precede abertura da persistência. A fundação T
 
 ## D6 — Lembretes e ciclo de vida
 
-A ocorrência persistida é a fonte de verdade; timers e notificações são projeções. Reconciliar ao abrir e após mudanças/restore. Persistir claim antes de chamar o notifier; falha/crash nesse intervalo pode perder o aviso e não autoriza retry automático. A política é no máximo uma tentativa, não entrega garantida nem exactly-once no Windows.
+A TFA-008 compõe agenda e adapters desktop; evidência instalada M09/M10 permanece pendente.
+O estado persistido é a fonte de verdade. Heap/journal descartáveis têm charge máximo
+64 MiB, páginas 128, uma agenda e uma unidade interna em voo. Dirty IDs vêm de commits
+confirmados; startup/resume/reopen/restore reconstruem a projeção, com fallback 60 s.
+Três reinícios sem convergência resultam em BUSY; nunca se publica índice parcial.
 
-| Evento | Proposta ou limite para TFA-008 |
+Ocorrência ativa pendente de trigger até trigger+300000 ms é elegível (inclusive). Depois
+consome sem aviso; terminal vencida também. Claim/consumo só alteram revisão global.
+O submit síncrono acontece após COMMIT/unidade liberada e antes da próxima unidade, com
+reconferência de revisão/epoch/clock/capacidade. Até 16 reservas precedem claim, deadline
+10 s libera recursos sem replay. Crash pós-claim pode perder aviso. Mutação efetiva/undo/
+restore/import usa settlement <=now, sem reproduzir graça; no-op não produz revisão.
+
+| Evento | Composição TFA-008 e limite |
 | --- | --- |
-| Minimizar/ocultar | Processo e scheduler continuam se o app permanece em execução. |
-| Fechar janela | Recomenda-se ocultar na bandeja com indicação clara e saída explícita. Invalidar sessão temporária de undo e cancelar geração em curso. Retenção de outros drafts e aviso inicial ainda serão revisados. |
-| Sair | Encerrar timers, callbacks, atalhos e processo depois de tratar writes pendentes; nenhum lembrete enquanto encerrado. |
-| Suspender/retomar com processo vivo | Revalidar estado; proposta de entregar se ainda válido dentro de 5 minutos, depois consumir atrasados sem aviso. Testar a ordem reconcile/entrega para não descartar ocorrência elegível. |
-| Reabrir após sair/crash | Reconcile consome passados sem aviso retroativo e agenda futuros, conforme origem. |
-| Computador desligado/notificações bloqueadas | Não prometer aviso nem confirmação de leitura/entrega. |
-| Login | Preferência opcional, nunca obrigatória; decisão e default ficam para TFA-008. |
+| Minimizar | Conserva sessão e agenda. |
+| Fechar com tray válido | Oculta, invalida sessão/transientes e conserva draft/filtros/base em memória. |
+| Abrir | Nova sessão/snapshot; nenhuma troca automática de draft nem replay. |
+| Sair | Cancela serviço, retira admissão e drena storage; sem avisos encerrado. |
+| Suspend/resume | Pausa claims não iniciados, reconstrói e aplica graça; oculto segue sem admissão de produto. |
+| Reabrir após sair/crash | Relê markers e aplica graça inclusiva, depois consome expirados sem aviso. |
+| Login | Opt-in instalado, Run próprio como fonte, default OFF; estado externo respeitado. |
+| PC desligado/Windows bloqueado | Nenhuma garantia de entrega visual ou tempo de encerramento. |
 
-Fechar para bandeja e abrir tarefa ao clicar na notificação são recomendações, não comportamento já aprovado para implementação. Não criar serviço Windows nem scheduler externo. Referências: [powerMonitor](https://www.electronjs.org/docs/latest/api/power-monitor), [notificações Electron](https://www.electronjs.org/docs/latest/tutorial/notifications).
+Dev/test usam notifier FAKE. Produção depende da identidade instalada/AUMID/CLSID/atalho
+próprios e suporte do Windows. Controle v1 tem cinco wrappers; produto/controle têm
+admissões separadas. Ativação leva só SHA25664 e consulta revisão/ordinal após releitura,
+conservando formulário e filtros. Relay COM transitório não abre storage sem ownership.
+Política, medições e pendências: [guia desktop](desktop-reminders-and-lifecycle.md).
 
 ## D7 — IA e credenciais
 

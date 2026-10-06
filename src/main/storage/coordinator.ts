@@ -86,6 +86,7 @@ interface QueueEntry {
   owner: string | undefined
   admit: (() => boolean) | undefined
   onCompleted: ((completion: UnitCompletion) => void) | undefined
+  afterReleased: ((result: UnitResult<unknown>) => void) | undefined
   enqueuedAt: number
   execute: () => UnitResult<unknown>
   resolve: (result: UnitResult<unknown>) => void
@@ -122,13 +123,17 @@ export class StorageCoordinator {
   readonly #committedListeners = new Set<(revision: Revision) => void>()
   readonly #unavailableListeners = new Set<(reason: StorageFailureReason) => void>()
   readonly #measureListeners = new Set<(milliseconds: number) => void>()
+  readonly #taskChangeListeners = new Set<(ids: readonly string[], reminder: boolean) => void>()
+  readonly #recoveredListeners = new Set<() => void>()
   readonly #metrics: CoordinatorMetrics = { units: 0, maxUnitMs: 0, lastUnitMs: 0 }
   #database: ProductDatabase | undefined
   #availability: StorageAvailability = { state: 'blocked', reason: 'UNAVAILABLE' }
   #runtime: StorageRuntimeInfo | undefined
   #confirmedRevision: Revision | undefined
   #committedToPublish: Revision | undefined
+  #changedTaskIds: readonly string[] = []
   #executing = false
+  #releasing = false
   #pumpScheduled = false
   #closing = false
 
@@ -185,9 +190,32 @@ export class StorageCoordinator {
     return () => this.#measureListeners.delete(listener)
   }
 
+  /** Invalidação interna pós-confirmação; somente IDs/memória, sem SQL/efeito externo. */
+  onTasksChanged(listener: (ids: readonly string[], reminder: boolean) => void): () => void {
+    this.#taskChangeListeners.add(listener)
+    return () => this.#taskChangeListeners.delete(listener)
+  }
+  onRecovered(listener: () => void): () => void {
+    this.#recoveredListeners.add(listener)
+    return () => this.#recoveredListeners.delete(listener)
+  }
+
   /** Unidade de escrita: `BEGIN IMMEDIATE`, read/decide/validate/commit. O callback é síncrono. */
   run<T>(unit: (unit: TaskStorageUnit) => T, options: UnitOptions = {}): Promise<UnitResult<T>> {
     return this.#enqueue(options, () => this.#executeWrite(unit))
+  }
+
+  /**
+   * Fronteira exclusiva da operação main de reminders. O efeito é síncrono, após #execute
+   * retornar, fora de SQL/onCompleted e antes de resolver/agendar outra entrada. Sem leitura
+   * reentrante, await ou filesystem. Falha externa nunca transforma commit em rollback.
+   */
+  runReminder<T>(
+    unit: (unit: TaskStorageUnit) => T,
+    options: UnitOptions,
+    afterReleased: (result: UnitResult<T>) => void,
+  ): Promise<UnitResult<T>> {
+    return this.#enqueue(options, () => this.#executeWrite(unit), afterReleased)
   }
 
   /** Unidade de leitura coordenada: nunca grava, expurga ou altera revisões. */
@@ -211,7 +239,7 @@ export class StorageCoordinator {
 
     let drained = 0
     for (let entry = this.#queue.shift(); entry !== undefined; entry = this.#queue.shift()) {
-      entry.resolve(this.#execute(entry))
+      this.#release(entry)
       drained += 1
     }
 
@@ -233,11 +261,11 @@ export class StorageCoordinator {
     return cancelled
   }
 
-  #enqueue<T>(options: UnitOptions, execute: () => UnitResult<T>): Promise<UnitResult<T>> {
+  #enqueue<T>(options: UnitOptions, execute: () => UnitResult<T>, afterReleased?: (result: UnitResult<T>) => void): Promise<UnitResult<T>> {
     // Recusas de admissão acontecem antes de qualquer efeito.
     if (this.#closing) return Promise.resolve({ ok: false, reason: 'CLOSED' })
     // Uma unidade não reenfileira nem aninha outra: receberia um estado que ainda não existe.
-    if (this.#executing) return Promise.resolve({ ok: false, reason: 'INVALID_UNIT' })
+    if (this.#executing || this.#releasing) return Promise.resolve({ ok: false, reason: 'INVALID_UNIT' })
     if (this.#queue.length >= this.#limits.total) return Promise.resolve({ ok: false, reason: 'QUEUE_FULL' })
     if (
       options.owner !== undefined &&
@@ -251,6 +279,7 @@ export class StorageCoordinator {
         owner: options.owner,
         admit: options.admit,
         onCompleted: options.onCompleted,
+        afterReleased: afterReleased as ((result: UnitResult<unknown>) => void) | undefined,
         enqueuedAt: this.#now(),
         execute,
         resolve: resolve as (result: UnitResult<unknown>) => void,
@@ -266,9 +295,30 @@ export class StorageCoordinator {
       this.#pumpScheduled = false
       const entry = this.#queue.shift()
       if (entry === undefined) return
-      entry.resolve(this.#execute(entry))
+      this.#release(entry)
       if (this.#queue.length > 0) this.#schedulePump()
     })
+  }
+
+  #release(entry: QueueEntry): void {
+    const result = this.#execute(entry)
+    // Listeners de publicação podem agendar leituras para macrotask futuro; a barreira
+    // não recusa essa ressincronização existente, apenas reentrância do efeito externo.
+    this.#releasing = true
+    try {
+      if (entry.afterReleased !== undefined) {
+        try {
+          const returned: unknown = entry.afterReleased(result)
+          if (isThenable(returned)) throw new StorageFailure('INVALID_UNIT')
+        } catch {
+          // Marker/commit e disponibilidade permanecem. Nenhuma segunda solicitação.
+          this.#onDiagnostic?.({ phase: 'reminder-submit', reason: 'UNAVAILABLE' })
+        }
+      }
+    } finally {
+      this.#releasing = false
+    }
+    entry.resolve(result)
   }
 
   #execute(entry: QueueEntry): UnitResult<unknown> {
@@ -295,6 +345,8 @@ export class StorageCoordinator {
 
     const committed = this.#committedToPublish
     this.#committedToPublish = undefined
+    const changedIds = this.#changedTaskIds
+    this.#changedTaskIds = []
 
     // Conclusão serializada: roda antes de publicar e antes da próxima entrada. Falha na própria
     // conclusão não reverte um commit confirmado, mas impede publicar e bloqueia a admissão.
@@ -308,6 +360,11 @@ export class StorageCoordinator {
     }
 
     if (committed !== undefined) {
+      for (const listener of this.#taskChangeListeners) {
+        try { listener(changedIds, entry.afterReleased !== undefined) } catch {
+          // Projeção descartável: sua falha não reverte commit nem disponibilidade SQL.
+        }
+      }
       try {
         this.#fault('unit:before-publish')
       } catch {
@@ -340,6 +397,7 @@ export class StorageCoordinator {
     let revision: Revision | undefined
     let value: T
     const active = { expire: (): void => undefined }
+    const changedIds = new Set<string>()
 
     try {
       base = database.readGlobalRevision()
@@ -348,8 +406,14 @@ export class StorageCoordinator {
         readRow: (collection, id) => database.readRow(collection, id),
         listRows: (collection) => database.listRows(collection),
         iterateRows: (collection, afterId) => database.iterateRows(collection, afterId),
-        writeRow: (collection, row) => database.writeRow(collection, row),
-        deleteRow: (collection, id) => database.deleteRow(collection, id),
+        writeRow: (collection, row) => {
+          database.writeRow(collection, row)
+          if (collection === 'tasks') changedIds.add(row.id)
+        },
+        deleteRow: (collection, id) => {
+          database.deleteRow(collection, id)
+          if (collection === 'tasks') changedIds.add(id)
+        },
         allocateRevision: () => {
           revision ??= nextRevision(base)
           return revision
@@ -403,6 +467,7 @@ export class StorageCoordinator {
     }
     // A publicação acontece depois que a unidade termina, fora da transação.
     this.#committedToPublish = revision
+    this.#changedTaskIds = [...changedIds]
     return { ok: true, value, committed: true, revision }
   }
 
@@ -547,6 +612,11 @@ export class StorageCoordinator {
 
     // Depois de um reopen, um commit cuja resposta se perdeu aparece na revisão confirmada:
     // os inscritos são invalidados para ressincronizar por snapshot, sem replay de escrita.
-    if (phase === 'reopen') this.#publish(this.#confirmedRevision)
+    if (phase === 'reopen') {
+      for (const listener of this.#recoveredListeners) {
+        try { listener() } catch { /* Projeção externa não altera abertura confirmada. */ }
+      }
+      this.#publish(this.#confirmedRevision)
+    }
   }
 }

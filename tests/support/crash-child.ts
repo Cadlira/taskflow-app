@@ -8,6 +8,7 @@ import { StorageCoordinator } from '../../src/main/storage/coordinator.js'
 import { ProductDatabase, type StorageFaultPoint, type StorageFaults } from '../../src/main/storage/product-database.js'
 import { PRODUCT_STORAGE_DEFINITION } from '../../src/main/storage/product-schema.js'
 import { CRASH_CLAIM } from './crash-fixture.js'
+import { processReminder } from '../../src/main/reminders/processor.js'
 
 async function main(): Promise<void> {
   const [file, point, unit, barrierFile, processedFor] = process.argv.slice(2)
@@ -34,7 +35,21 @@ async function main(): Promise<void> {
       faults,
     })
     coordinator.start()
-    if (unit === 'claim') {
+    if (unit === 'reminder') {
+      let attempts = 0
+      const stop = (phase: string): void => {
+        if (point !== phase) return
+        writeFileSync(barrierFile, JSON.stringify({ pid: process.pid, point, attempts }))
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
+      }
+      await processReminder(coordinator, { ...CRASH_CLAIM, triggerISO: processedFor ?? '' }, {
+        ready: () => true, epoch: () => 1, now: () => new Date(processedFor ?? ''),
+        completed: () => undefined, report: () => undefined,
+      }, {
+        valid: () => true, release: () => undefined,
+        submit: () => { stop('reminder:before-submit'); attempts++; stop('reminder:after-submit') },
+      })
+    } else if (unit === 'claim') {
       await coordinator.run((target) =>
         target.claimReminderOccurrence({ ...CRASH_CLAIM, processedFor: processedFor ?? '' }),
       )

@@ -105,17 +105,17 @@ Undo de exclusão SHALL conferir a entrada específica, retenção, ID ativo e p
 
 ### Requirement: Restore e revert liquidam somente ocorrências vencidas
 
-Restore/revert SHALL preservar processedFor atual de ocorrência inalterada e liquidar gatilhos pendentes representáveis <=now, sem aviso retroativo. Futuros SHALL permanecer pendentes. Isso SHALL não habilitar scheduler/notifier nem relaxar bloqueios existentes de prazo/status/fechamento com reminders.
+Restore/revert SHALL preservar processedFor atual de ocorrência inalterada e liquidar gatilhos pendentes representáveis <=now, sem aviso retroativo. Futuros SHALL permanecer pendentes. Agenda real SHALL ser reconciliada somente depois de sucesso; restore/revert SHALL não usar graça para reavisar vencidos nem gerar outra tarefa.
 
 #### Scenario: Igualdade AT OFFSET e markers atuais
 - **WHEN** restore/revert inclui AT/OFFSET vencido/exato/futuro e claim de mesma ocorrência confirmado após a ação
 - **THEN** vencidos/exatos recebem marker do gatilho, futuro permanece pendente e claim atual não é apagado
-- **AND** restore conserva updatedAt, revert o renova e nenhuma mensagem afirma que alarmes foram agendados
+- **AND** restore conserva updatedAt, revert o renova e nenhum aviso retroativo é emitido; futuros são reconciliados sobre estado confirmado sem promessa de entrega visual
 
 #### Scenario: Terminal sem prazo e gatilho extremo
 - **WHEN** tarefa é terminal, não tem dueAt ou possui gatilho histórico não representável
 - **THEN** terminal segue liquidação pura sem guarda de status ativo, ausência de prazo conserva reminders e gatilho impossível não recebe marker inventado
-- **AND** guards D8 das mutações existentes permanecem e nenhum scheduler fictício é chamado
+- **AND** nenhum marker é inventado para gatilho impossível e falha externa de agenda não reverte a restauração
 
 ### Requirement: Encerramento e backup invalidam estado temporário
 
@@ -124,7 +124,7 @@ Encerramento SHALL descartar tokens próprios sem perder commits. Backup confirm
 #### Scenario: Encerrar durante ação e reabrir
 - **WHEN** documento encerra com pedido pendente ou commit já confirmado e depois reabre
 - **THEN** pedido não iniciado perde admissão, unidade ativa termina/reverte com segurança e tasks/trash confirmados sobrevivem sem recibo antigo
-- **AND** minimizar/foco não executa essa limpeza; lifecycle provisório permanece sem bandeja
+- **AND** minimizar/foco não executa essa limpeza; close para bandeja invalida a sessão/oferta e conserva só draft/filtros em memória
 
 #### Scenario: Porta futura de backup e candidato tardio
 - **WHEN** usuário confirma backup APPLIED/UNCHANGED ou cancela/falha com rollback

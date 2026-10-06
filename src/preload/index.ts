@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { createDesktopClient } from '../application/reminders/desktop-client.js'
+import { DESKTOP_CHANNELS, DESKTOP_EVENT_CHANNEL, DESKTOP_RESOLVE_CHANNEL } from '../contracts/desktop.js'
+import { TaskCommandTransportError } from '../application/tasks/task-client.js'
 import { createBackupCommandClient, type BackupCommandTransport } from '../application/backup/backup-client.js'
 import { createStateClient, type StateTransport } from '../application/state/state-client.js'
 import { createTaskCommandClient, type TaskCommandTransport } from '../application/tasks/task-client.js'
@@ -60,7 +63,7 @@ const STATE_EVENT_CHANNELS: readonly string[] = [
 const stateTransport: StateTransport = {
   invoke(channel: string, request: unknown): Promise<unknown> {
     if (!STATE_INVOKE_CHANNELS.includes(channel)) return Promise.reject(new Error('channel not allowed'))
-    return ipcRenderer.invoke(channel, request)
+    return productInvoke(channel, request)
   },
   on(channel: string, listener: (payload: unknown) => void): () => void {
     if (!STATE_EVENT_CHANNELS.includes(channel)) throw new Error('channel not allowed')
@@ -74,38 +77,72 @@ const stateTransport: StateTransport = {
 const taskTransport: TaskCommandTransport = {
   invoke(channel: string, request: unknown): Promise<unknown> {
     if (!TASK_COMMAND_CHANNELS.includes(channel)) return Promise.reject(new Error('channel not allowed'))
-    return ipcRenderer.invoke(channel, request)
+    return productInvoke(channel, request)
   },
 }
 
 const trashTransport: TrashCommandTransport = {
   invoke(channel: string, request: unknown): Promise<unknown> {
     if (!TRASH_COMMAND_CHANNELS.includes(channel)) return Promise.reject(new Error('channel not allowed'))
-    return ipcRenderer.invoke(channel, request)
+    return productInvoke(channel, request)
   },
 }
 
 const backupTransport: BackupCommandTransport = {
   invoke(channel: string, request: unknown): Promise<unknown> {
     if (!BACKUP_COMMAND_CHANNELS.includes(channel)) return Promise.reject(new Error('channel not allowed'))
-    return ipcRenderer.invoke(channel, request)
+    return productInvoke(channel, request)
   },
 }
 
+let productEpoch = 0
+let productActive = true
+async function productInvoke(channel: string, request: unknown): Promise<unknown> {
+  const epoch = productEpoch
+  if (!productActive) throw new TaskCommandTransportError()
+  const result: unknown = await ipcRenderer.invoke(channel, request)
+  if (!productActive || epoch !== productEpoch) throw new TaskCommandTransportError()
+  return result
+}
+const desktopClient = createDesktopClient({
+  invoke: (channel, request) => {
+    if (![...Object.values(DESKTOP_CHANNELS), DESKTOP_RESOLVE_CHANNEL].includes(channel)) return Promise.reject(new Error('channel not allowed'))
+    return ipcRenderer.invoke(channel, request)
+  },
+  on: (channel, listener) => {
+    if (channel !== DESKTOP_EVENT_CHANNEL) throw new Error('channel not allowed')
+    const handler = (_event: unknown, payload: unknown): void => listener(payload)
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
+}, event => {
+  if (event.kind === 'surface-suspended') {
+    productEpoch += 1; productActive = false; stateClient.dispose()
+  } else if (event.kind === 'surface-active' && !productActive) {
+    productEpoch += 1; productActive = true; stateClient = makeStateClient()
+  }
+})
+
 // Um único cliente por documento: listeners fixos instalados antes de qualquer subscribe.
-const stateClient = createStateClient(stateTransport, {
+function makeStateClient() { return createStateClient(stateTransport, {
   setInterval: (callback, milliseconds) => setInterval(callback, milliseconds),
   clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
   onFocus: (callback) => {
     window.addEventListener('focus', callback)
     return () => window.removeEventListener('focus', callback)
   },
-})
+}) }
+let stateClient = makeStateClient()
 const taskClient = createTaskCommandClient(taskTransport)
 const trashClient = createTrashCommandClient(trashTransport)
 const backupClient = createBackupCommandClient(backupTransport)
 
 const desktopApi: TaskFlowDesktopApi = Object.freeze({
+  getDesktopStatus: desktopClient.getDesktopStatus,
+  setStartAtLogin: desktopClient.setStartAtLogin,
+  requestQuit: desktopClient.requestQuit,
+  subscribeDesktopEvents: desktopClient.subscribeDesktopEvents,
+  resolveReminderActivation: desktopClient.resolveReminderActivation,
   verifyFoundation: (request: FoundationRequest): Promise<FoundationResult> =>
     ipcRenderer.invoke(FOUNDATION_CHANNEL, request) as Promise<FoundationResult>,
   getStateSnapshot: (request: StateRequest) => stateClient.getStateSnapshot(request),

@@ -87,7 +87,7 @@ DONE ou CANCELLED com SKIP SHALL fechar a portadora e gerar no máximo uma próx
 
 ### Requirement: Nova ocorrência conserva campos e renova passos
 
-Nova ocorrência SHALL ter ID novo, mesma série, status TODO, prazo calculado, auditoria nova e campos básicos copiados. Frequência/parâmetros/until SHALL ser conservados sem âncora antiga. Subtarefas SHALL conservar títulos/ordem, recebendo IDs novos e done=false. completedAt SHALL estar ausente.
+Nova ocorrência SHALL ter ID novo, mesma série, status TODO, prazo calculado, auditoria nova e campos básicos copiados. Frequência/parâmetros/until SHALL ser conservados sem âncora antiga. Subtarefas SHALL conservar títulos/ordem, recebendo IDs novos e done=false. OFFSET SHALL conservar deslocamentos com IDs novos/sem marker herdado e settlement pertinente. completedAt SHALL estar ausente.
 
 #### Scenario: Cópia completa
 - **WHEN** portadora com descrição/pessoas/tags/origem/prioridade e subtarefas marcadas gera próxima
@@ -100,7 +100,7 @@ Criação inicial em DONE/CANCELLED com regra SHALL não gerar imediatamente. Me
 
 #### Scenario: Terminal criada e depois editada
 - **WHEN** tarefa terminal com regra é criada e depois recebe mesmo status, toggle ou edição efetiva de título
-- **THEN** criação/mesmo status/toggle não geram; edição efetiva pode fechar/transferir a regra e CANCELLED exige escolha, sujeito ao bloqueio de lembretes
+- **THEN** criação/mesmo status/toggle não geram; edição efetiva pode fechar/transferir a regra e CANCELLED exige escolha, com liquidação/agenda de lembretes pertinentes
 
 #### Scenario: Reabrir histórica
 - **WHEN** ocorrência que perdeu a regra ao fechar é reaberta após outra já existir
@@ -155,17 +155,21 @@ Cálculo SHALL verificar instante representável e avanço positivo a cada passo
 
 ### Requirement: Lembretes e desfazer mantêm contratos separados
 
-Prazo/status/fechamento-geração com lembretes SHALL permanecer guardados até integração própria. Undo SHALL restaurar anterior/remover gerada por conteúdo completo; restore/revert SHALL apenas preservar markers e liquidar vencidos de forma pura. Scheduler/notifier SHALL permanecer indisponíveis, e falha externa futura SHALL não reverter commit.
+Prazo/status/fechamento-geração com lembretes SHALL seguir validação e liquidação no mesmo commit, sem guard D8. Undo SHALL restaurar anterior/remover gerada por conteúdo completo; restore/revert SHALL apenas preservar markers e liquidar vencidos de forma pura. Agenda/notifier SHALL atuar somente após confirmação; falha externa SHALL não reverter commit.
 
 #### Scenario: Regra com OFFSET preservada
 - **WHEN** tarefa com lembretes tenta DONE/SKIP/END ou alteração que fecharia/geraria
-- **THEN** ADVANCED_TASK_RESTRICTED conserva regra/dados/marcadores; helpers puros de próxima copiam OFFSET com IDs novos sem processedFor
+- **THEN** ação válida confirma plano atual inteiro; próxima copia OFFSET com IDs novos sem processedFor herdado e ambas recebem settlement pertinente
 
 #### Scenario: Contrato de reversão futura
 - **WHEN** fixture tenta reverter anterior e remover gerada após edição/toggle desta, ou só após claim
-- **THEN** revisão completa alterada bloqueia reversão inteira e claim isolado não bloqueia, com undo remoto limitado ao token próprio e sem disponibilizar scheduler/notificação
+- **THEN** revisão completa alterada bloqueia reversão inteira e claim isolado não bloqueia, com undo remoto limitado ao token próprio e sem reavisar vencidos, com reconciliação posterior de futuros
 
 #### Scenario: Captura real e restauração sem próxima
 - **WHEN** fechamento efetivo produz anterior/gerada ou usuário restaura portadora excluída
 - **THEN** before-image e referência/revisão gerada vêm do próprio plano atual; restore/undo não calcula nova ocorrência
-- **AND** move conserva regra interrompendo atividade em tasks, e liquidação<=now não anuncia alarmes agendados
+- **AND** move conserva regra interrompendo atividade em tasks, e liquidação<=now não reavisa e futuros somente entram na agenda após confirmação
+
+#### Scenario: Falha entre settlement fechamento e geração
+- **WHEN** falha ocorre entre gravações da fechada/gerada ou reconcile/notifier falha depois de commit confirmado
+- **THEN** pré-commit reverte todo plano/markers; pós-commit conserva ambas integralmente e informa indisponibilidade de efeito externo

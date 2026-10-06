@@ -45,8 +45,10 @@ campos/opcionais/listas (inclusive `seriesId`/`recurrence` e `subtask id/title/d
 metadata SQL (revisões) é conferida separadamente, dentro da mesma unidade, antes do COMMIT.
 
 Somente lembretes **pendentes com gatilho ≤ agora** são liquidados (`processedFor`), sem alterar
-timestamps, status, âncoras ou marcações futuras e sem agendar/notificar nada. Scheduler,
-notificações e bandeja são TFA-008.
+timestamps, status, âncoras ou marcações futuras e sem agendar/notificar nada durante a importação.
+A partir da TFA-008, scheduler/notificações/bandeja compostos recompõem a projeção após
+APPLIED/UNCHANGED/empty sem replay pela graça; evidência instalada segue pendente
+([guia desktop](desktop-reminders-and-lifecycle.md)).
 
 ## Gravação do arquivo exportado
 
@@ -99,7 +101,7 @@ testes de componente):
 Este percurso **não** inclui: mesclagem de backups, extração do perfil/storage do Chrome, alteração
 da extensão, importação de SQLite, lixeira dentro do arquivo, credenciais/configuração de IA,
 desfazer temporário ou histórico persistente, undo de importação, sincronização/nuvem, criptografia
-nova, scheduler/notificações/bandeja, captura/atalhos/IA, redesign, recuperação de banco que não
-abre (reset/“conserto” de SQLite), instalação corporativa, release ou publicação. O JSON não é
-criptografado e pode conter dados pessoais das próprias tarefas; erros/registros não reproduzem
-conteúdo, títulos, caminhos ou tokens.
+nova, scheduler/notificações/bandeja (compostos pela TFA-008), captura/atalhos/IA, redesign,
+recuperação de banco que não abre (reset/“conserto” de SQLite), instalação corporativa, release ou
+publicação. O JSON não é criptografado e pode conter dados pessoais das próprias tarefas;
+erros/registros não reproduzem conteúdo, títulos, caminhos ou tokens.

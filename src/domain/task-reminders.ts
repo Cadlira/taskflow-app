@@ -1,10 +1,46 @@
 // Cópia revisada (recorte) de taskflow-extension@a763e7a src/domain/task-reminders.ts.
-// Somente invariantes de coleção e o claim condicional usados pelo armazenamento;
-// rascunhos, planejamento de alarmes, tolerâncias e entrega ficam na TFA-008.
+// Invariantes, markers e política temporal desktop; sem tolerância de alarmes Chrome.
 import { isActiveStatus, type Task, type TaskReminder } from './task.js'
 
 /** Limite de lembretes distintos por tarefa. */
 export const MAX_REMINDERS = 10
+export const REMINDER_PRESETS = [0, 15, 60, 1440] as const
+export const REMINDER_DELAY_TOLERANCE_MS = 300_000
+
+/** Identidade exata de uma ocorrência; não contém título nem autoridade externa. */
+export interface ReminderOccurrenceKey {
+  taskId: string
+  reminderId: string
+  triggerISO: string
+}
+
+export type ReminderClassification = 'FUTURE' | 'ELIGIBLE' | 'EXPIRED' | 'INAPPLICABLE'
+
+/** Recuperação desktop inclusiva; settlement das mutações é deliberadamente separado. */
+export function classifyReminderOccurrence(
+  task: Task | undefined,
+  occurrence: ReminderOccurrenceKey,
+  now: Date,
+): ReminderClassification {
+  if (task?.id !== occurrence.taskId || task.dueAt === undefined) return 'INAPPLICABLE'
+  const reminder = task.reminders.find((item) => item.id === occurrence.reminderId)
+  if (reminder === undefined || !isReminderPending(reminder, task.dueAt)) return 'INAPPLICABLE'
+  const trigger = resolveReminderTriggerAt(reminder, task.dueAt)
+  if (!isRepresentableInstant(trigger) || instantIso(trigger) !== occurrence.triggerISO) return 'INAPPLICABLE'
+  const clock = now.getTime()
+  if (!isRepresentableInstant(clock)) return 'INAPPLICABLE'
+  if (clock < trigger) return isActiveStatus(task.status) ? 'FUTURE' : 'INAPPLICABLE'
+  if (!isActiveStatus(task.status) || clock - trigger > REMINDER_DELAY_TOLERANCE_MS) return 'EXPIRED'
+  return 'ELIGIBLE'
+}
+
+/** Guarda final de clock, usada após claim sem tentar reaplicar o marker consumido. */
+export function canDeliverReminder(triggerISO: string, now: Date): boolean {
+  const trigger = Date.parse(triggerISO)
+  const clock = now.getTime()
+  return isRepresentableInstant(trigger) && isRepresentableInstant(clock) &&
+    clock >= trigger && clock - trigger <= REMINDER_DELAY_TOLERANCE_MS
+}
 
 /** Maior instante representável por `Date`; além disso `toISOString` lança `RangeError`. */
 export const MAX_DATE_INSTANT_MS = 8_640_000_000_000_000

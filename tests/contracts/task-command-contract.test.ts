@@ -33,11 +33,11 @@ function byteLength(value: unknown): number {
 }
 
 function createRequest(draft: Record<string, unknown>): unknown {
-  return { version: 3, contextSequence: 1, draft }
+  return { version: 4, contextSequence: 1, draft }
 }
 
 function updateRequest(patch: Record<string, unknown>, extra: Record<string, unknown> = {}): unknown {
-  return { version: 4, contextSequence: 1, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch, ...extra }
+  return { version: 5, contextSequence: 1, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch, ...extra }
 }
 
 /** Draft completo com campos básicos nos limites e 20 títulos de subtarefa de 200 caracteres. */
@@ -60,7 +60,7 @@ describe('contrato dos comandos de tarefas v3', () => {
   it('aceita criação mínima e completa com básicos, regra e títulos de subtarefa', () => {
     const minimal = parseTaskCreateRequest(createRequest({ title: 'Comprar leite' }))
     expect(minimal.kind).toBe('ok')
-    if (minimal.kind === 'ok') expect(minimal.value).toEqual<TaskCreateRequest>({ version: 3, contextSequence: 1, draft: { title: 'Comprar leite' } })
+    if (minimal.kind === 'ok') expect(minimal.value).toEqual<TaskCreateRequest>({ version: 4, contextSequence: 1, draft: { title: 'Comprar leite' } })
 
     const complete = parseTaskCreateRequest(
       createRequest({
@@ -80,7 +80,7 @@ describe('contrato dos comandos de tarefas v3', () => {
     expect(complete.kind).toBe('ok')
     if (complete.kind !== 'ok') return
     expect(complete.value).toEqual<TaskCreateRequest>({
-      version: 3,
+      version: 4,
       contextSequence: 1,
       draft: {
         title: 'Comprar leite',
@@ -123,7 +123,7 @@ describe('contrato dos comandos de tarefas v3', () => {
       { completedAt: '2026-10-04T00:00:00.000Z' },
       { seriesId: 's' },
       { recurrence: { frequency: 'DAILY', intervalDays: 1, anchorAt: '2026-10-04T00:00:00.000Z' } },
-      { reminders: [] },
+      { reminders: null },
       { processedFor: '2026-10-04T00:00:00.000Z' },
       { children: [] },
       { depth: 1 },
@@ -249,18 +249,18 @@ describe('contrato dos comandos de tarefas v3', () => {
     class DraftLike {
       title = 'ok'
     }
-    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: new DraftLike() }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 4, contextSequence: 1, draft: new DraftLike() }).kind).toBe('invalid-request')
     const accessor = { get title(): string { return 'ok' } }
-    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: accessor }).kind).toBe('invalid-request')
-    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: { title: 'ok' }, extra: true }).kind).toBe('invalid-request')
-    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: null }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 4, contextSequence: 1, draft: accessor }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 4, contextSequence: 1, draft: { title: 'ok' }, extra: true }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 4, contextSequence: 1, draft: null }).kind).toBe('invalid-request')
   })
 
   it('update aceita ID/revisão de edição exatos e distingue omitido/null/[] por campo', () => {
     const empty = parseTaskUpdateRequest(updateRequest({}))
     expect(empty.kind).toBe('ok')
     if (empty.kind === 'ok') {
-      expect(empty.value).toEqual<TaskUpdateRequest>({ version: 4, contextSequence: 1, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch: {} })
+      expect(empty.value).toEqual<TaskUpdateRequest>({ version: 5, contextSequence: 1, taskId: 'tarefa-1', expectedEditRevision: EDIT_REVISION, patch: {} })
     }
 
     const cleared = parseTaskUpdateRequest(
@@ -343,15 +343,15 @@ describe('contrato dos comandos de tarefas v3', () => {
 
   it('aceita ID histórico não vazio e recusa ID/revisão fora de representação', () => {
     expect(
-      parseTaskUpdateRequest({ version: 4, contextSequence: 1, taskId: 'tarefa histórica/única — 🚀', expectedEditRevision: '0', patch: {} }).kind,
+      parseTaskUpdateRequest({ version: 5, contextSequence: 1, taskId: 'tarefa histórica/única — 🚀', expectedEditRevision: '0', patch: {} }).kind,
     ).toBe('ok')
-    expect(parseTaskUpdateRequest({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: '9223372036854775807', patch: {} }).kind).toBe('ok')
+    expect(parseTaskUpdateRequest({ version: 5, contextSequence: 1, taskId: 'a', expectedEditRevision: '9223372036854775807', patch: {} }).kind).toBe('ok')
 
     for (const taskId of ['', 7, null]) {
-      expect(parseTaskUpdateRequest({ version: 4, contextSequence: 1, taskId, expectedEditRevision: '1', patch: {} }).kind).toBe('invalid-request')
+      expect(parseTaskUpdateRequest({ version: 5, contextSequence: 1, taskId, expectedEditRevision: '1', patch: {} }).kind).toBe('invalid-request')
     }
     for (const revision of ['', '00', '-1', '1.5', '9223372036854775808', ' 1', 1, null]) {
-      expect(parseTaskUpdateRequest({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: revision, patch: {} }).kind).toBe('invalid-request')
+      expect(parseTaskUpdateRequest({ version: 5, contextSequence: 1, taskId: 'a', expectedEditRevision: revision, patch: {} }).kind).toBe('invalid-request')
       expect(parseTaskStatusRequest({ version: 4, contextSequence: 1, taskId: 'a', expectedEditRevision: revision, status: 'DONE' }).kind).toBe('invalid-request')
       expect(
         parseSubtaskDoneRequest({ version: 3, contextSequence: 1, taskId: 'a', expectedEditRevision: revision, subtaskId: 's', done: true }).kind,
@@ -394,11 +394,11 @@ describe('contrato dos comandos de tarefas v3', () => {
         'invalid-request',
       )
     }
-    expect(parseTaskCreateRequest({ version: 3, contextSequence: 1, draft: { title: 'x' }, cancellation: 'SKIP' }).kind).toBe('invalid-request')
+    expect(parseTaskCreateRequest({ version: 4, contextSequence: 1, draft: { title: 'x' }, cancellation: 'SKIP' }).kind).toBe('invalid-request')
   })
 
   it('mede o request completo: básicos nos limites e 20 subtarefas abaixo de 64 KiB', () => {
-    const within = { version: 3, contextSequence: 1, draft: boundaryDraft() }
+    const within = { version: 4, contextSequence: 1, draft: boundaryDraft() }
     expect(byteLength(within)).toBeLessThanOrEqual(TASK_COMMAND_LIMITS.requestBytes)
     const parsed = parseTaskCreateRequest(within)
     expect(parsed.kind).toBe('ok')
@@ -409,12 +409,12 @@ describe('contrato dos comandos de tarefas v3', () => {
     }
 
     // Excesso medido no envelope completo é recusado explicitamente, sem truncar o draft.
-    const over = { version: 3, contextSequence: 1, draft: { ...boundaryDraft(), description: '\u0000'.repeat(12_000) } }
+    const over = { version: 4, contextSequence: 1, draft: { ...boundaryDraft(), description: '\u0000'.repeat(12_000) } }
     expect(byteLength(over)).toBeGreaterThan(TASK_COMMAND_LIMITS.requestBytes)
     expect(parseTaskCreateRequest(over).kind).toBe('invalid-request')
 
     // O orçamento de resposta é conferido no ack serializado; nunca há truncamento.
-    const ack = { version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '1', contentRevision: '1', editRevision: '1' }
+    const ack = { version: 4, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '1', contentRevision: '1', editRevision: '1' }
     expect(fitsResponseBudget(ack)).toBe(true)
     expect(TASK_COMMAND_LIMITS.responseBytes).toBe(8 * 1024)
     expect(parseTaskCreateResult(ack)).toEqual(ack)
@@ -425,13 +425,13 @@ describe('contrato dos comandos de tarefas v3', () => {
 
   it('mede IDs históricos longos/estranhos no request completo e recusa o excesso sem truncar', () => {
     const longId = 'x'.repeat(30_000)
-    const within = { version: 4, contextSequence: 1, taskId: longId, expectedEditRevision: '1', patch: {} }
+    const within = { version: 5, contextSequence: 1, taskId: longId, expectedEditRevision: '1', patch: {} }
     expect(byteLength(within)).toBeLessThanOrEqual(TASK_COMMAND_LIMITS.requestBytes)
     const parsed = parseTaskUpdateRequest(within)
     expect(parsed.kind).toBe('ok')
     if (parsed.kind === 'ok') expect(parsed.value.taskId).toHaveLength(30_000)
 
-    const over = { version: 4, contextSequence: 1, taskId: 'y'.repeat(70_000), expectedEditRevision: '1', patch: {} }
+    const over = { version: 5, contextSequence: 1, taskId: 'y'.repeat(70_000), expectedEditRevision: '1', patch: {} }
     expect(byteLength(over)).toBeGreaterThan(TASK_COMMAND_LIMITS.requestBytes)
     expect(parseTaskUpdateRequest(over).kind).toBe('invalid-request')
     expect(parseTaskOpenSourceRequest({ version: 1, taskId: longId, expectedContentRevision: '1' }).kind).toBe('ok')
@@ -440,8 +440,8 @@ describe('contrato dos comandos de tarefas v3', () => {
 
   it('valida as respostas: ack com as duas revisões, erro por código e campos restritos', () => {
     expect(
-      parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' }),
-    ).toEqual({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' })
+      parseTaskCreateResult({ version: 4, status: 'ok', outcome: 'APPLIED', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' }),
+    ).toEqual({ version: 4, status: 'ok', outcome: 'APPLIED', taskId: 'novo', revision: '7', contentRevision: '7', editRevision: '6' })
     expect(
       parseTaskMutationResult({ version: 4, status: 'ok', outcome: 'APPLIED', revision: '8', contentRevision: '8', editRevision: '3', undoEpoch: 1 }),
     ).toEqual({
@@ -536,10 +536,10 @@ describe('contrato dos comandos de tarefas v3', () => {
     expect(
       parseSubtaskDoneResult({ version: 3, status: 'ok', outcome: 'APPLIED', revision: '9', contentRevision: '9', editRevision: '3', undoEpoch: 1 }),
     ).toBeNull()
-    expect(parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '8', contentRevision: '8' })).toBeNull()
+    expect(parseTaskCreateResult({ version: 4, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '8', contentRevision: '8' })).toBeNull()
     expect(parseTaskCreateResult({ version: 1, status: 'ok', taskId: 'x', revision: '1', contentRevision: '1' })).toBeNull()
-    expect(parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: '', revision: '1', contentRevision: '1', editRevision: '1' })).toBeNull()
-    expect(parseTaskCreateResult({ version: 3, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '01', contentRevision: '1', editRevision: '1' })).toBeNull()
+    expect(parseTaskCreateResult({ version: 4, status: 'ok', outcome: 'APPLIED', taskId: '', revision: '1', contentRevision: '1', editRevision: '1' })).toBeNull()
+    expect(parseTaskCreateResult({ version: 4, status: 'ok', outcome: 'APPLIED', taskId: 'x', revision: '01', contentRevision: '1', editRevision: '1' })).toBeNull()
     expect(
       parseTaskMutationResult({ version: 4, status: 'ok', outcome: 'APPLIED', revision: '8', contentRevision: '3', editRevision: '3', undoEpoch: 1, extra: true }),
     ).toBeNull()

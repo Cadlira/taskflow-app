@@ -1,4 +1,5 @@
 import type { FoundationRequest, FoundationResult } from './foundation.js'
+import type { DesktopRequest, DesktopStatusResult, StartupRequest, StartupResult, DesktopAck, DesktopFailure, DesktopListener, DesktopSubscription, ActivationRequest, ActivationResult } from './desktop.js'
 import type {
   StateListener,
   StateRequest,
@@ -23,6 +24,7 @@ import type {
   TaskCreateRequest,
   TaskCreateResult,
   TaskMutationResult,
+  TaskUpdateResult,
   TaskOpenSourceRequest,
   TaskOpenSourceResult,
   TaskStatusRequest,
@@ -48,14 +50,19 @@ import type {
 } from './trash.js'
 
 /**
- * Catálogo fechado exposto ao renderer, total21: diagnóstico (v1), três operações de
- * leitura/subscription de estado (v3), create/check v3, update/status v4, abertura da origem salva
+ * Catálogo fechado exposto ao renderer, total26: diagnóstico (v1), três operações de
+ * leitura/subscription de estado (v3), create v4, check v3, update v5/status v4, abertura da origem salva
  * (v1), oito operações v1 de contexto/confirmação/lixeira/undo (move v2) e quatro operações v1 de
- * backup. Não há send/canal livre, SQL, caminho, repository, Task completa, before-image,
+ * backup, além de cinco operações fechadas de ciclo de vida/lembretes. Não há send/canal livre, SQL, caminho, repository, Task completa, before-image,
  * UndoPlan, clock, URL arbitrária ou hooks de teste; lixeira/undo/backup usam somente referências,
  * tokens e resumos próprios.
  */
 export interface TaskFlowDesktopApi {
+  getDesktopStatus(request: DesktopRequest): Promise<DesktopStatusResult>
+  setStartAtLogin(request: StartupRequest): Promise<StartupResult>
+  requestQuit(request: DesktopRequest): Promise<DesktopAck | DesktopFailure>
+  subscribeDesktopEvents(request: DesktopRequest, listener: DesktopListener): Promise<DesktopSubscription>
+  resolveReminderActivation(request: ActivationRequest): Promise<ActivationResult>
   verifyFoundation(request: FoundationRequest): Promise<FoundationResult>
   /** Snapshot completo e validado de uma única revisão. */
   getStateSnapshot(request: StateRequest): Promise<StateSnapshotResult>
@@ -68,7 +75,7 @@ export interface TaskFlowDesktopApi {
   /** Cria uma tarefa básica com regra/subtarefas opcionais; identidade e relógio vêm do main. */
   createTask(request: TaskCreateRequest): Promise<TaskCreateResult>
   /** Edita por patch condicional à revisão de edição; APPLIED pode oferecer desfazer. */
-  updateTask(request: TaskUpdateRequest): Promise<TaskMutationResult>
+  updateTask(request: TaskUpdateRequest): Promise<TaskUpdateResult>
   /** Muda o status simples condicional à revisão de edição; status igual é no-op. */
   changeTaskStatus(request: TaskStatusRequest): Promise<TaskMutationResult>
   /** Marca/desmarca um item por intenção, conservando a revisão de edição da tarefa. */

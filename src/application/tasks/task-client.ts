@@ -9,6 +9,7 @@ import {
   parseTaskCreateRequest,
   parseTaskCreateResult,
   parseTaskMutationResult,
+  parseTaskUpdateResult,
   parseTaskOpenSourceRequest,
   parseTaskOpenSourceResult,
   parseTaskStatusRequest,
@@ -16,10 +17,12 @@ import {
   taskCheckFailure,
   taskCreateFailure,
   taskMutationFailure,
+  taskUpdateFailure,
   taskSourceFailure,
   type TaskCheckResult,
   type TaskCreateResult,
   type TaskMutationResult,
+  type TaskUpdateResult,
   type TaskOpenSourceResult,
 } from '../../contracts/tasks.js'
 
@@ -42,7 +45,7 @@ export class TaskCommandTransportError extends Error {
 
 export interface TaskCommandClient {
   createTask(request: unknown): Promise<TaskCreateResult>
-  updateTask(request: unknown): Promise<TaskMutationResult>
+  updateTask(request: unknown): Promise<TaskUpdateResult>
   changeTaskStatus(request: unknown): Promise<TaskMutationResult>
   setSubtaskDone(request: unknown): Promise<TaskCheckResult>
   openTaskSource(request: unknown): Promise<TaskOpenSourceResult>
@@ -72,11 +75,11 @@ export function createTaskCommandClient(transport: TaskCommandTransport): TaskCo
       return response
     },
 
-    async updateTask(request: unknown): Promise<TaskMutationResult> {
+    async updateTask(request: unknown): Promise<TaskUpdateResult> {
       const parsed = parseTaskUpdateRequest(request)
-      if (parsed.kind === 'invalid-request') return taskMutationFailure('INVALID_REQUEST')
-      if (parsed.kind === 'validation') return { ...taskMutationFailure('VALIDATION_FAILED'), fields: parsed.fields }
-      const response = parseTaskMutationResult(await invokeStrict(transport, TASK_UPDATE_CHANNEL, parsed.value))
+      if (parsed.kind === 'invalid-request') return taskUpdateFailure('INVALID_REQUEST')
+      if (parsed.kind === 'validation') return { ...taskUpdateFailure('VALIDATION_FAILED'), fields: parsed.fields }
+      const response = parseTaskUpdateResult(await invokeStrict(transport, TASK_UPDATE_CHANNEL, parsed.value))
       if (response === null) throw new TaskCommandTransportError()
       return response
     },

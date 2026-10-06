@@ -10,17 +10,17 @@ import {
 } from '../domain/task-draft.js'
 import { isRecurrenceFrequency, type RecurrenceFrequency } from '../domain/task-recurrence.js'
 import type { SubtaskDraft } from '../domain/task-subtasks.js'
+import { REMINDER_ITEM_ERROR_CODES, type TaskReminderDraft } from '../domain/reminder-draft.js'
 import { asExactRecord, asPlainRecord, serializedBytes, type PlainRecord } from './record.js'
 import { STATE_ERROR_CODES, isOpaqueToken, isRevisionText } from './state.js'
 
 // Catálogo fechado de comandos de tarefas. Cada operação tem canal próprio; nenhum send/canal
 // livre, URL arbitrária, Task completa, campo de auditoria, autoridade (id/série/âncora/done),
-// clock, ordenação de contexto ou avançado de lembrete é aceito. `openTaskSource` conserva v1;
-// `createTask`/`setSubtaskDone` conservam v3; `updateTask`/`changeTaskStatus` são v4 porque o ack
-// elegível carrega a época transitória do undo.
+// clock ou marker processedFor é aceito. Drafts de lembretes são intenções validadas.
+// create v4/update v5 incluem lembretes; check v3/status v4 e origem v1 conservam contratos.
 
-export const TASK_CREATE_CHANNEL = 'task:create:v3'
-export const TASK_UPDATE_CHANNEL = 'task:update:v4'
+export const TASK_CREATE_CHANNEL = 'task:create:v4'
+export const TASK_UPDATE_CHANNEL = 'task:update:v5'
 export const TASK_STATUS_CHANNEL = 'task:status:v4'
 export const TASK_SUBTASK_DONE_CHANNEL = 'task:subtask-done:v3'
 export const TASK_OPEN_SOURCE_CHANNEL = 'task:source:open:v1'
@@ -51,7 +51,6 @@ export const TASK_MUTATION_ERROR_CODES = [
   'VALIDATION_FAILED',
   'CONFLICT',
   'NOT_FOUND',
-  'ADVANCED_TASK_RESTRICTED',
   'RECURRENCE_CHOICE_REQUIRED',
   'RECURRENCE_OUT_OF_RANGE',
   'SERIES_CONFLICT',
@@ -76,7 +75,7 @@ export type TaskCommandErrorCode = TaskMutationErrorCode | TaskSourceErrorCode
 
 /** Falha de criação/check v3: códigos fechados, campos posicionais e revisões atuais no conflito. */
 export type TaskCreateFailure = Readonly<{
-  version: 3
+  version: 4
   status: 'error'
   code: TaskMutationErrorCode
   /** Presente somente em `VALIDATION_FAILED`, em forma finita por campo/índice. */
@@ -86,7 +85,8 @@ export type TaskCreateFailure = Readonly<{
   currentEditRevision?: string
 }>
 
-export type TaskCheckFailure = TaskCreateFailure
+export type TaskCheckFailure = Omit<TaskCreateFailure, 'version'> & Readonly<{ version: 3 }>
+export type TaskUpdateFailure = Omit<TaskCreateFailure, 'version'> & Readonly<{ version: 5 }>
 
 /** Falha de update/status v4: mesma união fechada, versão própria do contrato alterado. */
 export type TaskMutationFailure = Readonly<{
@@ -106,10 +106,14 @@ export type TaskSourceFailure = Readonly<{
   currentContentRevision?: string
 }>
 
-export type TaskCommandFailure = TaskCreateFailure | TaskMutationFailure | TaskSourceFailure
+export type TaskCommandFailure = TaskCreateFailure | TaskUpdateFailure | TaskMutationFailure | TaskSourceFailure
 
 export function taskCreateFailure(code: TaskMutationErrorCode): TaskCreateFailure {
-  return { version: 3, status: 'error', code }
+  return { version: 4, status: 'error', code }
+}
+
+export function taskUpdateFailure(code: TaskMutationErrorCode): TaskUpdateFailure {
+  return { version: 5, status: 'error', code }
 }
 
 export function taskCheckFailure(code: TaskMutationErrorCode): TaskCheckFailure {
@@ -143,9 +147,9 @@ export type TaskCreateDraft = Readonly<CreateTaskDraft>
 /** Patch de edição v2: básicos + regra/null + lista id/título; ausente conserva, null/[] limpam. */
 export type TaskPatch = Readonly<EditTaskPatch>
 
-export type TaskCreateRequest = Readonly<{ version: 3; contextSequence: number; draft: TaskCreateDraft }>
+export type TaskCreateRequest = Readonly<{ version: 4; contextSequence: number; draft: TaskCreateDraft }>
 export type TaskUpdateRequest = Readonly<{
-  version: 4
+  version: 5
   contextSequence: number
   taskId: string
   expectedEditRevision: string
@@ -175,7 +179,7 @@ export type TaskOpenSourceRequest = Readonly<{
 }>
 
 export type TaskCreateAck = Readonly<{
-  version: 3
+  version: 4
   status: 'ok'
   outcome: 'APPLIED'
   taskId: string
@@ -195,6 +199,9 @@ export type TaskMutationAck = Readonly<{
   /** Somente em update/status APPLIED e quando o recibo pôde ser publicado no contexto atual. */
   undoToken?: string
 }>
+
+export type TaskUpdateAck = Omit<TaskMutationAck, 'version'> & Readonly<{ version: 5 }>
+export type TaskUpdateResult = TaskUpdateAck | TaskUpdateFailure
 
 /** Ack v3 de check/criação: não oferece oferta e conserva o contrato anterior. */
 export type TaskCheckAck = Readonly<{
@@ -428,14 +435,59 @@ function parseSubtaskDrafts(value: unknown, mode: 'create' | 'edit'): SubtaskPar
   return { kind: 'ok', value: drafts }
 }
 
+type ReminderParse = { kind: 'ok'; value: TaskReminderDraft[] } | { kind: 'invalid-request' } | { kind: 'validation'; errors: NonNullable<TaskFieldErrors['reminders']> }
+
+function parseReminderDrafts(value: unknown, mode: 'create' | 'edit'): ReminderParse {
+  if (!Array.isArray(value)) return { kind: 'invalid-request' }
+  if (value.length > 10) return { kind: 'validation', errors: { list: 'TOO_MANY' } }
+  const drafts: TaskReminderDraft[] = []
+  for (const item of value as unknown[]) {
+    const raw = asPlainRecord(item)
+    if (raw === null) return { kind: 'invalid-request' }
+    const type = raw['type']
+    const record = asExactRecord(item, type === 'OFFSET' ? ['type', 'offsetMinutes'] : ['type', 'at'], mode === 'edit' ? ['id'] : [])
+    if (record === null || (type !== 'OFFSET' && type !== 'AT')) return { kind: 'invalid-request' }
+    if ('id' in record && (typeof record['id'] !== 'string' || record['id'].length === 0)) return { kind: 'invalid-request' }
+    const id = typeof record['id'] === 'string' ? { id: record['id'] } : {}
+    if (type === 'OFFSET') {
+      if (typeof record['offsetMinutes'] !== 'number') return { kind: 'invalid-request' }
+      drafts.push({ ...id, type, offsetMinutes: record['offsetMinutes'] })
+    } else {
+      if (typeof record['at'] !== 'string') return { kind: 'invalid-request' }
+      drafts.push({ ...id, type, at: record['at'] })
+    }
+  }
+  return { kind: 'ok', value: drafts }
+}
+
+function parseReminderFieldErrors(value: unknown): NonNullable<TaskFieldErrors['reminders']> | null {
+  const record = asExactRecord(value, [], ['list', 'items'])
+  if (record === null || Object.keys(record).length === 0) return null
+  const errors: NonNullable<TaskFieldErrors['reminders']> = {}
+  if ('list' in record) {
+    if (record['list'] !== 'TOO_MANY' && record['list'] !== 'DUE_REQUIRED') return null
+    errors.list = record['list']
+  }
+  if ('items' in record) {
+    if (!Array.isArray(record['items']) || record['items'].length === 0 || record['items'].length > 10) return null
+    errors.items = []
+    for (const item of record['items'] as unknown[]) {
+      const raw = asExactRecord(item, ['index', 'code'])
+      if (raw === null || typeof raw['index'] !== 'number' || !Number.isSafeInteger(raw['index']) || raw['index'] < 0 || raw['index'] > 9 || !REMINDER_ITEM_ERROR_CODES.some(code => code === raw['code'])) return null
+      errors.items.push({ index: raw['index'], code: raw['code'] as (typeof REMINDER_ITEM_ERROR_CODES)[number] })
+    }
+  }
+  return errors
+}
+
 /** `draft` de criação v3: básicos + regra opcional + subtarefas (títulos). */
 export function parseTaskCreateRequest(value: unknown): TaskRequestParse<TaskCreateRequest> {
   if (!fitsRequestBudget(value)) return { kind: 'invalid-request' }
   const record = asExactRecord(value, ['version', 'contextSequence', 'draft'])
-  if (record === null || record['version'] !== 3 || !isContextSequence(record['contextSequence'])) {
+  if (record === null || record['version'] !== 4 || !isContextSequence(record['contextSequence'])) {
     return { kind: 'invalid-request' }
   }
-  const draft = asExactRecord(record['draft'], [], [...BASIC_TASK_FIELDS, 'recurrence', 'subtasks'])
+  const draft = asExactRecord(record['draft'], [], [...BASIC_TASK_FIELDS, 'recurrence', 'subtasks', 'reminders'])
   if (draft === null) return { kind: 'invalid-request' }
 
   const fields: TaskFieldErrors = {}
@@ -465,6 +517,14 @@ export function parseTaskCreateRequest(value: unknown): TaskRequestParse<TaskCre
     else subtasks = parsed.value
   }
 
+  let reminders: TaskReminderDraft[] | undefined
+  if ('reminders' in draft) {
+    const parsed = parseReminderDrafts(draft['reminders'], 'create')
+    if (parsed.kind === 'invalid-request') return parsed
+    if (parsed.kind === 'validation') fields.reminders = parsed.errors
+    else reminders = parsed.value
+  }
+
   if (Object.keys(fields).length > 0 || title === undefined) {
     return { kind: 'validation', fields }
   }
@@ -481,21 +541,22 @@ export function parseTaskCreateRequest(value: unknown): TaskRequestParse<TaskCre
     ...(sourceUrl.present && typeof sourceUrl.value === 'string' && { sourceUrl: sourceUrl.value }),
     ...(recurrence !== undefined && { recurrence }),
     ...(subtasks !== undefined && { subtasks }),
+    ...(reminders !== undefined && { reminders }),
   }
-  return { kind: 'ok', value: { version: 3, contextSequence: record['contextSequence'], draft: parsed } }
+  return { kind: 'ok', value: { version: 4, contextSequence: record['contextSequence'], draft: parsed } }
 }
 
 /** `patch` de edição v4: básicos + regra/null + lista id/título. */
 export function parseTaskUpdateRequest(value: unknown): TaskRequestParse<TaskUpdateRequest> {
   if (!fitsRequestBudget(value)) return { kind: 'invalid-request' }
   const record = asExactRecord(value, ['version', 'contextSequence', 'taskId', 'expectedEditRevision', 'patch'], ['cancellation'])
-  if (record === null || record['version'] !== 4 || !isContextSequence(record['contextSequence'])) {
+  if (record === null || record['version'] !== 5 || !isContextSequence(record['contextSequence'])) {
     return { kind: 'invalid-request' }
   }
   if (!isTaskId(record['taskId']) || !isRevisionText(record['expectedEditRevision'])) {
     return { kind: 'invalid-request' }
   }
-  const patchRecord = asExactRecord(record['patch'], [], [...BASIC_TASK_FIELDS, 'recurrence', 'subtasks'])
+  const patchRecord = asExactRecord(record['patch'], [], [...BASIC_TASK_FIELDS, 'recurrence', 'subtasks', 'reminders'])
   if (patchRecord === null) return { kind: 'invalid-request' }
 
   const cancellation = readCancellation(record)
@@ -538,6 +599,14 @@ export function parseTaskUpdateRequest(value: unknown): TaskRequestParse<TaskUpd
     else subtasks = parsed.value
   }
 
+  let reminders: TaskReminderDraft[] | undefined
+  if ('reminders' in patchRecord) {
+    const parsed = parseReminderDrafts(patchRecord['reminders'], 'edit')
+    if (parsed.kind === 'invalid-request') return parsed
+    if (parsed.kind === 'validation') fields.reminders = parsed.errors
+    else reminders = parsed.value
+  }
+
   if (Object.keys(fields).length > 0) return { kind: 'validation', fields }
 
   const patch: {
@@ -551,6 +620,7 @@ export function parseTaskUpdateRequest(value: unknown): TaskRequestParse<TaskUpd
     tags?: readonly string[]
     sourceUrl?: string | null
     recurrence?: TaskRecurrenceDraft | null
+    reminders?: readonly TaskReminderDraft[]
     subtasks?: readonly SubtaskDraft[]
   } = {}
   if (title !== undefined) patch.title = title
@@ -564,11 +634,12 @@ export function parseTaskUpdateRequest(value: unknown): TaskRequestParse<TaskUpd
   if (sourceUrl.present) patch.sourceUrl = sourceUrl.value
   if (recurrence !== undefined) patch.recurrence = recurrence
   if (subtasks !== undefined) patch.subtasks = subtasks
+  if (reminders !== undefined) patch.reminders = reminders
 
   return {
     kind: 'ok',
     value: {
-      version: 4,
+      version: 5,
       contextSequence: record['contextSequence'],
       taskId: record['taskId'],
       expectedEditRevision: record['expectedEditRevision'],
@@ -700,6 +771,12 @@ function parseBasicFieldErrors(value: unknown): TaskFieldErrors | null {
       fields.recurrence = errors
       continue
     }
+    if (key === 'reminders') {
+      const errors = parseReminderFieldErrors(record[key])
+      if (errors === null) return null
+      fields.reminders = errors
+      continue
+    }
     if (key === 'subtasks') {
       const errors = parseSubtaskFieldErrors(record[key])
       if (errors === null) return null
@@ -792,9 +869,9 @@ function parseFailureDetails(record: Record<string, unknown>, code: TaskMutation
   return details
 }
 
-function parseFailureAtVersion<T extends TaskCreateFailure | TaskMutationFailure>(
+function parseFailureAtVersion<T extends TaskCreateFailure | TaskMutationFailure | TaskCheckFailure | TaskUpdateFailure>(
   value: unknown,
-  version: 3 | 4,
+  version: 3 | 4 | 5,
 ): T | null {
   const record = asExactRecord(
     value,
@@ -814,7 +891,7 @@ function parseMutationFailure(value: unknown): TaskMutationFailure | null {
 }
 
 function parseCreateFailure(value: unknown): TaskCreateFailure | null {
-  return parseFailureAtVersion<TaskCreateFailure>(value, 3)
+  return parseFailureAtVersion<TaskCreateFailure>(value, 4)
 }
 
 function parseCheckFailure(value: unknown): TaskCheckFailure | null {
@@ -842,7 +919,7 @@ export function parseTaskCreateResult(value: unknown): TaskCreateResult | null {
   const failure = parseCreateFailure(value)
   if (failure !== null) return failure
   const record = asExactRecord(value, ['version', 'status', 'outcome', 'taskId', 'revision', 'contentRevision', 'editRevision'])
-  if (record === null || record['version'] !== 3 || record['status'] !== 'ok' || record['outcome'] !== 'APPLIED') return null
+  if (record === null || record['version'] !== 4 || record['status'] !== 'ok' || record['outcome'] !== 'APPLIED') return null
   const taskId = record['taskId']
   const revision = record['revision']
   const contentRevision = record['contentRevision']
@@ -856,7 +933,7 @@ export function parseTaskCreateResult(value: unknown): TaskCreateResult | null {
   ) {
     return null
   }
-  const ack: TaskCreateAck = { version: 3, status: 'ok', outcome: 'APPLIED', taskId, revision, contentRevision, editRevision }
+  const ack: TaskCreateAck = { version: 4, status: 'ok', outcome: 'APPLIED', taskId, revision, contentRevision, editRevision }
   return fitsResponseBudget(ack) ? ack : null
 }
 
@@ -910,6 +987,15 @@ function parseCheckAck(value: unknown): TaskCheckAck | null {
 
 export function parseTaskMutationResult(value: unknown): TaskMutationResult | null {
   return parseMutationFailure(value) ?? parseMutationAck(value)
+}
+
+export function parseTaskUpdateResult(value: unknown): TaskUpdateResult | null {
+  const failure = parseFailureAtVersion<TaskUpdateFailure>(value, 5)
+  if (failure !== null) return failure
+  const raw = asPlainRecord(value)
+  if (raw === null || raw['version'] !== 5) return null
+  const parsed = parseMutationAck({ ...raw, version: 4 })
+  return parsed === null ? null : { ...parsed, version: 5 }
 }
 
 export function parseSubtaskDoneResult(value: unknown): TaskCheckResult | null {

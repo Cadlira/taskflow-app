@@ -1,4 +1,5 @@
 import type { Task } from '../../domain/task.js'
+import type { ReminderOccurrenceKey } from '../../domain/task-reminders.js'
 import type { Revision } from './revisions.js'
 import type { StorageFailureReason } from './task-storage-error.js'
 
@@ -139,6 +140,15 @@ export interface ReminderOccurrenceClaim {
   processedFor: string
 }
 
+/** Conteúdo fresco e limitado, capturado durante a decisão; nunca é autoridade do timer. */
+export interface ReminderSubmissionCandidate extends ReminderOccurrenceKey {
+  title: string
+  dueAt: string
+}
+export type ReminderProcessingResult =
+  | { status: 'INAPPLICABLE' | 'FUTURE' | 'EXPIRED' | 'DEFERRED' }
+  | { status: 'CLAIMED'; candidate: ReminderSubmissionCandidate }
+
 /**
  * Resumo leve de uma linha para checagens de portadora: identifica série e presença de regra
  * sem normalizar o payload inteiro. Não substitui a leitura validada de `StoredTask`.
@@ -250,6 +260,8 @@ export interface TaskStorageUnit extends TaskStorageReader {
    * Altera a revisão global, conservando `updatedAt`, a revisão de conteúdo e a de edição.
    */
   claimReminderOccurrence(claim: ReminderOccurrenceClaim): boolean
+  /** Revalida tupla/clock; terminal vencida/expirada consome sem candidato externo. */
+  processReminderOccurrence(occurrence: ReminderOccurrenceKey, now: Date, allowEligible?: boolean): ReminderProcessingResult
 }
 
 /** Resultado de uma unidade coordenada, discriminado por dados. */

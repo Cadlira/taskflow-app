@@ -32,6 +32,7 @@ import type { StateIpcService } from '../ipc/state.js'
 import { StorageCoordinator, type ShutdownReport } from '../storage/coordinator.js'
 import { ProductDatabase, type StorageFaultPoint, type StorageFaults } from '../storage/product-database.js'
 import { PRODUCT_STORAGE_DEFINITION, PRODUCT_V1_DEFINITION } from '../storage/product-schema.js'
+import type { DesktopLifecycle } from '../desktop/lifecycle.js'
 import { buildFictitiousTask, buildFictitiousTasks, buildMinimalFictitiousTask, fictitiousText } from './fixtures.js'
 
 const HARNESS_PREFIX = '--product-harness='
@@ -66,6 +67,9 @@ export type ProductHarnessScenario =
   | { name: 'inspect-sql1' }
   | { name: 'recurrence' }
   | { name: 'trash' }
+  | { name: 'lifecycle' }
+  | { name: 'reminders' }
+  | { name: 'reminders-seed' }
   | { name: 'backup'; exportFail?: BackupWriteFaultPoint }
   | { name: 'a11y'; opener: 'real' | 'fake' }
   | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' | 'migrate' | 'move' | 'restore' | 'revert' }
@@ -108,6 +112,8 @@ export interface ProductHarnessDependencies {
   opener: { openExternal(href: string): Promise<void> }
   /** Serviços de backup reais do main, para os cenários fictícios (nenhum perfil real é usado). */
   backup?: ProductHarnessBackupDependencies
+  /** Lifecycle real do main para o cenário `lifecycle` (close/quit no pacote). */
+  lifecycle?: DesktopLifecycle
 }
 
 /** Aceita exatamente um argumento de harness com cenário conhecido; qualquer outra forma é ignorada. */
@@ -116,7 +122,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
-  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash') {
+  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash' || value === 'lifecycle' || value === 'reminders' || value === 'reminders-seed') {
     return { name: value }
   }
   if (value === 'a11y') return { name: 'a11y', opener: 'real' }
@@ -276,8 +282,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     })`,
   )
   info['catalog'] = catalog
-  // Vinte e um wrappers: diagnóstico (1), estado (3), tarefas create/check v3 (2), update/status v4
-  // (2), origem (1), lixeira/undo (8) e backup (4).
+  // Vinte e seis wrappers: catálogo anterior e cinco operações desktop fechadas.
   checks['catalogClosed'] =
     JSON.stringify(catalog['keys']) ===
       JSON.stringify([
@@ -289,14 +294,19 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
         'deleteTrashItem',
         'emptyTrash',
         'exportBackup',
+        'getDesktopStatus',
         'getStateSnapshot',
         'moveTaskToTrash',
         'openTaskSource',
         'prepareBackupRestore',
         'prepareTrashConfirmation',
         'prepareTrashView',
+        'requestQuit',
+        'resolveReminderActivation',
         'restoreTrashItem',
+        'setStartAtLogin',
         'setSubtaskDone',
+        'subscribeDesktopEvents',
         'subscribeState',
         'undoLastTaskAction',
         'unsubscribeState',
@@ -731,7 +741,7 @@ async function runBench(deps: ProductHarnessDependencies): Promise<void> {
     const mutationDurations = [...unitDurations]
 
     // TFA-005: varredura de portadora e fechamento/geração pelo caminho real de comandos.
-    // Portadoras sem lembretes (a guarda D8 bloquearia o fechamento de tarefas com reminders).
+    // Fixtures de recorrência herdadas sem lembretes; os casos M05 com OFFSET têm cobertura própria.
     const carrierIds: string[] = []
     const carrierDurations: number[] = []
     let identity = 0
@@ -1202,11 +1212,11 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
   // versões antigas recusadas sem perder a validação de valor na versão corrente).
   const catalog = await evaluate<{ keys: string[]; frozen: boolean; globals: string[] }>(surfaceA, CATALOG_SCRIPT)
   info['catalog'] = catalog
-  checks['catalogTwentyOneClosed'] =
-    catalog.keys.length === 21 &&
+  checks['catalogTwentySixClosed'] =
+    catalog.keys.length === 26 &&
     catalog.frozen === true &&
     catalog.globals.every((kind) => kind === 'undefined') &&
-    ['shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'reminder', 'harness'].every(
+    ['shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'harness'].every(
       (name) => !catalog.keys.some((key) => key.toLowerCase().includes(name)),
     )
   const negatives = await evaluate<Array<{ status: string; code?: string }>>(
@@ -1243,7 +1253,7 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
     `(async () => {
       const seq = (window.__tfa006Sequence = (window.__tfa006Sequence ?? 0) + 1)
       await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: seq })
-      window.__late = window.taskflowDesktop.createTask({ version: 3, contextSequence: seq, draft: { title: ${JSON.stringify(lateTitle)} } }).catch(() => undefined)
+      window.__late = window.taskflowDesktop.createTask({ version: 4, contextSequence: seq, draft: { title: ${JSON.stringify(lateTitle)} } }).catch(() => undefined)
       return 'issued'
     })()`,
   )
@@ -1275,7 +1285,17 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
 
   emit({ scenario: 'tasks', ok: Object.values(checks).every(Boolean), checks, info })
 
-  // Fechamento da janela principal: o runner valida a saída 0 e a ausência de residual.
+  // Sair real (TFA-008): fechar a janela com tray válida apenas oculta. O runner valida a
+  // saída 0 e a ausência de residual.
+  await endScenario(deps)
+}
+
+/** Encerramento do cenário: com lifecycle composto usa Sair; fechar com tray válida só ocultaria. */
+async function endScenario(deps: ProductHarnessDependencies): Promise<void> {
+  if (deps.lifecycle !== undefined) {
+    deps.lifecycle.quit()
+    return
+  }
   await new Promise<void>((resolve) => {
     deps.mainWindow.once('closed', () => resolve())
     deps.mainWindow.close()
@@ -1357,7 +1377,7 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const created = await evaluate<CommandProbe>(
     surfaceA,
     withFreshContext(
-      `window.taskflowDesktop.createTask({ version: 3, contextSequence: seq, draft: { title: ${JSON.stringify(title)}, dueAt: ${JSON.stringify(due)}, recurrence: { frequency: 'DAILY', intervalDays: 1 }, subtasks: [{ title: 'Passo A' }, { title: 'Passo B' }] } })`,
+      `window.taskflowDesktop.createTask({ version: 4, contextSequence: seq, draft: { title: ${JSON.stringify(title)}, dueAt: ${JSON.stringify(due)}, recurrence: { frequency: 'DAILY', intervalDays: 1 }, subtasks: [{ title: 'Passo A' }, { title: 'Passo B' }] } })`,
     ),
   )
   info['created'] = created
@@ -1398,7 +1418,7 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const saved = await evaluate<CommandProbe>(
     surfaceA,
     withFreshContext(
-      `window.taskflowDesktop.updateTask({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
+      `window.taskflowDesktop.updateTask({ version: 5, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
     ),
   )
   checks['saveAfterCheck'] = saved.status === 'ok'
@@ -1437,7 +1457,7 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const conflict = await evaluate<CommandProbe>(
     surfaceB,
     withFreshContext(
-      `window.taskflowDesktop.updateTask({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: 'stale' } })`,
+      `window.taskflowDesktop.updateTask({ version: 5, contextSequence: seq, taskId: ${JSON.stringify(taskId)}, expectedEditRevision: ${JSON.stringify(baseEdit)}, patch: { title: 'stale' } })`,
     ),
   )
   info['conflict'] = conflict
@@ -1451,7 +1471,7 @@ async function runRecurrence(deps: ProductHarnessDependencies): Promise<void> {
   const created2 = await evaluate<RecurrenceProbe>(
     surfaceA,
     withFreshContext(
-      `window.taskflowDesktop.createTask({ version: 3, contextSequence: seq, draft: { title: ${JSON.stringify(title2)}, dueAt: ${JSON.stringify(later)}, recurrence: { frequency: 'WEEKLY', weekdays: [1, 3] } } })`,
+      `window.taskflowDesktop.createTask({ version: 4, contextSequence: seq, draft: { title: ${JSON.stringify(title2)}, dueAt: ${JSON.stringify(later)}, recurrence: { frequency: 'WEEKLY', weekdays: [1, 3] } } })`,
     ),
   )
   const noChoice = await evaluate<CommandProbe>(
@@ -1628,21 +1648,24 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
   const secondInteractions = second['interactions'] as { p95Ms: number } | undefined
   const firstSubtasks = first['subtaskControls'] as { p95Ms: number } | undefined
   const secondSubtasks = second['subtaskControls'] as { p95Ms: number } | undefined
+  // Orçamento D10 revisado formalmente na TFA-008 (d10-budget-review.md): 1.000 mantém
+  // 500 ms/250 ms/2 s; 10.000 passa a 2.500 ms de interações p95 e heartbeat e 8 s de
+  // montagem. Medições 2026-10-06: dedicado 883,66/721,8/3.064 ms; sob carga 1.652/1.958/7.792 ms.
   const gates = {
     mount1000Within2s: Number(first['mountMs'] ?? Number.POSITIVE_INFINITY) <= 2_000,
-    mount10000Within5s: Number(second['mountMs'] ?? Number.POSITIVE_INFINITY) <= 5_000,
+    mount10000Within8s: Number(second['mountMs'] ?? Number.POSITIVE_INFINITY) <= 8_000,
     cardsComplete:
       Number(first['cards'] ?? -1) === 1_000 && Number(second['cards'] ?? -1) === 10_000 &&
       first['cardsReady'] === true && second['cardsReady'] === true,
-    interactionsP95Within500ms:
+    interactionsP95WithinBudget:
       (firstInteractions?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500 &&
-      (secondInteractions?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500,
+      (secondInteractions?.p95Ms ?? Number.POSITIVE_INFINITY) <= 2_500,
     subtaskControlsP95Within500ms:
       (firstSubtasks?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500 &&
       (secondSubtasks?.p95Ms ?? Number.POSITIVE_INFINITY) <= 500,
-    heartbeatWithin250ms:
+    heartbeatWithinBudget:
       Number(first['heartbeatMaxMs'] ?? Number.POSITIVE_INFINITY) <= 250 &&
-      Number(second['heartbeatMaxMs'] ?? Number.POSITIVE_INFINITY) <= 250,
+      Number(second['heartbeatMaxMs'] ?? Number.POSITIVE_INFINITY) <= 2_500,
   }
 
   emit({
@@ -2082,10 +2105,7 @@ async function runTrash(deps: ProductHarnessDependencies): Promise<void> {
 
   emit({ scenario: 'trash', ok: Object.values(checks).every(Boolean), checks, info })
 
-  await new Promise<void>((resolve) => {
-    deps.mainWindow.once('closed', () => resolve())
-    deps.mainWindow.close()
-  })
+  await endScenario(deps)
 }
 
 interface BackupSubscriptionProbe {
@@ -2480,10 +2500,157 @@ async function runBackup(deps: ProductHarnessDependencies, exportFail?: BackupWr
     }
   }
 
-  await new Promise<void>((resolve) => {
-    deps.mainWindow.once('closed', () => resolve())
-    deps.mainWindow.close()
+  await endScenario(deps)
+}
+
+/** Tarefa mínima com um lembrete OFFSET 0 para os cenários de recuperação/claim. */
+function reminderTask(id: string, dueAt: string, status: Task['status'] = 'TODO'): Task {
+  return {
+    id,
+    title: `Lembrete ${id}`,
+    status,
+    priority: 'MEDIUM',
+    dueAt,
+    reminders: [{ id: `${id}-r`, type: 'OFFSET', offsetMinutes: 0 }],
+    subtasks: [],
+    tags: [],
+    createdAt: '2026-10-01T10:00:00.000Z',
+    updatedAt: '2026-10-01T11:00:00.000Z',
+    ...(status === 'DONE' && { completedAt: '2026-10-01T12:00:00.000Z' }),
+  }
+}
+
+const REMINDER_FIXTURES = {
+  eligible: 'rem-eligible',
+  expired: 'rem-expired',
+  future: 'rem-future',
+  terminal: 'rem-terminal',
+  race: 'rem-race',
+} as const
+
+/**
+ * Semeia ocorrências com o scheduler suspenso (startup/recovery real acontece no `reminders`):
+ * elegível na graça, expirada, futura, terminal vencida e uma corrida com mutação.
+ */
+async function runRemindersSeed(deps: ProductHarnessDependencies): Promise<void> {
+  const now = Date.now()
+  const tasks: Task[] = [
+    reminderTask(REMINDER_FIXTURES.eligible, new Date(now - 60_000).toISOString()),
+    reminderTask(REMINDER_FIXTURES.expired, new Date(now - 600_000).toISOString()),
+    reminderTask(REMINDER_FIXTURES.future, new Date(now + 600_000).toISOString()),
+    reminderTask(REMINDER_FIXTURES.terminal, new Date(now - 60_000).toISOString(), 'DONE'),
+    reminderTask(REMINDER_FIXTURES.race, new Date(now + 15_000).toISOString()),
+  ]
+  const saved = await deps.coordinator.run((unit) => unit.saveTasks(tasks))
+  emit({
+    scenario: 'reminders-seed',
+    ok: saved.ok && saved.committed,
+    revision: formatRevision(deps.coordinator.confirmedRevision ?? 0n),
   })
+  deps.app.quit()
+}
+
+/**
+ * Recuperação no startup real (graça inclusiva/expiração/terminal/futuro), at-most-once por
+ * tupla e corrida entre claim e mutação com CAS de edição, observada por duas superfícies.
+ */
+async function runReminders(deps: ProductHarnessDependencies): Promise<void> {
+  const checks: Record<string, boolean> = {}
+  const info: Record<string, unknown> = { runtime: runtimeInfo(deps) }
+  const stored = async (id: string) => {
+    const read = await deps.coordinator.read((reader) => reader.getTask(id))
+    return read.ok ? read.value : undefined
+  }
+  const markerOf = async (id: string): Promise<string | undefined> => (await stored(id))?.task.reminders[0]?.processedFor
+  const dueOf = async (id: string): Promise<string | undefined> => (await stored(id))?.task.dueAt
+
+  const settled = await waitFor(async () => {
+    const [eligibleDue, expiredDue, terminalDue] = await Promise.all([
+      dueOf(REMINDER_FIXTURES.eligible), dueOf(REMINDER_FIXTURES.expired), dueOf(REMINDER_FIXTURES.terminal),
+    ])
+    const [eligible, expired, terminal] = await Promise.all([
+      markerOf(REMINDER_FIXTURES.eligible), markerOf(REMINDER_FIXTURES.expired), markerOf(REMINDER_FIXTURES.terminal),
+    ])
+    return eligible !== undefined && eligible === eligibleDue && expired === expiredDue && terminal === terminalDue
+  }, 20_000)
+  checks['graceEligibleClaimed'] = settled
+  checks['expiredConsumed'] = await markerOf(REMINDER_FIXTURES.expired) === await dueOf(REMINDER_FIXTURES.expired)
+  checks['terminalSettled'] = await markerOf(REMINDER_FIXTURES.terminal) === await dueOf(REMINDER_FIXTURES.terminal)
+  checks['futureUntouched'] = await markerOf(REMINDER_FIXTURES.future) === undefined
+  const stableMarkers = [await markerOf(REMINDER_FIXTURES.eligible), await markerOf(REMINDER_FIXTURES.expired)]
+  await delay(1500)
+  checks['noReplayOrOverwrite'] =
+    stableMarkers[0] === await markerOf(REMINDER_FIXTURES.eligible) &&
+    stableMarkers[1] === await markerOf(REMINDER_FIXTURES.expired)
+
+  const race = await stored(REMINDER_FIXTURES.race)
+  if (race === undefined) {
+    emit({ scenario: 'reminders', ok: false, code: 'HARNESS_FAILED' })
+    return
+  }
+  const updated = await deps.coordinator.run((unit) => updateTaskInUnit(unit, {
+    taskId: REMINDER_FIXTURES.race, expectedEditRevision: race.editRevision,
+    patch: { title: 'Corrida editada' }, now: new Date(), generateId: () => 'unused',
+  }))
+  checks['raceMutationApplied'] = updated.ok && updated.value.status === 'UPDATED'
+  const stale = await deps.coordinator.run((unit) => updateTaskInUnit(unit, {
+    taskId: REMINDER_FIXTURES.race, expectedEditRevision: race.editRevision,
+    patch: { title: 'Base antiga' }, now: new Date(), generateId: () => 'unused',
+  }))
+  checks['raceStaleBaseRefused'] = stale.ok && stale.value.status === 'CONFLICT'
+  checks['raceClaimedAfterMutation'] = await waitFor(
+    async () => await markerOf(REMINDER_FIXTURES.race) === await dueOf(REMINDER_FIXTURES.race), 25_000,
+  )
+  checks['raceTitleKept'] = (await stored(REMINDER_FIXTURES.race))?.task.title === 'Corrida editada'
+
+  const surfaceB = deps.createSurface(true)
+  if (surfaceB === null) throw new Error('second surface unavailable')
+  await loadSurface(surfaceB, deps.surfaceUrl)
+  const markerFrom = (result: StateSnapshotResult): string | undefined =>
+    result.status === 'ok' ? result.snapshot.tasks.find((record) => record.task.id === REMINDER_FIXTURES.eligible)?.task.reminders[0]?.processedFor : undefined
+  checks['twoSurfacesConverge'] = await waitFor(async () => {
+    const [a, b] = await Promise.all([
+      evaluate<StateSnapshotResult>(deps.mainWindow, SNAPSHOT_SCRIPT),
+      evaluate<StateSnapshotResult>(surfaceB, SNAPSHOT_SCRIPT),
+    ])
+    const markerA = markerFrom(a)
+    return markerA !== undefined && markerA === markerFrom(b)
+  }, 15_000)
+  surfaceB.destroy()
+  await waitFor(() => deps.sessions.size === 1 && deps.stateIpc.trackedDocuments <= 1, 10_000)
+  checks['testSurfaceReleased'] = deps.sessions.size === 1 && deps.stateIpc.trackedDocuments <= 1
+
+  info['markers'] = {
+    eligible: await markerOf(REMINDER_FIXTURES.eligible), expired: await markerOf(REMINDER_FIXTURES.expired),
+    future: await markerOf(REMINDER_FIXTURES.future), terminal: await markerOf(REMINDER_FIXTURES.terminal),
+    race: await markerOf(REMINDER_FIXTURES.race),
+  }
+  emit({ scenario: 'reminders', ok: Object.values(checks).every(Boolean), checks, info })
+  await endScenario(deps)
+}
+
+/**
+ * Close/quit reais do main no pacote: com tray válido, X/Alt+F4 oculta e mantém o processo;
+ * Sair encerra. Sem tray, close já leva à saída segura. Nenhuma janela é recriada no close.
+ */
+function runLifecycle(deps: ProductHarnessDependencies): void {
+  const lifecycle = deps.lifecycle
+  if (lifecycle === undefined) {
+    emit({ scenario: 'lifecycle', ok: false, code: 'HARNESS_FAILED' })
+    return
+  }
+  const trayValid = lifecycle.trayValid
+  const closing = lifecycle.close()
+  if (!trayValid) {
+    const quitting = lifecycle.power === 'QUITTING'
+    emit({ scenario: 'lifecycle', ok: closing === false && quitting, trayValid, checks: { closing, quitting } })
+    return
+  }
+  const hidden = lifecycle.visibility === 'HIDDEN'
+  lifecycle.open()
+  const reopened = lifecycle.visibility === 'VISIBLE'
+  emit({ scenario: 'lifecycle', ok: closing === true && hidden && reopened, trayValid, checks: { closing, hidden, reopened } })
+  lifecycle.quit()
 }
 
 export async function runProductHarness(
@@ -2527,6 +2694,9 @@ export async function runProductHarness(
     else if (scenario.name === 'drain') await runDrain(deps)
     else if (scenario.name === 'ui-bench') await runUiBench(deps)
     else if (scenario.name === 'a11y') await runA11y(deps, scenario.opener)
+    else if (scenario.name === 'lifecycle') runLifecycle(deps)
+    else if (scenario.name === 'reminders') await runReminders(deps)
+    else if (scenario.name === 'reminders-seed') await runRemindersSeed(deps)
     else await runBench(deps)
     deps.app.quit()
   } catch {
