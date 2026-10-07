@@ -39,7 +39,7 @@ interface FakeSessions extends TaskCommandSessions {
 function fakeSessions(): FakeSessions {
   const state = { authorized: true, current: true, generation: 1 }
   return {
-    authorize: () => (state.authorized ? { contentsId: 1, generation: state.generation, key: 'doc:1' } : null),
+    authorize: () => (state.authorized ? { role: 'MANAGER' as const, contentsId: 1, generation: state.generation, key: 'doc:1' } : null),
     isCurrent: (ticket) => state.current && ticket.generation === state.generation,
     invalidate: () => {
       state.current = false

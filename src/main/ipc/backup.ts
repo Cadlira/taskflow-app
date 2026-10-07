@@ -42,7 +42,7 @@ export class BackupCommandIpcService {
   async handleExport(event: InvocationLike, request: unknown): Promise<ExportBackupResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return failure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return failure('UNAUTHORIZED')
       const parsed = parseExportBackupRequest(request)
       if (parsed === null) return failure('INVALID_REQUEST')
 
@@ -58,7 +58,7 @@ export class BackupCommandIpcService {
   async handlePrepare(event: InvocationLike, request: unknown): Promise<PrepareBackupRestoreResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return failure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return failure('UNAUTHORIZED')
       const parsed = parsePrepareBackupRestoreRequest(request)
       if (parsed === null) return failure('INVALID_REQUEST')
 
@@ -73,7 +73,7 @@ export class BackupCommandIpcService {
   async handleConfirm(event: InvocationLike, request: unknown): Promise<ConfirmBackupRestoreResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return failure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return failure('UNAUTHORIZED')
       const parsed = parseConfirmBackupRestoreRequest(request)
       if (parsed === null) return failure('INVALID_REQUEST')
 
@@ -88,7 +88,7 @@ export class BackupCommandIpcService {
   async handleCancel(event: InvocationLike, request: unknown): Promise<CancelBackupRestoreResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return failure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return failure('UNAUTHORIZED')
       const parsed = parseCancelBackupRestoreRequest(request)
       if (parsed === null) return failure('INVALID_REQUEST')
 

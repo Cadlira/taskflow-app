@@ -14,6 +14,14 @@ function draft(overrides: Partial<BasicTaskDraft> = {}): BasicTaskDraft {
 }
 
 describe('task-draft: criação básica', () => {
+  it.each(['https://user:password@example.test', 'https://@example.test', 'https:example.test', 'https://example.test/\n', 'https://example.test/\u0080', 'https://example.test/\ud800'])('Q01 origem manual nova recusa candidato inseguro: %s', sourceUrl => {
+    expect(validateBasicDraft(draft({ sourceUrl }))).toEqual({ ok: false, fields: { sourceUrl: 'INVALID_URL' } })
+  })
+  it('origem manual longa permanece inteira; restrição de abertura não vira limite de codec', () => {
+    const sourceUrl = 'https://example.test/' + 'a'.repeat(3000)
+    const result = validateBasicDraft(draft({ sourceUrl })); expect(result.ok).toBe(true)
+    if (result.ok) expect(result.value.sourceUrl).toBe(sourceUrl)
+  })
   it('cria com defaults TODO/MEDIUM, tags vazias e auditoria do proprietário', () => {
     const validation = validateBasicDraft(draft())
     expect(validation.ok).toBe(true)

@@ -3,7 +3,7 @@ import type { BackupCommandServices } from '../../src/main/backup/backup-restore
 import { BackupCommandIpcService } from '../../src/main/ipc/backup.js'
 import type { DocumentTicket, InvocationLike } from '../../src/main/ipc/document-sessions.js'
 
-const TICKET: DocumentTicket = { contentsId: 1, generation: 1, key: '1:1' }
+const TICKET: DocumentTicket = { role: 'MANAGER', contentsId: 1, generation: 1, key: '1:1' }
 const EVENT = { sender: { id: 1 }, senderFrame: { url: 'taskflow://app' } } as unknown as InvocationLike
 
 function fixture(options: { authorized?: boolean; current?: boolean } = {}) {

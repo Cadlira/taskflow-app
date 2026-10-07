@@ -104,7 +104,7 @@ function harness(options: { coordinatorOptions?: OpenCoordinatorOptions; file?: 
   }
 }
 
-const ticket = { contentsId: 1, generation: 1, key: '1:1' }
+const ticket = { role: 'MANAGER' as const, contentsId: 1, generation: 1, key: '1:1' }
 
 describe('BackupCommandServices.prepare/confirm/cancel (B05/B06/B07/B11)', () => {
   it('prepara prévia completa, libera por cancel e mantém a idempotência', async () => {

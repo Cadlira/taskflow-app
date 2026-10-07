@@ -6,8 +6,7 @@ pertencem ao grupo 7/8 da Change. Este documento descreve o comportamento do ren
 em [domain-recurrence-and-subtasks.md](domain-recurrence-and-subtasks.md); catálogo IPC, schema e
 migração ficam em [local-persistence-and-state-ipc.md](local-persistence-and-state-ipc.md).
 
-Nada aqui anuncia recursos futuros: não há excluir, lixeira funcional, desfazer, backup, lembretes
-editáveis, notificações, captura, atalhos globais ou IA.
+Os recortes acima são históricos da TFA-005. TFA-006–008 acrescentaram lixeira/desfazer, backup e lembretes editáveis. A TFA-009 integra [captura por gesto](clipboard-capture.md) e [Quick Add/atalhos](quick-add-and-shortcuts.md) implementados; IA continua futura. O formulário existente fornece modo compacto sem editores avançados ao Quick Add e mede geração/dirty de todos os campos antes de aplicação de captura.
 
 ## Store e concorrência entre edição e marcações
 

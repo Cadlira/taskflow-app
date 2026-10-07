@@ -60,7 +60,7 @@ export async function handleFoundationInvocation(
   runProof: () => Promise<FoundationResult> | FoundationResult,
 ): Promise<FoundationResult> {
   const ticket = sessions.authorize(event)
-  if (ticket === null) return unauthorizedFoundationInvocation()
+  if (ticket === null || ticket.role !== 'MANAGER') return unauthorizedFoundationInvocation()
   if (!isValidFoundationRequest(request)) return invalidFoundationRequest()
 
   const result = await gate.run(() => (sessions.isCurrent(ticket) ? runProof() : unauthorizedFoundationInvocation()))

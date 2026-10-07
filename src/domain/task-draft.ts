@@ -3,6 +3,7 @@
 // validação HTTP/HTTPS. Ampliado na TFA-005 com regra de recorrência (até inclusivo contra
 // dueAt combinado, âncora preservada), subtarefas e lembretes sem campos de autoridade.
 import { isTaskPriority, isTaskStatus, type IdGenerator, type Task, type TaskPriority, type TaskStatus } from './task.js'
+import { validateCaptureSource } from './clipboard-capture.js'
 import { isRepresentableInstant, preserveProcessedMarkers, settleElapsedReminders } from './task-reminders.js'
 import { resolveReminderDrafts, type TaskReminderDraft, type ReminderListErrors } from './reminder-draft.js'
 import {
@@ -253,7 +254,7 @@ export function validateBasicDraft(draft: BasicTaskDraft): BasicDraftValidation 
   }
 
   const sourceUrl = optionalText(draft.sourceUrl)
-  if (sourceUrl && !isHttpUrl(sourceUrl)) {
+  if (sourceUrl && !validateCaptureSource(draft.sourceUrl ?? '').ok) {
     fields.sourceUrl = 'INVALID_URL'
   }
 
@@ -414,7 +415,7 @@ export function planBasicPatch(current: Task, patch: BasicTaskPatch, now: Date):
         if (current.sourceUrl !== undefined) operations.push({ key: 'sourceUrl', value: undefined })
       } else if (value === current.sourceUrl) {
         // Intacto: não revalida nem regrava o valor histórico.
-      } else if (!isHttpUrl(value)) {
+      } else if (!validateCaptureSource(raw).ok) {
         fields.sourceUrl = 'INVALID_URL'
       } else {
         operations.push({ key: 'sourceUrl', value })

@@ -12,7 +12,7 @@ let disposed = false
 let sequence = 0
 async function read(): Promise<void> {
   try {
-    const result = await window.taskflowDesktop.getDesktopStatus({ version: 1 })
+    const result = await window.taskflowDesktop.getDesktopStatus({ version: 2 })
     if (!disposed && result.status === 'ok' && result.desktop.surfaceSequence >= sequence) status.value = result.desktop
   } catch { if (!disposed) message.value = 'Não foi possível consultar o estado do aplicativo.' }
 }
@@ -45,7 +45,7 @@ async function quit(): Promise<void> {
 }
 onMounted(async () => {
   try {
-    subscription = await window.taskflowDesktop.subscribeDesktopEvents({ version: 1 }, control)
+    subscription = await window.taskflowDesktop.subscribeDesktopEvents({ version: 2 }, control)
     if (disposed) subscription.dispose()
     else await read()
   } catch { message.value = 'Controle do aplicativo indisponível. Abra a janela novamente.' }

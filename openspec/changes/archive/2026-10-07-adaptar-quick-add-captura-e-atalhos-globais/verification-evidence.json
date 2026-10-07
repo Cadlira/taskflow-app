@@ -1,0 +1,622 @@
+{
+  "date": "2026-10-07",
+  "base": "5dd68ff12e20babab5264966e6d3f65bff8a2862",
+  "package": {
+    "asar": "2b6e4798d50460b89f47abf1d1802c9bcf80cfaa3cb6cd567e8ef1adfe25c7b2",
+    "executable": "8ea3521b8a5d1564aab19c9fb0cc5ad4aa8492a5b932e8d516e53b757a8fbcf4",
+    "setup": "6444365d0bada92c39ea15a9b3bef6b3a37061c3dca0b1c38206ef3fd75e55c7",
+    "setupExecuted": false
+  },
+  "validate": {
+    "exitCode": 0,
+    "files": 87,
+    "passed": 1134,
+    "skipped": 11,
+    "volumePassed": 2
+  },
+  "openSpec": {
+    "change": true,
+    "allPassed": 14,
+    "allFailed": 0,
+    "archivedPassed": 8,
+    "archivedFailed": 0
+  },
+  "smoke": {
+    "exitCode": 0,
+    "flags": [],
+    "generatedAt": "2026-10-07T08:10:33.796Z",
+    "checks": {
+      "bridge": {
+        "ok": true,
+        "checks": {
+          "originMatches": true,
+          "availabilityReady": true,
+          "catalogClosed": true,
+          "initialSnapshot": true,
+          "subscribeBoth": true,
+          "subscribeIdempotent": true,
+          "internalCommits": true,
+          "restoreCollision": true,
+          "noopWithoutRevision": true,
+          "twoSurfacesConverge": true,
+          "roundTripAllFields": true,
+          "trashPreserved": true,
+          "recordAbovePage": true,
+          "readsDoNotMutate": true,
+          "invalidRequestsRefused": true,
+          "foreignUnsubscribeRefused": true,
+          "unsubscribeIdempotent": true,
+          "unknownContentsRefused": true,
+          "wrongUrlRefused": true,
+          "reloadInvalidatesSession": true,
+          "newDocumentResubscribes": true,
+          "documentLimit": true,
+          "documentsReleased": true,
+          "diagnosticKeepsProduct": true,
+          "productKeepsDiagnostic": true,
+          "finalSnapshot": true,
+          "testSurfaceReleased": true
+        }
+      },
+      "entries": {
+        "ok": true,
+        "checks": {
+          "managerCatalog35": true,
+          "managerSeedVisible": true,
+          "openedQuick": true,
+          "quickReady": true,
+          "quickCatalog14": true,
+          "quickRoleV2": true,
+          "oldDesktopVersionRefused": true,
+          "openDoesNotRead": true,
+          "quickMainEnforcement": true,
+          "ownConfirmationClears": true,
+          "singleCreatePersisted": true,
+          "managerEditorPreserved": true,
+          "closeOnlyQuick": true,
+          "otherSessionAlive": true,
+          "sameSingletonDraft": true,
+          "reopenDoesNotRead": true,
+          "dirtyOffer": true,
+          "discardNoSave": true,
+          "explicitClear": true,
+          "urlWholeManualTitle": true,
+          "captureTitleFocus": true,
+          "captureDoesNotSave": true,
+          "globalTargetsQuick": true,
+          "globalDoesNotRetargetManager": true,
+          "quickIsolated": true,
+          "quick360Zoom200NoHorizontalOverflow": true,
+          "reloadDoesNotRecoverDraft": true
+        }
+      },
+      "tasks": {
+        "ok": true,
+        "checks": {
+          "uiReadyEmpty": true,
+          "createAccepted": true,
+          "createVisible": true,
+          "createPersisted": true,
+          "secondSurfaceConverges": true,
+          "editAccepted": true,
+          "editVisible": true,
+          "editPersisted": true,
+          "openSourceForm": true,
+          "openSourceClicked": true,
+          "openSourceFake": true,
+          "openSourceKeepsTask": true,
+          "completeClicked": true,
+          "completePersisted": true,
+          "reopenControlReady": true,
+          "reopenClicked": true,
+          "reopenPersisted": true,
+          "catalogThirtyFiveClosed": true,
+          "negativeCommands": true,
+          "focusReconciles": true,
+          "reloadReady": true,
+          "reloadNoDuplicate": true,
+          "crashRecovers": true,
+          "testSurfaceReleased": true
+        }
+      },
+      "recurrence": {
+        "ok": true,
+        "checks": {
+          "recurrenceUiReady": true,
+          "createAccepted": true,
+          "createVisibleUi": true,
+          "secondSurfaceConverges": true,
+          "recurrenceBadgeOnBoth": true,
+          "toggleThroughUi": true,
+          "togglePersisted": true,
+          "toggleKeepsEdit": true,
+          "progressOnBoth": true,
+          "saveAfterCheck": true,
+          "saveKeptDone": true,
+          "closeAccepted": true,
+          "oneNextTodo": true,
+          "generatedVisibleUi": true,
+          "staleConflicts": true,
+          "noThirdTask": true,
+          "choiceRequired": true,
+          "endAccepted": true,
+          "endNoGeneration": true,
+          "focusReconciles": true,
+          "testSurfaceReleased": true
+        }
+      },
+      "trash": {
+        "ok": true,
+        "checks": {
+          "trashAccessible": true,
+          "trashEmptyUi": true,
+          "trashBackUi": true,
+          "seedVisible": true,
+          "prepareMove": true,
+          "moveRetained": true,
+          "trashIdentity": true,
+          "crossSurfaceMove": true,
+          "restoreAccepted": true,
+          "crossSurfaceRestored": true,
+          "restoreNoGeneration": true,
+          "uiDeleteOffersUndo": true,
+          "uiDeleteCommitted": true,
+          "crossSurfaceDeleted": true,
+          "uiUndoRestores": true,
+          "undoConsumedOnce": true,
+          "stalePrepared": true,
+          "staleConfirmationRefused": true,
+          "staleKeepsTask": true,
+          "tokenAndContextRefused": true,
+          "moveThird": true,
+          "emptyPrepared": true,
+          "emptyStaleRefused": true,
+          "emptyStaleKeepsItems": true,
+          "emptyExact": true,
+          "emptyNoUndo": true,
+          "crossSurfaceSeesNew": true,
+          "uiTrashShowsItem": true,
+          "uiEmptyFocusBack": true,
+          "testSurfaceReleased": true
+        }
+      },
+      "backup": {
+        "ok": true,
+        "checks": {
+          "exportSaved": true,
+          "exportFileValid": true,
+          "exportCountMatches": true,
+          "exportNoTempLeftovers": true,
+          "prepareAppliedPreview": true,
+          "confirmApplied": true,
+          "reconfirmInvalid": true,
+          "subscribeBothSurfaces": true,
+          "confirmUnchanged": true,
+          "unchangedKeepsRevision": true,
+          "epochEventSecondSurface": true,
+          "revisionStableSecondSurface": true,
+          "noExtraEventTypes": true,
+          "testSurfaceReleased": true,
+          "baseStaleRefused": true,
+          "baseStaleNoLoss": true,
+          "seriesConflictRefused": true,
+          "seriesConflictKeepsTrash": true
+        }
+      },
+      "reminders": {
+        "ok": true,
+        "checks": {
+          "graceEligibleClaimed": true,
+          "expiredConsumed": true,
+          "terminalSettled": true,
+          "futureUntouched": true,
+          "noReplayOrOverwrite": true,
+          "raceMutationApplied": true,
+          "raceStaleBaseRefused": true,
+          "raceClaimedAfterMutation": true,
+          "raceTitleKept": true,
+          "twoSurfacesConverge": true,
+          "testSurfaceReleased": true
+        }
+      },
+      "a11y": {
+        "ok": true,
+        "checks": {
+          "initialBounds": true,
+          "minimumSize": true,
+          "uiLoaded": true,
+          "openForm": true,
+          "titleExists": true,
+          "initialFocusOnTitle": true,
+          "accessibleNames": true,
+          "zoom200CancelReachable": true,
+          "closeForm": true,
+          "longStringVisible": true,
+          "windowsOpenerAccepted": true,
+          "openerKeepsTask": true
+        }
+      }
+    }
+  },
+  "bench": {
+    "scenario": "bench",
+    "ok": true,
+    "gates": {
+      "payloadAtLeast20MiB": true,
+      "mutationP95Within100Ms": true,
+      "pageP95Within100Ms": true,
+      "preflightWithin5s": true,
+      "drainWithin5s": true,
+      "saveManyAtomic": true,
+      "snapshotsComplete": true,
+      "seriesMeasured": true,
+      "receiptsReleased": true
+    },
+    "datasets": [
+      {
+        "tasks": 1000,
+        "trash": 100,
+        "payloadBytes": 2722563,
+        "payloadMiB": 2.6,
+        "databaseBytes": 5193728,
+        "replaced": "REPLACED",
+        "saveManyMs": 55.8,
+        "mutation": {
+          "count": 203,
+          "p95Ms": 3.08,
+          "maxMs": 4.48
+        },
+        "series": {
+          "carriersReady": true,
+          "closureMs": 21.24,
+          "dueUpdateMs": 18.83,
+          "titleUpdateMs": 2.62,
+          "unitP95Ms": 21.05,
+          "unitMaxMs": 21.05,
+          "limitMs": 6.2,
+          "limitStatus": "RESOURCE_LIMIT",
+          "stepLimit": 32768
+        },
+        "page": {
+          "count": 12,
+          "p95Ms": 4.85,
+          "maxMs": 4.85,
+          "snapshotTotalMs": 101.35
+        },
+        "snapshot": {
+          "status": "ok",
+          "tasks": 1004,
+          "trash": 100
+        },
+        "preflight": {
+          "ok": true,
+          "ms": 30.13
+        }
+      },
+      {
+        "tasks": 10000,
+        "trash": 100,
+        "payloadBytes": 25061382,
+        "payloadMiB": 23.9,
+        "databaseBytes": 47329280,
+        "replaced": "REPLACED",
+        "saveManyMs": 428.94,
+        "mutation": {
+          "count": 200,
+          "p95Ms": 2.83,
+          "maxMs": 8.74
+        },
+        "series": {
+          "carriersReady": true,
+          "closureMs": 145.94,
+          "dueUpdateMs": 144.52,
+          "titleUpdateMs": 2.88,
+          "unitP95Ms": 145.87,
+          "unitMaxMs": 145.87,
+          "limitMs": 6,
+          "limitStatus": "RESOURCE_LIMIT",
+          "stepLimit": 32768
+        },
+        "page": {
+          "count": 110,
+          "p95Ms": 4.01,
+          "maxMs": 6.52,
+          "snapshotTotalMs": 860.42
+        },
+        "snapshot": {
+          "status": "ok",
+          "tasks": 10004,
+          "trash": 100
+        },
+        "preflight": {
+          "ok": true,
+          "ms": 240.57
+        }
+      }
+    ],
+    "receipts": {
+      "chargeBytesPerReceipt": 551456,
+      "peakUsedBytes": 551456,
+      "usedBytesAfter": 0,
+      "heapDeltaBytes": 7524396,
+      "cycles": 25,
+      "documents": 8,
+      "released": true
+    },
+    "maxHeartbeatGapMs": 595.73,
+    "maxUnitMs": 428.94,
+    "drain": {
+      "drained": 32,
+      "cancelled": 0,
+      "drainMs": 74.62,
+      "committed": 32
+    },
+    "hardware": {
+      "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+      "logicalCores": 12,
+      "memoryGiB": 15.71,
+      "os": "Windows_NT 10.0.26200",
+      "arch": "x64"
+    },
+    "runtime": {
+      "electron": "44.5.1",
+      "node": "24.21.0",
+      "chrome": "152.0.7977.130",
+      "packaged": true,
+      "arch": "x64",
+      "storage": {
+        "sqliteVersion": "3.53.4",
+        "schemaVersion": 2,
+        "journalMode": "delete",
+        "synchronous": 3,
+        "foreignKeys": 1,
+        "busyTimeoutMs": 100
+      },
+      "availability": {
+        "state": "closed"
+      }
+    }
+  },
+  "uiBench": {
+    "scenario": "ui-bench",
+    "ok": true,
+    "gates": {
+      "twoSurfacesReady": true,
+      "quickMountWithin2s": true,
+      "captureCoalescedAndBounded": true,
+      "captureLatencyWithinBudget": true,
+      "mount1000Within2s": true,
+      "mount10000Within8s": true,
+      "cardsComplete": true,
+      "interactionsP95WithinBudget": true,
+      "subtaskControlsP95Within500ms": true,
+      "heartbeatWithinBudget": true
+    },
+    "datasets": [
+      {
+        "tasks": 1000,
+        "capture": {
+          "rawBytes": 960000,
+          "gestures": 20,
+          "physicalReads": 1,
+          "offerReady": true,
+          "latencyMs": 100.8,
+          "mappedEnvelopeBytes": 4765,
+          "mainHeapBeforeBytes": 19956480,
+          "mainHeapAfterBytes": 18030888,
+          "mainHeapDeltaBytes": -1925592,
+          "renderers": [
+            {
+              "pid": 25124,
+              "workingSetKiB": 214100
+            },
+            {
+              "pid": 23500,
+              "workingSetKiB": 128172
+            }
+          ],
+          "windows": 2
+        },
+        "payloadBytes": 1319004,
+        "payloadMiB": 1.26,
+        "mountMs": 376.42,
+        "cardsReady": true,
+        "cards": 1000,
+        "elements": 34706,
+        "rawMove": {
+          "fragmentMs": 17,
+          "fragmentSettleMs": 41.200000000186265,
+          "insertMs": 12.799999999813735,
+          "insertSettleMs": 36.700000000186265
+        },
+        "interactions": {
+          "count": 20,
+          "p95Ms": 78.03,
+          "maxMs": 102.19,
+          "flushP95Ms": 27.1,
+          "layoutP95Ms": 0.1,
+          "paintP95Ms": 6.4,
+          "maxMoves": 999
+        },
+        "subtaskControls": {
+          "count": 5,
+          "p95Ms": 20,
+          "maxMs": 20
+        },
+        "heartbeatMaxMs": 101.3
+      },
+      {
+        "tasks": 10000,
+        "capture": {
+          "rawBytes": 960000,
+          "gestures": 20,
+          "physicalReads": 1,
+          "offerReady": true,
+          "latencyMs": 89.72,
+          "mappedEnvelopeBytes": 4764,
+          "mainHeapBeforeBytes": 85437120,
+          "mainHeapAfterBytes": 106759112,
+          "mainHeapDeltaBytes": 21321992,
+          "renderers": [
+            {
+              "pid": 25124,
+              "workingSetKiB": 979488
+            },
+            {
+              "pid": 23500,
+              "workingSetKiB": 210140
+            }
+          ],
+          "windows": 2
+        },
+        "payloadBytes": 13292155,
+        "payloadMiB": 12.68,
+        "mountMs": 3203.71,
+        "cardsReady": true,
+        "cards": 10000,
+        "elements": 343710,
+        "rawMove": {
+          "fragmentMs": 159.79999999981374,
+          "fragmentSettleMs": 285.70000000018626,
+          "insertMs": 81.59999999962747,
+          "insertSettleMs": 437.90000000037253
+        },
+        "interactions": {
+          "count": 20,
+          "p95Ms": 656.18,
+          "maxMs": 909.59,
+          "flushP95Ms": 167.7,
+          "layoutP95Ms": 0.1,
+          "paintP95Ms": 55.9,
+          "maxMoves": 9999
+        },
+        "subtaskControls": {
+          "count": 5,
+          "p95Ms": 130.2,
+          "maxMs": 130.2
+        },
+        "heartbeatMaxMs": 606.5
+      }
+    ],
+    "quickMountMs": 629.19,
+    "hardware": {
+      "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+      "logicalCores": 12,
+      "memoryGiB": 15.71,
+      "os": "Windows_NT 10.0.26200",
+      "arch": "x64"
+    },
+    "runtime": {
+      "electron": "44.5.1",
+      "node": "24.21.0",
+      "chrome": "152.0.7977.130",
+      "packaged": true,
+      "arch": "x64",
+      "storage": {
+        "sqliteVersion": "3.53.4",
+        "schemaVersion": 2,
+        "journalMode": "delete",
+        "synchronous": 3,
+        "foreignKeys": 1,
+        "busyTimeoutMs": 100
+      },
+      "availability": {
+        "state": "ready"
+      }
+    }
+  },
+  "quickGeometry": {
+    "width": 172,
+    "scrollWidth": 164,
+    "canScroll": true,
+    "fields": 7
+  },
+  "native": {
+    "campaign": "Q13",
+    "profile": "isolated-test",
+    "setupExecuted": false,
+    "stage": "f20-from-other-app",
+    "checks": {
+      "realHelperConflict": true
+    },
+    "runs": [],
+    "limitation": "FOREGROUND_UNAVAILABLE",
+    "cleanup": true,
+    "packageAsarSha256": "2b6e4798d50460b89f47abf1d1802c9bcf80cfaa3cb6cd567e8ef1adfe25c7b2",
+    "ok": false
+  },
+  "cleanupLimitation": "Smoke deixou perfil fictício de navegador com cache aberto; app test encerrado. Native cleanup true.",
+  "operatorCampaign": {
+    "authorizationReceived": true,
+    "accountConfirmed": false,
+    "dedicatedAccountAccessReported": true,
+    "setupFile": "TaskFlowApp-0.1.0-win-x64-Setup.exe",
+    "stagingHashVerified": true,
+    "agentRetry": {
+      "ok": false,
+      "limitation": "FOREGROUND_UNAVAILABLE",
+      "stage": "f20-from-other-app",
+      "cleanup": true
+    },
+    "operatorNativeReportedOk": true,
+    "operatorNativeEvidenceConfirmed": false,
+    "installedExecution": "REPORTED_OPENED_NOT_ARTIFACT_VERIFIED",
+    "manualStatus": "WAIVED_NOT_VERIFIED",
+    "helper": {
+      "parsePassed": true,
+      "wrongAccountRejected": true,
+      "executionPolicyChanged": false
+    },
+    "forbidden": [
+      "merge",
+      "distribution",
+      "next-change"
+    ],
+    "operatorNativeOutputReceived": {
+      "ok": false,
+      "limitation": "FOREGROUND_UNAVAILABLE",
+      "wrongAccountGuard": true
+    },
+    "profileInspection": "ACCESS_DENIED",
+    "waiver": {
+      "date": "2026-10-07",
+      "message": "Pode pular essas validações. vamos fechar essa change",
+      "tasks": [
+        "7.4",
+        "7.5"
+      ],
+      "passed": false,
+      "archiveRequested": true,
+      "reportApproved": true
+    },
+    "postArchiveGitAuthorized": true,
+    "postArchiveGitMessage": "depois do archive, faça o commit o push e abra o PR"
+  },
+  "reportApproval": {
+    "date": "2026-10-07",
+    "humanMessage": "aprove o relatório, faça o archive, commit, faça o push e crie o PR"
+  },
+  "specSync": {
+    "added": 19,
+    "modified": 10,
+    "requirements": 29,
+    "scenarios": 75,
+    "capabilities": 7,
+    "previousClassificationCorrected": true
+  },
+  "archive": {
+    "date": "2026-10-07",
+    "path": "openspec/changes/archive/2026-10-07-adaptar-quick-add-captura-e-atalhos-globais",
+    "activeChangesRemaining": 0,
+    "tasksExecuted": 43,
+    "tasksWaivedNotVerified": 2,
+    "tasksAdministrativelyClosed": 45,
+    "finalStrictValidation": {
+      "specsPassed": 16,
+      "specsFailed": 0,
+      "archivedChangesPassed": 9,
+      "archivedChangesFailed": 0,
+      "exitCode": 0
+    }
+  }
+}

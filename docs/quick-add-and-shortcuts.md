@@ -1,0 +1,27 @@
+# Quick Add e atalhos globais
+
+O gerenciamento oferece **Adicionar em janela rápida** e Quick Add oferece **Abrir gerenciamento**. Cada janela tem formulário, foco, Vue/Pinia e cliente de estado próprios. Abrir nunca lê clipboard nem cria tarefa. A confirmação rápida não fecha o editor do gerenciamento.
+
+Quick Add permite título, descrição, prazo local, solicitante, responsável, prioridade e origem opcional. Defaults TODO/MEDIUM; recorrência, subtarefas, lembretes e tags continuam no gerenciamento. Descrição/origem permanecem visíveis/editáveis/removíveis. URL isolada exige título manual. Capturar não salva nem abre endereço do draft. Ack próprio e snapshot coerente limpam somente o formulário rápido e focam título; erro conserva inputs. Resultado incerto bloqueia nova criação até consulta/revisão e gesto humano explícito; título parecido não comprova commit ou falha. Sem retry automático.
+
+Com bandeja válida, fechar/Escape/Alt+F4 oculta somente a janela alvo e retira sua sessão de produto, conservando campos/foco/held na mesma instância viva. A outra janela mantém autoridade. Minimizar/perder foco não retira sessão. Reabrir exige sessão/snapshot novos, sem autosave/replay. Sem bandeja, fechar uma conserva a outra visível; fechar a última drena e encerra. Bandeja oferece gerenciamento, Quick Add, captura e Sair. Segunda instância/COM/notificação continuam no manager. O Windows pode negar foco; botões/bandeja continuam caminhos de abertura.
+
+Suspend retira ambas as sessões e pausa ações globais/agenda única. Resume aguarda a reconciliação dos lembretes persistidos antes de liberar ações globais e reautoriza apenas janelas visíveis. Falha conserva a suspensão e bloqueia efeitos; não repete gestos anteriores. Sair/logoff drena preferências/armazenamento e libera registros próprios. Reload/crash/Sair perde rascunhos e held; não há persistência ou recuperação prometida.
+
+## Preferência e registro
+
+Três ações: QUICK_ADD (desejado Ctrl+Shift+K), OPEN_TASK_MANAGER (Ctrl+Shift+L), CAPTURE_CLIPBOARD (nenhum inicialmente). Global/tray captura para Quick Add; botão usa a própria superfície. **Hint mostra somente combinação com registro próprio confirmado e ativo.** Dev/test não registram hotkeys automaticamente.
+
+No gerenciamento, **Atalhos globais** oferece seletores acessíveis, ativação, Salvar, Restaurar padrão individual, Consultar e Reconciliar. Combinações: Ctrl+Shift ou Alt+Shift com A–Z/0–9/F1–F24, exceto F4. Sem accelerator livre, Win, Ctrl+Alt/AltGr ou duplicata interna. Enquanto a configuração está focada, ações globais pausam; blur/close/reload/crash/fim liberam lease. Desired vem do arquivo, observed do registro deste processo: REGISTERED/NONE/UNAVAILABLE/UNKNOWN. Conflito não identifica outro aplicativo; isRegistered não prova exclusividade em todo Windows. Falha de registro conserva botões/tray.
+
+`<userData>/shortcuts.json`: versão1, revisão decimal, três ações exatas, até8KiB UTF-8. Missing usa defaults sem escrita. Futuro/corrupto/ilegível/excessivo preserva bytes e bloqueia setters/novo registro, sem fallback. Preferências ficam fora de SQL2/codec4 e backup/importação de tarefas; hotkeys não escrevem HKCU. Upgrade/reinstalação conservam versão compatível, downgrade conserva versão futura; uninstall conserva junto aos dados.
+
+CAS por revisão; fila1ativa+8aguardando/2s; no-op confirmado não grava. Publicação usa TEMP exclusivo no mesmo diretório, escrita completa/flush/close/readback, `.previous`, rename e releitura principal. Rebind registra B provisório gated, confirma/persiste B, ativa B e libera A. Falha comprovadamente anterior compensa B e conserva A quando observada; disable/default usam o mesmo protocolo. Nunca unregisterAll.
+
+Publicação/readback incerto bloqueia todos os setters; incerteza apenas nativa bloqueia a ação afetada. Consulte antes de decidir. **Reconciliar registro** é gesto explícito com revisão/desired observados: relê principal validado e limpa somente registros próprios verificáveis. Não restaura `.previous`, promove TEMP ou reenvia setter automaticamente. Revisão externa/stale exige nova consulta/revisão humana.
+
+Recuperação manual de arquivo incompatível exige sair e preservar principal/previous/temp para inspeção local autorizada; não apagar principal para esconder erro. Restaurar cópia anterior exige validar versão/shape e decisão explícita do usuário. TEMP órfão não é configuração concluída. Retenção máxima: um TEMP e uma previous de8KiB cada. Não há promessa de sobreviver a qualquer corte de energia/filesystem.
+
+## Evidência
+
+Testes portáveis/componentes/IPC usam dados fictícios. Kill real encerra somente filhos Node/diretórios temporários próprios e verifica principal completo antes/depois de publicação, sem restauração. O harness `entries` usa clipboard falso interno e duas janelas reais do pacote: não prova hotkey/clipboard/foco nativos ou instalação. Na TFA-009, o usuário dispensou a campanha Windows restante e a validação instalada/humana; esses resultados permanecem não comprovados no [relatório aprovado](../openspec/changes/archive/2026-10-07-adaptar-quick-add-captura-e-atalhos-globais/verification.md) e no [registro de dispensas](../openspec/changes/archive/2026-10-07-adaptar-quick-add-captura-e-atalhos-globais/closure-waivers.md).

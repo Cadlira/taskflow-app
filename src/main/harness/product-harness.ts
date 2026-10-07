@@ -21,6 +21,9 @@ import { BACKUP_PREVIEW_TTL_MS } from '../../contracts/backup.js'
 import type { BackupWriteFaultPoint, BackupWriteFaults } from '../backup/backup-file-write.js'
 import type { StateSnapshotResult } from '../../contracts/state.js'
 import { utf8ByteLength } from '../../contracts/text.js'
+import { MANAGER_OPERATIONS } from '../../contracts/surface-catalog.js'
+import { runEntryHarness, type EntryHarnessPorts } from './entries-harness.js'
+import { runNativeEntryHarness } from './entries-native-harness.js'
 import { resolveNextScheduledAt } from '../../domain/task-recurrence.js'
 import type { Task } from '../../domain/task.js'
 import { BackupCommandServices } from '../backup/backup-restore-service.js'
@@ -68,6 +71,9 @@ export type ProductHarnessScenario =
   | { name: 'recurrence' }
   | { name: 'trash' }
   | { name: 'lifecycle' }
+  | { name: 'entries' }
+  | { name: 'entries-native' }
+  | { name: 'entries-native-reopen' }
   | { name: 'reminders' }
   | { name: 'reminders-seed' }
   | { name: 'backup'; exportFail?: BackupWriteFaultPoint }
@@ -114,6 +120,7 @@ export interface ProductHarnessDependencies {
   backup?: ProductHarnessBackupDependencies
   /** Lifecycle real do main para o cenário `lifecycle` (close/quit no pacote). */
   lifecycle?: DesktopLifecycle
+  entries?: EntryHarnessPorts
 }
 
 /** Aceita exatamente um argumento de harness com cenário conhecido; qualquer outra forma é ignorada. */
@@ -122,7 +129,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
-  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash' || value === 'lifecycle' || value === 'reminders' || value === 'reminders-seed') {
+  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash' || value === 'lifecycle' || value === 'reminders' || value === 'reminders-seed' || value === 'entries' || value === 'entries-native' || value === 'entries-native-reopen') {
     return { name: value }
   }
   if (value === 'a11y') return { name: 'a11y', opener: 'real' }
@@ -286,6 +293,8 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
   checks['catalogClosed'] =
     JSON.stringify(catalog['keys']) ===
       JSON.stringify([
+        'acknowledgeCapture', 'captureClipboard', 'discardCapture', 'getPendingCapture', 'getShortcutSettings',
+        'openQuickAdd', 'openTaskManager', 'setShortcut', 'setShortcutEditing',
         'cancelBackupRestore',
         'changeTaskStatus',
         'clearUndoOffer',
@@ -312,7 +321,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
         'unsubscribeState',
         'updateTask',
         'verifyFoundation',
-      ]) &&
+      ].sort()) &&
     catalog['frozen'] === true &&
     (catalog['globals'] as string[]).every((kind) => kind === 'undefined')
 
@@ -1212,11 +1221,11 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
   // versões antigas recusadas sem perder a validação de valor na versão corrente).
   const catalog = await evaluate<{ keys: string[]; frozen: boolean; globals: string[] }>(surfaceA, CATALOG_SCRIPT)
   info['catalog'] = catalog
-  checks['catalogTwentySixClosed'] =
-    catalog.keys.length === 26 &&
+  checks['catalogThirtyFiveClosed'] =
+    JSON.stringify(catalog.keys) === JSON.stringify([...MANAGER_OPERATIONS].sort()) &&
     catalog.frozen === true &&
     catalog.globals.every((kind) => kind === 'undefined') &&
-    ['shell', 'clipboard', 'invoke', 'send', 'sql', 'path', 'harness'].every(
+    ['shell', 'invoke', 'send', 'sql', 'path', 'harness'].every(
       (name) => !catalog.keys.some((key) => key.toLowerCase().includes(name)),
     )
   const negatives = await evaluate<Array<{ status: string; code?: string }>>(
@@ -1522,8 +1531,19 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
   const { coordinator, mainWindow } = deps
   const surface = mainWindow
   const datasets: Array<Record<string, unknown>> = []
+  if (!deps.entries || !deps.lifecycle) throw new Error('two-surface benchmark not composed')
+  const entries = deps.entries
+  const quickStarted = performance.now()
+  deps.lifecycle.open('QUICK_ADD')
+  const quick = entries.window('QUICK_ADD'); if (!quick) throw new Error('benchmark Quick Add missing')
+  const quickReady = await waitFor(async () => evaluate(quick, `!!document.querySelector('.quick-add form') && document.querySelector('form button[type="submit"]')?.getAttribute('aria-disabled') !== 'true'`))
+  const quickMountMs = round(performance.now() - quickStarted)
+  await evaluate(quick, `(() => { const i = document.querySelector('[name="title"]'); i.value = 'Draft fictício do benchmark'; i.dispatchEvent(new Event('input',{bubbles:true})); })()`)
 
   for (const size of [1_000, 10_000]) {
+    const benchStage = (stage: string): void => { process.stdout.write(`TASKFLOW_BENCH_STAGE ${JSON.stringify({size, stage})}\n`) }
+    benchStage('dataset')
+    surface.show(); surface.focus()
     const tasks = buildFictitiousTasks(size, { idPrefix: `uibench${size}`, descriptionLength: 240 })
     const payloadBytes = tasks.reduce((total, task) => total + utf8ByteLength(JSON.stringify(task)), 0)
     expectOkUnit(
@@ -1539,6 +1559,33 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
     await reloaded
     const cardsReady = await evaluate<boolean>(surface, uiCardsAtLeast(size))
     const mountMs = performance.now() - started
+    // Q14: ambas as superfícies permanecem abertas; captura grande é fictícia no adapter test.
+    const beforeCapture = entries.metrics(), readsBefore = entries.reads()
+    benchStage('capture')
+    const priorCapture = await evaluate<{status: string; inbox?: {capture?: {sequence: string}}}>(quick, `window.taskflowDesktop.getPendingCapture({version:1})`)
+    const priorSequence = priorCapture.inbox?.capture?.sequence
+    const raw = 'Texto fictício grande. '.repeat(40000) // 960.000 bytes UTF-8; nunca vai ao evento/log.
+    entries.clipboardText(raw)
+    const captureStarted = performance.now()
+    await Promise.all(Array.from({ length: 20 }, () => entries.globalCapture()))
+    const offerReady = await waitFor(async () => evaluate(quick, `(async () => {
+      const pending = await window.taskflowDesktop.getPendingCapture({version:1});
+      return !!document.querySelector('.capture-offer') && pending.status === 'ok' &&
+        pending.inbox.state === 'held' && pending.inbox.capture.sequence !== ${JSON.stringify(priorSequence ?? '')};
+    })()`))
+    const captureLatencyMs = round(performance.now() - captureStarted)
+    const pending = await evaluate<{status: string; inbox?: unknown}>(quick, `window.taskflowDesktop.getPendingCapture({version:1})`)
+    const mappedBytes = utf8ByteLength(JSON.stringify(pending))
+    const afterCapture = entries.metrics()
+    const capture = { rawBytes: utf8ByteLength(raw), gestures: 20, physicalReads: entries.reads() - readsBefore,
+      offerReady, latencyMs: captureLatencyMs, mappedEnvelopeBytes: mappedBytes,
+      mainHeapBeforeBytes: beforeCapture.mainHeapBytes, mainHeapAfterBytes: afterCapture.mainHeapBytes,
+      mainHeapDeltaBytes: afterCapture.mainHeapBytes - beforeCapture.mainHeapBytes,
+      renderers: afterCapture.renderers, windows: 2 }
+
+    // A captura foca Quick Add. Medir teclado/layout/pintura no manager em foco,
+    // conservando as duas janelas abertas; rAF de uma janela oculta não é latência da UI.
+    surface.show(); surface.focus(); benchStage('dom')
 
     // Diagnóstico: custo bruto do Chrome para reordenar os mesmos nós (sem Vue).
     const rawMove = await evaluate<{
@@ -1578,6 +1625,7 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
     const restored = new Promise<void>((resolve) => surface.webContents.once('did-finish-load', () => resolve()))
     surface.webContents.reload()
     await restored
+    surface.show(); surface.focus(); benchStage('interactions')
     await evaluate<boolean>(surface, uiCardsAtLeast(size))
 
     await evaluate<boolean>(
@@ -1617,6 +1665,7 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
 
     datasets.push({
       tasks: size,
+      capture,
       payloadBytes,
       payloadMiB: round(payloadBytes / (1024 * 1024)),
       mountMs: round(mountMs),
@@ -1640,6 +1689,7 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
       },
       heartbeatMaxMs: round(heartbeat?.max ?? Number.POSITIVE_INFINITY),
     })
+    benchStage('complete')
   }
 
   const first = datasets[0] ?? {}
@@ -1648,10 +1698,15 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
   const secondInteractions = second['interactions'] as { p95Ms: number } | undefined
   const firstSubtasks = first['subtaskControls'] as { p95Ms: number } | undefined
   const secondSubtasks = second['subtaskControls'] as { p95Ms: number } | undefined
+  const captures = datasets.map(item => item['capture'] as { rawBytes: number; physicalReads: number; offerReady: boolean; mappedEnvelopeBytes: number; latencyMs: number })
   // Orçamento D10 revisado formalmente na TFA-008 (d10-budget-review.md): 1.000 mantém
   // 500 ms/250 ms/2 s; 10.000 passa a 2.500 ms de interações p95 e heartbeat e 8 s de
   // montagem. Medições 2026-10-06: dedicado 883,66/721,8/3.064 ms; sob carga 1.652/1.958/7.792 ms.
   const gates = {
+    twoSurfacesReady: quickReady,
+    quickMountWithin2s: quickMountMs <= 2000,
+    captureCoalescedAndBounded: captures.every(item => item.physicalReads === 1 && item.offerReady && item.rawBytes <= 1048576 && item.mappedEnvelopeBytes <= 65536),
+    captureLatencyWithinBudget: captures.every((item, index) => item.latencyMs <= (index === 0 ? 500 : 2500)),
     mount1000Within2s: Number(first['mountMs'] ?? Number.POSITIVE_INFINITY) <= 2_000,
     mount10000Within8s: Number(second['mountMs'] ?? Number.POSITIVE_INFINITY) <= 8_000,
     cardsComplete:
@@ -1673,6 +1728,7 @@ async function runUiBench(deps: ProductHarnessDependencies): Promise<void> {
     ok: Object.values(gates).every(Boolean),
     gates,
     datasets,
+    quickMountMs,
     hardware: {
       cpu: os.cpus()[0]?.model ?? 'unknown',
       logicalCores: os.cpus().length,
@@ -2668,6 +2724,16 @@ export async function runProductHarness(
     }
     if (scenario.name === 'tasks') {
       await runTasks(deps)
+      return
+    }
+    if (scenario.name === 'entries') {
+      if (!deps.entries || !deps.lifecycle) throw new Error('entry harness not composed')
+      await runEntryHarness(deps.entries, deps.lifecycle, deps.coordinator)
+      return
+    }
+    if (scenario.name === 'entries-native' || scenario.name === 'entries-native-reopen') {
+      if (!deps.entries || !deps.lifecycle) throw new Error('native entry harness not composed')
+      await runNativeEntryHarness(deps.entries, deps.lifecycle, scenario.name === 'entries-native-reopen', path.join(deps.app.getPath('userData'), 'native-harness-step.txt'))
       return
     }
     if (scenario.name === 'recurrence') {

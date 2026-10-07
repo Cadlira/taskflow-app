@@ -162,8 +162,8 @@ describe('geração do documento', () => {
     const ticket = sessions.authorize(invocation(contents))
     if (ticket === null) throw new Error('expected a ticket')
 
-    expect(sessions.isCurrent({ contentsId: 17, generation: 999, key: ticket.key })).toBe(false)
-    expect(sessions.isCurrent({ contentsId: 99, generation: ticket.generation, key: ticket.key })).toBe(false)
+    expect(sessions.isCurrent({ role: 'MANAGER', contentsId: 17, generation: 999, key: ticket.key })).toBe(false)
+    expect(sessions.isCurrent({ role: 'MANAGER', contentsId: 99, generation: ticket.generation, key: ticket.key })).toBe(false)
   })
 })
 

@@ -185,7 +185,7 @@ Interface SHALL preservar identidade/cores/rótulos/cartões e acessibilidade em
 
 #### Scenario: Recursos posteriores ausentes
 - **WHEN** o gerenciamento é aberto
-- **THEN** Excluir/Lixeira/Desfazer/Backup estão disponíveis conforme contratos; edição/agendamento de lembretes e opções de ciclo de vida estão disponíveis; não há captura/Quick Add/atalhos/hints ou IA
+- **THEN** Excluir/Lixeira/Desfazer/Backup estão disponíveis conforme contratos; edição/agendamento de lembretes e opções de ciclo de vida estão disponíveis; captura copiada/Quick Add/atalhos e hints efetivos estão disponíveis; não há IA
 - **AND** origem salva oferece somente a ação específica de abertura, sem preview, fetch ou abertura de URL não salva
 
 #### Scenario: Dimensões contraste e texto
@@ -206,6 +206,11 @@ Interface SHALL preservar identidade/cores/rótulos/cartões e acessibilidade em
 - **WHEN** usuário adiciona/edita/remove AT/OFFSET ou abre tarefa pela notificação com filtros/draft em curso
 - **THEN** controles/presets/limites/erros por item seguem teclado/foco da origem e localização mantém draft/filtros sem editor destrutivo
 - **AND** estados indisponíveis e política de fechar/Sair/recuperar em5min são anunciados dentro da janela
+
+#### Scenario: Captura preserva área e criação alheia
+- **WHEN** captura chega durante form/conflito/trash/backup/confirmação/localização de lembrete, ou Quick Add confirma criação
+- **THEN** manager conserva campos/base/filtros/scroll/área e mantém captura como oferta sem merge
+- **AND** Revisar exige estado seguro e voltar à lista não aplica oferta automaticamente; ack rápido não fecha editor do manager
 
 ### Requirement: Evidências distinguem componente e produto empacotado
 

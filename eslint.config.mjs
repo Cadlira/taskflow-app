@@ -17,6 +17,12 @@ export default tseslint.config(
     },
   },
   {
+    // Fixture de outro processo Electron: CommonJS é a entrada explícita do harness nativo.
+    files: ['scripts/fixtures/native-shortcut-helper.cjs'],
+    languageOptions: { globals: globals.node },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
     files: ['src/renderer/**/*.{ts,vue}'],
     languageOptions: {
       globals: globals.browser,

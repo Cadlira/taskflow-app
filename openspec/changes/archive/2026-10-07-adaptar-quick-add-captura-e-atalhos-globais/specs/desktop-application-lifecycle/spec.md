@@ -1,0 +1,77 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: Fechar suspende sessão e preserva memória transitória
+
+Com bandeja válida, X/Alt+F4 SHALL ocultar somente janela alvo e manter lembretes no processo. Draft/filtros/captura apresentada SHALL sobreviver somente em memória da instância viva; undo/prévias/confirmações/pedidos antigos SHALL perder validade e admissão IPC SHALL ser retirada somente da superfície alvo; outra visível SHALL conservar sessão. Reabrir SHALL usar nova sessão/snapshot e revalidar base sem autosave/replay. Minimizar SHALL conservar sessão/undo.
+
+#### Scenario: Close e reabertura
+- **WHEN** janela fecha para bandeja com draft/filtros e transientes, depois Abrir é acionado
+- **THEN** draft/filtros retornam com base preservada e sessão/snapshot novos; transientes e respostas antigas não retornam
+- **AND** pendências são reconciliadas antes de novas escritas; dado confirmado enquanto ack se perdeu não é repetido
+
+#### Scenario: IPC oculto e cliente atrasado
+- **WHEN** renderer oculto não processou evento de suspensão e tenta ler/mutar/setter com autorização anterior ou nova
+- **THEN** main recusa admissão de produto/efeito nativo sem consultar dados ou reautorizar superfície oculta
+- **AND** somente eventos finitos de controle destinados ao documento vivo podem continuar, sem conceder autoridade
+
+#### Scenario: Minimizar saída e crash
+- **WHEN** janela minimiza/perde foco, processo sai ou renderer sofre crash
+- **THEN** minimizar/foco conserva sessão/undo; saída/crash não prometem conservar draft/filtros e commits sobrevivem integralmente
+
+#### Scenario: Duas janelas independentes
+- **WHEN** Quick Add fecha com draft ou manager fecha enquanto a outra janela está visível
+- **THEN** só a sessão alvo perde admissão/jobs; draft/contexto da outra e scheduler/writer únicos continuam
+- **AND** fechar ambas com tray conserva hotkeys de recuperação; sem tray, fechar última aciona saída segura e nunca deixa processo oculto irrecuperável
+
+### Requirement: Bandeja mantém caminho explícito de recuperação
+
+Bandeja SHALL oferecer Abrir gerenciamento/Quick Add/Capturar conteúdo copiado/Sair com identidade/ícone do app e restaurar/focar janela. Falha conhecida de criação/disponibilidade SHALL manter janela visível e erro acessível; close sem bandeja SHALL permitir saída segura. Aplicação SHALL não conservar processo oculto sem caminho de recuperação conhecido.
+
+#### Scenario: Abrir e recriar superfície
+- **WHEN** usuário usa Abrir com janela oculta/minimizada ou superfície destruída enquanto tray válido
+- **THEN** janela atual é restaurada ou nova superfície segura é criada e estado persistido é sincronizado
+- **AND** superfície recriada não inventa draft ou tokens perdidos
+
+#### Scenario: Falha de tray
+- **WHEN** tray não pode ser criado ou falha conhecida impede recuperação
+- **THEN** janela permanece/volta visível com explicação e Sair; não é ocultada como sucesso
+- **AND** limitação de detecção de remoção de ícone pelo shell é documentada
+
+#### Scenario: Rotas de abertura e captura
+- **WHEN** usuário abre janela rápida, captura por bandeja ou usa Abrir gerenciamento
+- **THEN** Quick Add/captura usa singleton rápido e Abrir restaura manager; abrir não limpa draft nem captura implicitamente
+- **AND** falha de abertura conserva draft/pending até sua política temporal e oferece caminho visível de recuperação
+
+### Requirement: Saída explícita encerra processo com segurança
+
+Sair SHALL ser idempotente, fechar admissão, parar agenda/ativação, invalidar transientes/jobs/capturas/callbacks de atalhos de ambas superfícies, liberar somente registros próprios e fechar conexão após unidades ativas terminarem/reverterem. Close durante saída SHALL não ocultar. Logoff/shutdown Windows SHALL iniciar saída segura sem impedir encerramento do SO; crash/energia SHALL continuar falhas abruptas separadas.
+
+#### Scenario: Sair repetido durante commit ou arquivo
+- **WHEN** Sair é acionado repetidamente com unidade/arquivo ativo ou claims enfileirados
+- **THEN** nenhuma tentativa nova é iniciada, unidade ativa termina/reverte sem interrupção de COMMIT e entradas não iniciadas perdem admissão
+- **AND** efeito confirmado permanece; tray/janelas/conexão encerram e processo não fica residual
+
+#### Scenario: Logoff e interrupção forçada
+- **WHEN** Windows envia eventos de término de sessão ou processo é morto abruptamente
+- **THEN** término tenta cleanup sem hide/veto ao SO e kill é validado por recuperação atômica, sem promessa de callback de saída ou entrega de lembrete
+
+#### Scenario: Preferência e clipboard durante saída
+- **WHEN** Sair ocorre durante leitura nativa ou publicação de preferências
+- **THEN** leitura tardia não entrega; unidade de arquivo ativa conclui ou falha verificavelmente sem admitir outra, e registros próprios são liberados
+- **AND** próxima execução observa arquivo confirmado/incompatível sem repetir setter ou restaurar draft
+
+### Requirement: Suspensão interrompe tentativas e retomada reconcilia
+
+Suspend SHALL impedir novas decisões/submissões e preservar dados/markers. Resume SHALL reconciliar com clock atual e graça de cinco minutos antes de novas escritas visíveis. Ambas janelas SHALL conservar draft/filtros/held em memória durante suspensão; captura/atalhos SHALL perder admissão global, retomando somente após reconciliação; falha de recuperação SHALL ser stale/bloqueada, sem reset ou replay.
+
+#### Scenario: Suspensão perto do gatilho
+- **WHEN** PC suspende antes/durante pendência e retoma dentro ou fora da graça
+- **THEN** não há nova submissão suspensa e retomada entrega somente pendente elegível ou consome expirada sem aviso
+- **AND** marker confirmado antes da suspensão impede outra tentativa mesmo que aviso tenha sido perdido
+
+#### Scenario: Retomada com janela oculta
+- **WHEN** energia suspende duas superfícies e depois retoma com uma oculta
+- **THEN** nenhuma leitura/hotkey suspensa publica resultado; só janela visível recebe admissão nova, held vivo conserva memória
+- **AND** hotkeys de recuperação retomam após reconciliação, sem reautorizar renderer oculto

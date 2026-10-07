@@ -14,6 +14,8 @@ export interface DesktopTrayPorts<TImage extends { isEmpty(): boolean }> {
   create(image: TImage): TrayHandle
   menu(items: ReadonlyArray<TrayMenuItem>): unknown
   open(): void
+  quickAdd?(): void
+  capture?(): void
   quit(): void
 }
 export interface DesktopTray {
@@ -33,6 +35,8 @@ export function createDesktopTray<TImage extends { isEmpty(): boolean }>(
     tray.setToolTip(ports.name)
     tray.setContextMenu(ports.menu([
       { label: 'Abrir', click: ports.open },
+      ...(ports.quickAdd ? [{ label: 'Adicionar tarefa', click: ports.quickAdd }] : []),
+      ...(ports.capture ? [{ label: 'Capturar texto copiado', click: ports.capture }] : []),
       { label: 'Sair', click: ports.quit },
     ]))
     tray.on('click', ports.open)

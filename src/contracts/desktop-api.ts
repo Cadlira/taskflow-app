@@ -1,5 +1,8 @@
 import type { FoundationRequest, FoundationResult } from './foundation.js'
-import type { DesktopRequest, DesktopStatusResult, StartupRequest, StartupResult, DesktopAck, DesktopFailure, DesktopListener, DesktopSubscription, ActivationRequest, ActivationResult } from './desktop.js'
+import type { EntryRequest, EntryAck, CaptureResult, PendingCaptureResult, CaptureAckRequest, CaptureDiscardRequest,
+  CaptureAckResult, ShortcutSettingsResult, SetShortcutRequest, ShortcutEditingRequest } from './capture-shortcuts.js'
+import type { QUICK_ADD_OPERATIONS } from './surface-catalog.js'
+import type { DesktopRequest, DesktopLegacyRequest, DesktopStatusResult, StartupRequest, StartupResult, DesktopAck, DesktopFailure, DesktopListener, DesktopSubscription, ActivationRequest, ActivationResult } from './desktop.js'
 import type {
   StateListener,
   StateRequest,
@@ -58,9 +61,18 @@ import type {
  * tokens e resumos próprios.
  */
 export interface TaskFlowDesktopApi {
+  openQuickAdd(request: EntryRequest): Promise<EntryAck>
+  openTaskManager(request: EntryRequest): Promise<EntryAck>
+  captureClipboard(request: EntryRequest): Promise<CaptureResult>
+  getPendingCapture(request: EntryRequest): Promise<PendingCaptureResult>
+  acknowledgeCapture(request: CaptureAckRequest): Promise<CaptureAckResult>
+  discardCapture(request: CaptureDiscardRequest): Promise<CaptureAckResult>
+  getShortcutSettings(request: EntryRequest): Promise<ShortcutSettingsResult>
+  setShortcut(request: SetShortcutRequest): Promise<ShortcutSettingsResult>
+  setShortcutEditing(request: ShortcutEditingRequest): Promise<EntryAck>
   getDesktopStatus(request: DesktopRequest): Promise<DesktopStatusResult>
   setStartAtLogin(request: StartupRequest): Promise<StartupResult>
-  requestQuit(request: DesktopRequest): Promise<DesktopAck | DesktopFailure>
+  requestQuit(request: DesktopLegacyRequest): Promise<DesktopAck | DesktopFailure>
   subscribeDesktopEvents(request: DesktopRequest, listener: DesktopListener): Promise<DesktopSubscription>
   resolveReminderActivation(request: ActivationRequest): Promise<ActivationResult>
   verifyFoundation(request: FoundationRequest): Promise<FoundationResult>
@@ -107,3 +119,4 @@ export interface TaskFlowDesktopApi {
   /** Cancela a prévia própria; repetição é idempotente. */
   cancelBackupRestore(request: CancelBackupRestoreRequest): Promise<CancelBackupRestoreResult>
 }
+export type QuickAddDesktopApi = Pick<TaskFlowDesktopApi, (typeof QUICK_ADD_OPERATIONS)[number]>

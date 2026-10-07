@@ -24,7 +24,7 @@ interface FakeSessions extends TrashCommandSessions {
 function fakeSessions(): FakeSessions {
   const state = { current: true, generation: 1 }
   return {
-    authorize: () => ({ contentsId: 1, generation: state.generation, key: 'doc:1' }),
+    authorize: () => ({ role: 'MANAGER', contentsId: 1, generation: state.generation, key: 'doc:1' }),
     isCurrent: (ticket) => state.current && ticket.generation === state.generation,
     invalidate: () => {
       state.current = false

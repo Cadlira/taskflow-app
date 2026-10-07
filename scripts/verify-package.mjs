@@ -35,6 +35,7 @@ export const PACKAGE_ALLOWLIST = [
 export const REQUIRED_ASAR_FILES = [
   '/out/main/index.js',
   '/out/preload/index.cjs',
+  '/out/preload/quick-add.cjs',
   '/out/renderer/index.html',
   '/package.json',
   '/LICENSE',

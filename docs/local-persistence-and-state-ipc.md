@@ -1,5 +1,7 @@
 # Persistência local e IPC de estado — TaskFlow App
 
+**TFA-009:** o [catálogo de captura/atalhos](capture-shortcuts-ipc.md) acrescenta nove wrappers v1, facades manager35/Quick Add14 e controle desktop v2 por superfície. SQL2/codec4, comandos de tarefas, fila/coordenador e budgets anteriores permanecem. Preferências próprias ficam fora do backup/SQL. Trechos históricos das Changes anteriores descrevem seus recortes, não a disponibilidade corrente das duas janelas.
+
 **TFA-003 · implementação e evidências · 2026-10-04**
 
 Este documento descreve o que **existe** no aplicativo depois da TFA-003: armazenamento durável de tarefas e lixeira no perfil do usuário, coordenação de leitura/decisão/commit no main e um IPC mínimo de leitura e subscriptions. Não há UI de gerenciamento, comando remoto de criar/editar/status, importação, lembretes, undo funcional ou abertura externa de URLs: esses itens pertencem às TFA-004–012. O shell continua sendo a tela diagnóstica.

@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, session, shell, Tray, nativeImage, powerMonitor, Notification } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, protocol, session, shell, Tray, nativeImage, powerMonitor, Notification } from 'electron'
+import { ClipboardCaptureReader } from '../application/capture/clipboard-reader.js'
+import { MemoryCaptureInbox } from '../application/capture/memory-capture-inbox.js'
+import type { SurfaceRole } from '../application/capture/capture-ports.js'
+import { ShortcutController } from '../application/shortcuts/shortcut-controller.js'
+import { FileShortcutPreferences } from './shortcuts/file-preferences.js'
+import { electronShortcutRegistry } from './shortcuts/electron-registry.js'
+import { EntryIpcService } from './ipc/entries.js'
+import { ENTRY_CHANNELS } from '../contracts/capture-shortcuts.js'
 import { randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -173,6 +181,19 @@ function startOwner(): void {
   })
   const backupIpc = new BackupCommandIpcService({ sessions, services: backupServices })
   let mainWindow: BrowserWindow | null = null
+  let quickWindow: BrowserWindow | null = null
+  let quitDrained = false
+  const captureEpochs: Record<SurfaceRole, number> = { MANAGER: 0, QUICK_ADD: 0 }
+  const captureClock = { monotonic: () => performance.now(), arm: (ms: number, callback: () => void) => {
+    const timer = setTimeout(callback, ms); return () => clearTimeout(timer)
+  } }
+  let harnessClipboardText = '', harnessClipboardReads = 0
+  const captureReader = new ClipboardCaptureReader({ readText: async () => {
+    if (harnessScenario?.name === 'entries' || harnessScenario?.name === 'ui-bench') { harnessClipboardReads++; return harnessClipboardText }
+    return clipboard.readText()
+  } }, captureClock)
+  const captureInbox = new MemoryCaptureInbox(captureClock, { next: () => randomUUID() })
+  const windowFor = (role: SurfaceRole): BrowserWindow | null => role === 'MANAGER' ? mainWindow : quickWindow
   let shutdownStarted = false
   let tray: DesktopTray | undefined
   let runtime: ReturnType<typeof createReminderRuntime> | undefined
@@ -195,36 +216,85 @@ function startOwner(): void {
     return { destroyed: () => window.isDestroyed(), hide: () => window.hide(), show: () => window.show(),
       focus: () => window.focus(), restore: () => { if (window.isMinimized()) window.restore() } }
   }
-  const lifecycle = new DesktopLifecycle({
-    window: () => mainWindow === null ? undefined : windowPort(mainWindow),
-    create: () => {
-      mainWindow = createMainWindow()
-      void mainWindow.loadURL(resolveDevelopmentUrl())
-      return windowPort(mainWindow)
+  const lifecycle: DesktopLifecycle = new DesktopLifecycle({
+    window: role => { const window = windowFor(role); return window === null ? undefined : windowPort(window) },
+    create: role => {
+      const window = createMainWindow(role)
+      if (role === 'MANAGER') mainWindow = window; else quickWindow = window
+      void window.loadURL(resolveDevelopmentUrl()).catch(() => { if (!window.isDestroyed()) window.destroy() })
+      return windowPort(window)
     },
-    admit: () => { if (mainWindow !== null && !mainWindow.isDestroyed()) sessions.register(mainWindow.webContents) },
-    withdraw: () => {
-      for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) sessions.unregister(window.webContents.id)
-      if (startupTimer !== undefined) clearInterval(startupTimer)
-      startupTimer = undefined
+    admit: role => { const window = windowFor(role); if (window !== null && !window.isDestroyed()) sessions.register(window.webContents, role) },
+    withdraw: role => {
+      captureEpochs[role] += 1
+      const window = windowFor(role)
+      if (window !== null && !window.isDestroyed()) sessions.unregister(window.webContents.id)
+      if (role === 'MANAGER') {
+        shortcuts.releaseAllEditing()
+        if (startupTimer !== undefined) clearInterval(startupTimer)
+        startupTimer = undefined
+      }
     },
-    suspended: () => desktopIpc.emit('surface-suspended'),
-    active: () => {
-      desktopIpc.emit('surface-active')
-      void startup.read()
-      startupTimer ??= setInterval(() => { void startup.read() }, 60000)
+    suspended: role => desktopIpc.emit('surface-suspended', role),
+    active: role => {
+      desktopIpc.emit('surface-active', role)
+      if (role === 'MANAGER') {
+        void startup.read()
+        startupTimer ??= setInterval(() => { void startup.read() }, 60000)
+      }
     },
-    pauseReminders: () => { runtime?.service.suspend(); coordinator.cancelOwner(REMINDER_OWNER) },
-    resumeReminders: () => runtime?.service.resume(),
-    stop: () => { runtime?.dispose(); void shutdownStorage(); tray?.destroy(); tray = undefined },
-    quit: () => app.quit(),
+    pauseReminders: () => { shortcuts.suspend(true); runtime?.service.suspend(); coordinator.cancelOwner(REMINDER_OWNER) },
+    resumeReminders: async () => {
+      const service = runtime?.service
+      if (!service) return false
+      service.resume()
+      // Uma unidade anterior pode ainda terminar depois de suspend. Não antecipar admissão.
+      const deadline = performance.now() + 5000
+      while (service.busy && lifecycle.power !== 'QUITTING' && performance.now() < deadline) {
+        await new Promise<void>(resolve => setTimeout(resolve, 10))
+      }
+      return lifecycle.power !== 'QUITTING' && await service.recover()
+    },
+    resumed: () => shortcuts.suspend(false),
+    stop: () => { captureInbox.clear(); entries.dispose(); runtime?.dispose(); void shutdownStorage(); tray?.destroy(); tray = undefined },
+    quit: () => { void shortcuts.stop().finally(() => { quitDrained = true; app.quit() }) },
   })
   const desktopIpc = new DesktopIpcService({
     control: controls, product: sessions, storage: coordinator, reminders: () => runtime?.service,
-    status: () => ({ surfaceSequence: 1, visibility: lifecycle.visibility, recovery: lifecycle.power,
+    status: role => ({ surfaceSequence: 1, visibility: lifecycle.visibilityFor(role), recovery: lifecycle.power,
       reminders: reminderState, reminderCapability, startup: startup.state }),
     startup: (desired, current) => startup.set(desired, current), quit: () => lifecycle.quit(),
   })
+  const harnessNativeActions: Record<string, number> = {}
+  const nativeHarness = harnessScenario?.name === 'entries-native' || harnessScenario?.name === 'entries-native-reopen'
+  const shortcuts = new ShortcutController({ registry: electronShortcutRegistry,
+    preferences: new FileShortcutPreferences(app.getPath('userData')), clock: captureClock,
+    nativeEnabled: profile === 'prod' || nativeHarness,
+    invoke: action => {
+      if (nativeHarness) harnessNativeActions[action] = (harnessNativeActions[action] ?? 0) + 1
+      if (action === 'CAPTURE_CLIPBOARD') void captureGlobally()
+      else { try { lifecycle.open(action === 'QUICK_ADD' ? 'QUICK_ADD' : 'MANAGER') } catch { /* Abertura pode ser repetida pelo usuário. */ } }
+    },
+    changed: () => { void shortcuts.settings().then(result => {
+      if (result.status === 'ok') desktopIpc.shortcutsChanged(result.settings.configRevision, result.settings.statusSequence)
+    }) },
+  })
+  const entries = new EntryIpcService({ product: sessions, control: controls, inbox: captureInbox, clipboard: captureReader,
+    shortcuts, open: role => lifecycle.open(role),
+    focused: id => BrowserWindow.getFocusedWindow()?.webContents.id === id,
+    reference: (role, ref) => desktopIpc.captureAvailable(role, ref),
+  })
+  async function captureGlobally(): Promise<void> {
+    if (lifecycle.power !== 'ACTIVE') return
+    const epoch = captureEpochs.QUICK_ADD
+    const current = () => lifecycle.power === 'ACTIVE' && epoch === captureEpochs.QUICK_ADD
+    const result = await captureReader.read(current)
+    if (!current() || !result.ok) return
+    const capture = captureInbox.stage('QUICK_ADD', result.draft)
+    if (!capture) return
+    desktopIpc.captureAvailable('QUICK_ADD', capture)
+    try { lifecycle.open('QUICK_ADD') } catch { /* Staged conserva TTL se a abertura falhar. */ }
+  }
   const activation = new ReminderActivationRoute(() => Date.now(), () => lifecycle.open(), tag => desktopIpc.locate(tag))
   activationHandler = tag => {
     if (!started) { pendingActivation = tag; return }
@@ -263,10 +333,11 @@ function startOwner(): void {
   }
 
   /** Cria uma superfície isolada e a registra como documento autorizado. */
-  function createSurface(options: { show: boolean; register: boolean }): BrowserWindow | null {
-    const preload = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'preload', 'index.cjs')
+  function createSurface(options: { show: boolean; register: boolean; role?: SurfaceRole }): BrowserWindow | null {
+    const role = options.role ?? 'MANAGER'
+    const preload = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'preload', role === 'MANAGER' ? 'index.cjs' : 'quick-add.cjs')
     const window = new BrowserWindow({
-      width: 780,
+      width: role === 'MANAGER' ? 780 : 480,
       height: 560,
       minWidth: 360,
       minHeight: 420,
@@ -287,11 +358,11 @@ function startOwner(): void {
 
     const contents = window.webContents
     const contentsId = contents.id
-    if (options.register && !sessions.register(contents)) {
+    if (options.register && !sessions.register(contents, role)) {
       window.destroy()
       return null
     }
-    if (options.register && !controls.register(contents)) { window.destroy(); return null }
+    if (options.register && !controls.register(contents, role)) { window.destroy(); return null }
 
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     contents.on('will-navigate', (event, url) => {
@@ -304,37 +375,50 @@ function startOwner(): void {
     // Navegação e reload (inclusive da mesma URL) trocam o documento: a sessão anterior, seus
     // cursores, inscrição e respostas pendentes deixam de valer no início e na conclusão.
     contents.on('did-start-navigation', (details) => {
-      if (details.isMainFrame && !details.isSameDocument) { sessions.invalidate(contentsId); controls.invalidate(contentsId) }
+      if (details.isMainFrame && !details.isSameDocument) { captureEpochs[role] += 1; sessions.invalidate(contentsId); controls.invalidate(contentsId) }
     })
     contents.on('did-navigate', () => { sessions.invalidate(contentsId); controls.invalidate(contentsId) })
     contents.on('render-process-gone', () => {
       sessions.unregister(contentsId); controls.unregister(contentsId)
-      if (mainWindow === window && !shutdownStarted) { window.destroy(); mainWindow = null; lifecycle.rendererGone() }
+      if (windowFor(role) === window && !shutdownStarted) {
+        window.destroy(); if (role === 'MANAGER') mainWindow = null; else quickWindow = null
+        lifecycle.rendererGone(role)
+      }
     })
-    contents.once('destroyed', () => { sessions.unregister(contentsId); controls.unregister(contentsId) })
+    contents.once('destroyed', () => { captureEpochs[role] += 1; sessions.unregister(contentsId); controls.unregister(contentsId) })
     if (options.show) window.once('ready-to-show', () => window.show())
     return window
   }
 
-  function createMainWindow(): BrowserWindow {
-    const window = createSurface({ show: !coldLaunch, register: true })
+  function createMainWindow(role: SurfaceRole = 'MANAGER'): BrowserWindow {
+    const window = createSurface({ show: role === 'QUICK_ADD' || !coldLaunch, register: true, role })
     if (window === null) throw new Error('Main window could not be registered')
     window.once('closed', () => {
       if (mainWindow === window) mainWindow = null
-      if (!lifecycle.trayValid && !shutdownStarted) lifecycle.quit()
+      if (quickWindow === window) quickWindow = null
     })
     window.on('close', event => {
       // Falha conhecida posterior da bandeja não pode reter a única superfície sem saída.
       lifecycle.setTray(tray?.valid() === true)
-      if (lifecycle.close()) event.preventDefault()
+      if (lifecycle.close(role)) event.preventDefault()
     })
     window.on('query-session-end', () => lifecycle.quit())
     window.on('session-end', () => lifecycle.quit())
     window.on('focus', () => { if (lifecycle.visibility === 'VISIBLE' && lifecycle.power === 'ACTIVE') void startup.read() })
+    window.on('blur', () => { if (role === 'MANAGER') shortcuts.releaseAllEditing() })
     return window
   }
 
   function registerIpc(): void {
+    ipcMain.handle(ENTRY_CHANNELS.openQuickAdd, (event, request: unknown) => entries.open(event, request, 'QUICK_ADD'))
+    ipcMain.handle(ENTRY_CHANNELS.openTaskManager, (event, request: unknown) => entries.open(event, request, 'MANAGER'))
+    ipcMain.handle(ENTRY_CHANNELS.captureClipboard, (event, request: unknown) => entries.capture(event, request))
+    ipcMain.handle(ENTRY_CHANNELS.getPendingCapture, (event, request: unknown) => entries.pending(event, request))
+    ipcMain.handle(ENTRY_CHANNELS.acknowledgeCapture, (event, request: unknown) => entries.acknowledge(event, request))
+    ipcMain.handle(ENTRY_CHANNELS.discardCapture, (event, request: unknown) => entries.acknowledge(event, request, true))
+    ipcMain.handle(ENTRY_CHANNELS.getShortcutSettings, (event, request: unknown) => entries.settings(event, request))
+    ipcMain.handle(ENTRY_CHANNELS.setShortcut, (event, request: unknown) => entries.setShortcut(event, request))
+    ipcMain.handle(ENTRY_CHANNELS.setShortcutEditing, (event, request: unknown) => entries.editing(event, request))
     ipcMain.handle(FOUNDATION_CHANNEL, (event, request: unknown) =>
       handleFoundationInvocation(event, request, sessions, busyGate, () =>
         runFoundationProof(
@@ -408,7 +492,7 @@ function startOwner(): void {
       BACKUP_PREPARE_CHANNEL,
       BACKUP_CONFIRM_CHANNEL,
       BACKUP_CANCEL_CHANNEL,
-      ...Object.values(DESKTOP_CHANNELS), DESKTOP_RESOLVE_CHANNEL,
+      ...Object.values(DESKTOP_CHANNELS), DESKTOP_RESOLVE_CHANNEL, ...Object.values(ENTRY_CHANNELS),
     ]) {
       ipcMain.removeHandler(channel)
     }
@@ -421,6 +505,8 @@ function startOwner(): void {
   }
 
   async function startApplication(): Promise<void> {
+    const diagnostic = (stage: string): void => { if (nativeHarness) process.stdout.write(`TASKFLOW_NATIVE_DIAGNOSTIC ${JSON.stringify({stage})}\n`) }
+    diagnostic('assets')
     await serveAssets()
     configureSession()
     Menu.setApplicationMenu(null)
@@ -445,10 +531,13 @@ function startOwner(): void {
       create: image => new Tray(image),
       menu: items => Menu.buildFromTemplate([...items]),
       open: () => lifecycle.open(),
+      quickAdd: () => lifecycle.open('QUICK_ADD'),
+      capture: () => { void captureGlobally() },
       quit: () => lifecycle.quit(),
     })
     // Falha inicial (ícone/menu/criação) mantém a janela visível e o fechamento seguro.
     lifecycle.setTray(tray?.valid() === true)
+    diagnostic('shortcuts'); await shortcuts.start(); diagnostic('shortcuts-ready')
     // Indisponibilidade do banco de produto não vira estado vazio: o IPC devolve o código.
     // Cenários de migração (seed SQL1, inspeção e kill antes/durante/depois do commit) precisam
     // do arquivo intocado: nem o coordenador abre nem o IPC de estado/comandos é registrado,
@@ -471,7 +560,7 @@ function startOwner(): void {
       else runtime.service.suspend()
     }
     mainWindow = createMainWindow()
-    await mainWindow.loadURL(resolveDevelopmentUrl())
+    diagnostic('renderer'); await mainWindow.loadURL(resolveDevelopmentUrl()); diagnostic('renderer-ready')
     started = true
     if (coldLaunch || (profile === 'prod' && process.argv.includes(LOGIN_ARGUMENT))) {
       if (lifecycle.trayValid) lifecycle.hide()
@@ -490,6 +579,25 @@ function startOwner(): void {
         faults: harnessFaults,
         mainWindow,
         lifecycle,
+        entries: {
+          window: windowFor, clipboardText: text => { harnessClipboardText = text }, reads: () => harnessClipboardReads,
+          globalCapture: captureGlobally,
+          shortcuts, nativeActions: () => ({ ...harnessNativeActions }),
+          metrics: () => ({ mainHeapBytes: process.memoryUsage().heapUsed,
+            renderers: app.getAppMetrics().filter(metric => metric.type === 'Tab').map(metric => ({ pid: metric.pid, workingSetKiB: metric.memory.workingSetSize })) }),
+          sandboxed: role => { const window = windowFor(role); return window ? app.getAppMetrics().find(metric => metric.pid === window.webContents.getOSProcessId())?.sandboxed : undefined },
+          rejectManagerOperations: async () => {
+            if (!quickWindow) return false
+            const event = { sender: quickWindow.webContents, senderFrame: quickWindow.webContents.mainFrame }
+            const replies = await Promise.all([
+              entries.open(event, { version: 1 }, 'QUICK_ADD'), entries.setShortcut(event, { version: 1 }),
+              entries.editing(event, { version: 1, editing: true }), taskIpc.handleUpdate(event, { version: 5 }),
+              taskIpc.handleStatus(event, { version: 4 }), trashIpc.handleMove(event, { version: 2 }),
+              backupIpc.handleExport(event, { version: 1 }), desktopIpc.startup(event, { version: 1, desired: true }),
+            ])
+            return replies.every(reply => reply.status === 'error' && reply.code === 'UNAUTHORIZED')
+          },
+        },
         createSurface: (register) => createSurface({ show: false, register }),
         surfaceUrl: resolveDevelopmentUrl(),
         expectedOrigin,
@@ -542,7 +650,7 @@ function startOwner(): void {
   app.on('window-all-closed', () => {
     lifecycle.windowAllClosed(tray?.valid() === true)
   })
-  app.on('before-quit', () => lifecycle.quit())
+  app.on('before-quit', event => { if (!quitDrained) event.preventDefault(); lifecycle.quit() })
 
   void app.whenReady().then(startApplication).catch(() => app.quit())
 }

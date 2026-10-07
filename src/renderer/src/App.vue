@@ -2,14 +2,22 @@
 import { storeToRefs } from 'pinia'
 import TaskManager from './components/tasks/TaskManager.vue'
 import DesktopSettings from './components/DesktopSettings.vue'
+import QuickAdd from './components/capture/QuickAdd.vue'
+import ShortcutSettings from './components/capture/ShortcutSettings.vue'
 import { useFoundationStore } from './stores/foundation'
 
 const foundation = useFoundationStore()
 const { state, diagnostic, isRunning } = storeToRefs(foundation)
+// Facade escolhida pela entrada constante main/preload; nunca query/argv/request do renderer.
+const quickAdd = typeof window.taskflowDesktop.openQuickAdd !== 'function'
 </script>
 
 <template>
-  <div class="app-shell">
+  <QuickAdd v-if="quickAdd" />
+  <div
+    v-else
+    class="app-shell"
+  >
     <TaskManager />
 
     <details class="diagnostic-section">
@@ -75,5 +83,6 @@ const { state, diagnostic, isRunning } = storeToRefs(foundation)
       </section>
     </details>
     <DesktopSettings />
+    <ShortcutSettings />
   </div>
 </template>

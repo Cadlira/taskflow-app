@@ -7,7 +7,7 @@ import DesktopSettings from '../../src/renderer/src/components/DesktopSettings.v
 import { useTasksStore } from '../../src/renderer/src/stores/tasks.js'
 
 function desktop(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
-  return { surfaceSequence: 1, visibility: 'VISIBLE', recovery: 'ACTIVE', reminders: 'READY', reminderCapability: 'FAKE', startup: 'OFF', ...overrides }
+  return { role: 'MANAGER', surfaceSequence: 1, visibility: 'VISIBLE', recovery: 'ACTIVE', reminders: 'READY', reminderCapability: 'FAKE', startup: 'OFF', ...overrides }
 }
 
 interface Harness {
@@ -23,7 +23,7 @@ interface Harness {
 
 function setup(status: DesktopStatus = desktop()): Harness {
   const harness: Harness = { control: undefined, status, api: {
-    getDesktopStatus: vi.fn(async () => ({ version: 1 as const, status: 'ok' as const, desktop: harness.status })),
+    getDesktopStatus: vi.fn(async () => ({ version: 2 as const, status: 'ok' as const, desktop: harness.status })),
     setStartAtLogin: vi.fn(async (request: { desired: boolean }) => ({ version: 1 as const, status: 'ok' as const, startup: request.desired ? 'ON' as const : 'OFF' as const })),
     requestQuit: vi.fn(async () => ({ version: 1 as const, status: 'ok' as const })),
     subscribeDesktopEvents: vi.fn(async (_request: unknown, control: (event: unknown) => void) => {
@@ -98,12 +98,12 @@ describe('DesktopSettings: estado e opções honestas', () => {
     const store = useTasksStore()
     const resume = vi.spyOn(store, 'resumeSurface').mockResolvedValue()
     const locate = vi.spyOn(store, 'locateReminder').mockResolvedValue()
-    harness.control?.({ version: 1, sequence: 2, kind: 'surface-suspended' })
+    harness.control?.({ version: 2, role: 'MANAGER', sequence: 2, kind: 'surface-suspended' })
     expect(store.surfaceSuspended).toBe(true)
-    harness.control?.({ version: 1, sequence: 3, kind: 'surface-active' })
+    harness.control?.({ version: 2, role: 'MANAGER', sequence: 3, kind: 'surface-active' })
     await flushPromises()
     expect(resume).toHaveBeenCalled()
-    harness.control?.({ version: 1, sequence: 4, kind: 'locate-reminder', tag: 'b'.repeat(64) })
+    harness.control?.({ version: 2, role: 'MANAGER', sequence: 4, kind: 'locate-reminder', tag: 'b'.repeat(64) })
     await flushPromises()
     expect(locate).toHaveBeenCalledExactlyOnceWith('b'.repeat(64))
     expect(wrapper.text()).toBeTruthy()

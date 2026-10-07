@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import TaskForm from '../../src/renderer/src/components/tasks/TaskForm.vue'
 import { toLocalDateTimeInput } from '../../src/renderer/src/components/tasks/date-time.js'
 import { buildTask } from '../support/task-fixtures.js'
+import { mapClipboardText, type CapturedDraft } from '../../src/domain/clipboard-capture.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -14,12 +15,37 @@ function mountForm(options: Parameters<typeof mount<typeof TaskForm>>[1] = {}) {
 }
 
 type Submission = { kind: string; draft?: Record<string, unknown>; patch?: Record<string, unknown> }
+type CaptureForm = { readonly pristine: boolean; readonly generation: number; applyCapture(draft: CapturedDraft): void }
 
 function submissionOf(wrapper: ReturnType<typeof mountForm>): Submission {
   return wrapper.emitted('submit')?.[0]?.[0] as Submission
 }
 
 describe('TaskForm: campos básicos, erro e foco', () => {
+  it.each([
+    ['title', 'Nome conservado'], ['description', 'Texto conservado'], ['requester', 'Pessoa fictícia'],
+    ['assignee', 'Responsável fictício'], ['priority', 'HIGH'], ['status', 'IN_PROGRESS'],
+    ['dueAt', '2030-01-01T12:00'], ['tags', 'teste'], ['sourceUrl', 'https://example.test/origem'],
+    ['recurrenceFrequency', 'DAILY'],
+  ])('Q05: mudança somente em %s impede captura automática e conserva todos os campos', async (name, value) => {
+    const wrapper = mountForm(), form = wrapper.vm as unknown as CaptureForm
+    expect(form.pristine).toBe(true)
+    const generation = form.generation
+    await wrapper.get(`[name="${name}"]`).setValue(value)
+    expect(form.pristine).toBe(false); expect(form.generation).toBeGreaterThan(generation)
+    const before = wrapper.findAll('input, textarea, select').map(control => (control.element as HTMLInputElement).value)
+    const mapped = mapClipboardText('Captura que não pode substituir campos'); if (!mapped.ok) throw new Error('fixture')
+    form.applyCapture(mapped.draft); await nextTick()
+    expect(wrapper.findAll('input, textarea, select').map(control => (control.element as HTMLInputElement).value)).toEqual(before)
+    expect(wrapper.emitted('submit')).toBeUndefined(); wrapper.unmount()
+  })
+  it('Q05: subtarefa adicionada e editor de tarefa vazia nunca são criação livre', async () => {
+    const wrapper = mountForm(), form = wrapper.vm as unknown as CaptureForm
+    await wrapper.findAll('button').find(button => button.text().includes('Adicionar subtarefa'))!.trigger('click')
+    expect(form.pristine).toBe(false); wrapper.unmount()
+    const editor = mountForm({ props: { task: buildTask({title: ''}) } })
+    expect((editor.vm as unknown as CaptureForm).pristine).toBe(false); editor.unmount()
+  })
   it('foca o título ao abrir e emite criação com os campos digitados', async () => {
     const wrapper = mountForm()
     const title = wrapper.get('input[name="title"]')

@@ -1,5 +1,6 @@
 import { STATE_LIMITS } from '../../contracts/state.js'
 import { isAuthorizedDocumentUrl } from '../protocol.js'
+import type { SurfaceRole } from '../../application/capture/capture-ports.js'
 
 /** Subconjunto de `WebFrameMain` usado pela autorização. */
 export interface FrameLike {
@@ -27,6 +28,7 @@ export interface InvocationLike {
  * ela é reconferida antes da execução enfileirada e antes de qualquer envio.
  */
 export interface DocumentTicket {
+  readonly role: SurfaceRole
   readonly contentsId: number
   readonly generation: number
   /** Chave opaca da sessão do documento (dona de fila, cursor e inscrição). */
@@ -34,6 +36,7 @@ export interface DocumentTicket {
 }
 
 interface RegisteredDocument {
+  role: SurfaceRole
   contents: ContentsLike
   generation: number
   /** Main frame visto na primeira autorização desta geração. */
@@ -62,10 +65,11 @@ export class DocumentSessions {
   }
 
   /** Registra uma superfície criada pelo main. Devolve `false` acima do limite de documentos. */
-  register(contents: ContentsLike): boolean {
-    if (this.#documents.has(contents.id)) return true
+  register(contents: ContentsLike, role: SurfaceRole = 'MANAGER'): boolean {
+    const existing = this.#documents.get(contents.id)
+    if (existing) return existing.contents === contents && existing.role === role
     if (this.#documents.size >= this.#limit) return false
-    this.#documents.set(contents.id, { contents, generation: this.#allocateGeneration(), frame: undefined })
+    this.#documents.set(contents.id, { role, contents, generation: this.#allocateGeneration(), frame: undefined })
     return true
   }
 
@@ -109,7 +113,7 @@ export class DocumentSessions {
         document.frame = frame
       }
 
-      return this.#ticket(event.sender.id, document.generation)
+      return this.#ticket(event.sender.id, document.generation, document.role)
     } catch {
       return null
     }
@@ -124,7 +128,7 @@ export class DocumentSessions {
   currentFrame(ticket: DocumentTicket): FrameLike | null {
     try {
       const document = this.#documents.get(ticket.contentsId)
-      if (document === undefined || document.generation !== ticket.generation || document.frame === undefined) {
+      if (document === undefined || document.generation !== ticket.generation || document.role !== ticket.role || document.frame === undefined) {
         return null
       }
       return this.#isLiveAuthorizedMainFrame(document, document.frame) ? document.frame : null
@@ -147,12 +151,12 @@ export class DocumentSessions {
     return generation
   }
 
-  #ticket(contentsId: number, generation: number): DocumentTicket {
-    return { contentsId, generation, key: `${contentsId}:${generation}` }
+  #ticket(contentsId: number, generation: number, role: SurfaceRole): DocumentTicket {
+    return { role, contentsId, generation, key: `${contentsId}:${generation}` }
   }
 
   #emit(document: RegisteredDocument, contentsId: number): void {
-    const { key } = this.#ticket(contentsId, document.generation)
+    const { key } = this.#ticket(contentsId, document.generation, document.role)
     for (const listener of [...this.#listeners]) {
       try {
         listener(key)
