@@ -19,7 +19,7 @@ afterAll(() => {
   rmSync(workDir, { recursive: true, force: true })
 })
 
-const ticket: DocumentTicket = { contentsId: 1, generation: 1, key: '1:1' }
+const ticket: DocumentTicket = { role: 'MANAGER', contentsId: 1, generation: 1, key: '1:1' }
 
 function storageWith(tasks: Task[]): BackupExportStorage {
   return {

@@ -17,6 +17,9 @@ describe('harness restrito de produto', () => {
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=lifecycle'])).toEqual({ name: 'lifecycle' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=reminders'])).toEqual({ name: 'reminders' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=reminders-seed'])).toEqual({ name: 'reminders-seed' })
+    for (const name of ['entries', 'entries-native', 'entries-native-reopen'] as const) {
+      expect(parseProductHarnessScenario(['app.exe', `--product-harness=${name}`])).toEqual({ name })
+    }
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=backup'])).toEqual({ name: 'backup' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=backup|export-fail|temp:after-write'])).toEqual({
       name: 'backup',
@@ -64,6 +67,8 @@ describe('harness restrito de produto', () => {
     [['--product-harness=write']],
     [['--product-harness=tasks|extra']],
     [['--product-harness=ui-bench|1']],
+    [['--product-harness=entries-native|prod']],
+    [['--product-harness=entries-native', '--product-harness=entries']],
     [['--product-harness=a11y|outro']],
     [['--product-harness=backup|extra']],
     [['--product-harness=backup|export-fail']],

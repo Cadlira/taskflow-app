@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseTaskCreateRequest, parseTaskCreateResult, parseTaskUpdateRequest, parseTaskUpdateResult, parseSubtaskDoneResult, parseTaskMutationResult } from '../../src/contracts/tasks.js'
 import { parseDesktopRequest, parseStartupRequest, parseActivationRequest, parseDesktopEvent, parseDesktopStatusResult } from '../../src/contracts/desktop.js'
 
@@ -28,16 +28,27 @@ describe('M01/M11 versões/reminder drafts/desktop fechados', () => {
     expect(parseSubtaskDoneResult({ version: 3, status: 'error', code: 'BUSY' })).not.toBeNull()
     expect(parseTaskMutationResult({ version: 4, status: 'error', code: 'BUSY' })).not.toBeNull()
   })
-  it('wrappers desktopv1/eventos1KiB recusam extras/opções nativas/versão/seq/tag inválidos', () => {
-    expect(parseDesktopRequest({ version: 1 })).toEqual({ version: 1 })
+  it('status/controle desktopv2 e operações v1/eventos1KiB recusam extras/opções nativas/versão/seq/tag inválidos', () => {
+    expect(parseDesktopRequest({ version: 2 })).toEqual({ version: 2 })
     expect(parseDesktopRequest({ version: 1, path: 'C:\\' })).toBeNull()
     expect(parseStartupRequest({ version: 1, desired: false })).toEqual({ version: 1, desired: false })
     expect(parseStartupRequest({ version: 1, desired: 'false' })).toBeNull()
     expect(parseActivationRequest({ version: 1, tag: 'a'.repeat(64) })).not.toBeNull()
     expect(parseActivationRequest({ version: 1, tag: 'A'.repeat(64) })).toBeNull()
-    expect(parseDesktopEvent({ version: 1, sequence: 1, kind: 'surface-active' })).not.toBeNull()
-    expect(parseDesktopEvent({ version: 1, sequence: 0, kind: 'surface-active' })).toBeNull()
-    expect(parseDesktopEvent({ version: 1, sequence: 1, kind: 'surface-active', tag: 'a'.repeat(64) })).toBeNull()
+    expect(parseDesktopEvent({ version: 2, role: 'MANAGER', sequence: 1, kind: 'surface-active' })).not.toBeNull()
+    expect(parseDesktopEvent({ version: 2, role: 'MANAGER', sequence: 0, kind: 'surface-active' })).toBeNull()
+    expect(parseDesktopEvent({ version: 2, role: 'MANAGER', sequence: 1, kind: 'surface-active', tag: 'a'.repeat(64) })).toBeNull()
     expect(parseDesktopStatusResult({ version: 1, status: 'error', code: 'NATIVE_OPERATION_FAILED', stack: 'secret' })).toBeNull()
+  })
+  it('eventos novos têm apenas referências e recusam conteúdo/version1/role/sequence malformados', () => {
+    const event = { version: 2, role: 'QUICK_ADD', sequence: 1, kind: 'capture-available', id: '00000000-0000-4000-8000-000000000001', captureSequence: '1', replaced: false }
+    expect(parseDesktopEvent(event)).toEqual(event)
+    expect(Buffer.byteLength(JSON.stringify(event), 'utf8')).toBeLessThanOrEqual(1024)
+    for (const invalid of [{ ...event, version: 1 }, { ...event, role: 'OTHER' }, { ...event, captureSequence: '0' }, { ...event, description: 'texto fictício' }, { ...event, id: 'other' }]) expect(parseDesktopEvent(invalid)).toBeNull()
+    expect(parseDesktopEvent({ version: 2, role: 'MANAGER', sequence: 2, kind: 'shortcuts-changed', configRevision: '0', statusSequence: '1' })).not.toBeNull()
+    expect(parseDesktopEvent({ version: 2, role: 'QUICK_ADD', sequence: 3, kind: 'locate-reminder', tag: 'a'.repeat(64) })).toBeNull()
+    const effect = vi.fn()
+    expect(parseDesktopEvent({ ...event, captureSequence: { toJSON: effect } })).toBeNull()
+    expect(effect).not.toHaveBeenCalled()
   })
 })

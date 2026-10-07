@@ -4,6 +4,8 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { TaskFlowDesktopApi } from '../../src/contracts/desktop-api.js'
 
 const ALLOWED_OPERATIONS = [
+  'acknowledgeCapture', 'captureClipboard', 'discardCapture', 'getPendingCapture', 'getShortcutSettings',
+  'openQuickAdd', 'openTaskManager', 'setShortcut', 'setShortcutEditing',
   'cancelBackupRestore',
   'changeTaskStatus',
   'clearUndoOffer',
@@ -58,7 +60,7 @@ beforeAll(async () => {
   // Capturado na carga: os mocks são limpos antes de cada teste.
   listenersAtLoad = electron.on.mock.calls.map((call) => call[0])
   invocationsAtLoad = electron.invoke.mock.calls.length
-  desktopEventListener = electron.on.mock.calls.find((call) => call[0] === 'desktop:event:v1')?.[1] as
+  desktopEventListener = electron.on.mock.calls.find((call) => call[0] === 'desktop:event:v2')?.[1] as
     | ((event: unknown, payload: unknown) => void)
     | undefined
 })
@@ -68,8 +70,8 @@ const ENTRY = { taskId: 'tarefa-1', contentRevision: '2', deletedAt: '2026-10-04
 describe('catálogo da bridge', () => {
   it('expõe um único objeto congelado com exatamente as vinte e uma operações', () => {
     expect([...electron.exposed.keys()]).toEqual(['taskflowDesktop'])
-    expect(Object.keys(api).sort()).toEqual([...ALLOWED_OPERATIONS])
-    expect(Object.keys(api)).toHaveLength(26)
+    expect(Object.keys(api).sort()).toEqual([...ALLOWED_OPERATIONS].sort())
+    expect(Object.keys(api)).toHaveLength(35)
     expect(Object.isFrozen(api)).toBe(true)
     expect(Object.values(api).every((operation) => typeof operation === 'function')).toBe(true)
   })
@@ -81,7 +83,7 @@ describe('catálogo da bridge', () => {
     }
     for (const forbidden of [
       /sql|query|exec|path|file|repository|invoke|send|channel|ipc/i,
-      /shell|clipboard|notif|credential|ai\b/i,
+      /shell|notif|credential|ai\b/i,
       /harness|smoke|test|hook/i,
       /UndoPlan|beforeImage|clock|predicate|sessionId/i,
     ]) {
@@ -92,7 +94,7 @@ describe('catálogo da bridge', () => {
   })
 
   it('instala os listeners fixos de evento (v3 no estado, v1 na barreira de undo) uma única vez, antes de qualquer pedido', () => {
-    expect(listenersAtLoad).toEqual(['desktop:event:v1', 'state:changed:v3', 'state:undo-invalidated:v1', 'state:unavailable:v3'])
+    expect(listenersAtLoad).toEqual(['desktop:event:v2', 'state:changed:v3', 'state:undo-invalidated:v1', 'state:unavailable:v3'])
     expect(invocationsAtLoad).toBe(0)
     expect(electron.on).not.toHaveBeenCalled()
   })
@@ -291,27 +293,27 @@ describe('catálogo da bridge', () => {
 
   it('suspensão oculta dispensa clientes sem IPC e a retomada recria uma sessão nova', async () => {
     electron.invoke.mockClear()
-    desktopEventListener?.({}, { version: 1, sequence: 9, kind: 'surface-suspended' })
+    desktopEventListener?.({}, { version: 2, role: 'MANAGER', sequence: 9, kind: 'surface-suspended' })
     await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow()
     await expect(api.exportBackup({ version: 1, contextSequence: 1 })).rejects.toThrow()
     expect(await api.getStateSnapshot({ version: 3 })).toEqual({ version: 3, status: 'error', code: 'STORAGE_UNAVAILABLE' })
     expect(electron.invoke).not.toHaveBeenCalled()
 
     electron.invoke.mockResolvedValue({ version: 3, status: 'error', code: 'UNAUTHORIZED' })
-    desktopEventListener?.({}, { version: 1, sequence: 10, kind: 'surface-active' })
+    desktopEventListener?.({}, { version: 2, role: 'MANAGER', sequence: 10, kind: 'surface-active' })
     expect(await api.getStateSnapshot({ version: 3 })).toEqual({ version: 3, status: 'error', code: 'UNAUTHORIZED' })
     expect(electron.invoke).toHaveBeenCalledWith('state:snapshot:v3', { version: 3 })
 
     // Suspensão repetida não acumula épocas observáveis: a operação volta a recusar localmente.
     electron.invoke.mockClear()
-    desktopEventListener?.({}, { version: 1, sequence: 11, kind: 'surface-suspended' })
+    desktopEventListener?.({}, { version: 2, role: 'MANAGER', sequence: 11, kind: 'surface-suspended' })
     await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow()
     expect(electron.invoke).not.toHaveBeenCalled()
-    desktopEventListener?.({}, { version: 1, sequence: 12, kind: 'surface-active' })
+    desktopEventListener?.({}, { version: 2, role: 'MANAGER', sequence: 12, kind: 'surface-active' })
   })
 
   it('o código do preload não referencia Node, filesystem, SQLite, shell, canais livres ou canal de teste', () => {
-    const source = readFileSync(path.resolve(import.meta.dirname, '..', '..', 'src', 'preload', 'index.ts'), 'utf8')
+    const source = readFileSync(path.resolve(import.meta.dirname, '..', '..', 'src', 'preload', 'bridge.ts'), 'utf8')
     expect(source).not.toMatch(/node:|require\(|sqlite|\bfs\b|child_process|\bshell\b|ipcRenderer\.send|sendSync|postMessage/)
     expect(source).not.toMatch(/harness|smoke|:test:|__test|testChannel/)
     expect(source).not.toMatch(/task:(create|update|status|subtask-done):v1/)

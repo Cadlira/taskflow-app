@@ -3,7 +3,8 @@
 // autor). Preserva campos básicos, rótulos, aria, foco inicial/primeiro erro e estilos. Habilita
 // regra de recorrência com retirada explícita e lista ordenada de subtarefas com controles de
 // teclado; não monta lembretes, IA, captura ou confirmação de série (o diálogo fica no gerente).
-import { computed, nextTick, onMounted, reactive, ref, useId } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, useId, watch } from 'vue'
+import type { CapturedDraft } from '../../../../domain/clipboard-capture.js'
 import type {
   CreateTaskDraft,
   EditTaskPatch,
@@ -47,11 +48,13 @@ const props = withDefaults(
     task?: Task | null
     errors?: TaskFieldErrors
     saving?: boolean
+    initialCapture?: CapturedDraft | undefined
+    compact?: boolean
     /** Conversão do prazo usada na detecção de mudança de fuso; injetável em teste. */
     timeZoneConvert?: (iso: string) => string
   }>(),
   // Default inline: `withDefaults` não pode referenciar bindings criados no próprio script setup.
-  { task: null, errors: () => ({}), saving: false, timeZoneConvert: (iso: string) => toLocalDateTimeInput(iso) },
+  { task: null, errors: () => ({}), saving: false, compact: false, initialCapture: undefined, timeZoneConvert: (iso: string) => toLocalDateTimeInput(iso) },
 )
 
 const emit = defineEmits<{
@@ -73,15 +76,15 @@ const isEditing = computed(() => props.task !== null && props.task !== undefined
 const heading = computed(() => (isEditing.value ? 'Editar tarefa' : 'Nova tarefa'))
 
 const form = reactive({
-  title: props.task?.title ?? '',
-  description: props.task?.description ?? '',
+  title: props.task?.title ?? props.initialCapture?.title ?? '',
+  description: props.task?.description ?? props.initialCapture?.description ?? '',
   requester: props.task?.requester ?? '',
   assignee: props.task?.assignee ?? '',
   status: props.task?.status ?? 'TODO',
   priority: props.task?.priority ?? 'MEDIUM',
   dueAt: toLocalDateTimeInput(props.task?.dueAt),
   tags: props.task?.tags.join(', ') ?? '',
-  sourceUrl: props.task?.sourceUrl ?? '',
+  sourceUrl: props.task?.sourceUrl ?? props.initialCapture?.sourceUrl ?? '',
 })
 
 interface FormSubtask {
@@ -434,10 +437,20 @@ function focusSubmit(): void {
   submitButton.value?.focus()
 }
 
-defineExpose({ focusFirstInvalid, focusSubmit })
+const generation = ref(0)
+function currentFields(): string { return JSON.stringify([form, recurrence, recurrenceRemoved.value, subtaskRows.value, reminderRows.value]) }
+const initialFields = currentFields()
+const pristine = computed(() => !isEditing.value && props.initialCapture === undefined && currentFields() === initialFields)
+watch(currentFields, () => { generation.value += 1 }, { flush: 'sync' })
+function applyCapture(draft: CapturedDraft): void {
+  if (!pristine.value || props.saving) return
+  form.title = draft.title; form.description = draft.description ?? ''; form.sourceUrl = draft.sourceUrl ?? ''
+  void nextTick(() => titleInput.value?.focus())
+}
+defineExpose({ focusFirstInvalid, focusSubmit, pristine, generation, applyCapture })
 
 function handleSubmit(): void {
-  if (props.saving === true) return
+  if (props.saving === true || composing.value) return
 
   const dueReview =
     isEditing.value &&
@@ -516,6 +529,7 @@ function undoRemoveRecurrence(): void {
 onMounted(() => {
   titleInput.value?.focus()
 })
+const composing = ref(false)
 </script>
 
 <template>
@@ -525,6 +539,8 @@ onMounted(() => {
     :aria-labelledby="`${idPrefix}-heading`"
     novalidate
     @submit.prevent="handleSubmit"
+    @compositionstart="composing = true"
+    @compositionend="composing = false"
   >
     <h2 :id="`${idPrefix}-heading`">
       {{ heading }}
@@ -616,8 +632,12 @@ onMounted(() => {
 
     <div class="field-row">
       <div class="field">
-        <label :for="fieldId('status')">Status</label>
+        <label
+          v-if="!compact"
+          :for="fieldId('status')"
+        >Status</label>
         <select
+          v-if="!compact"
           :id="fieldId('status')"
           v-model="form.status"
           name="status"
@@ -743,6 +763,7 @@ onMounted(() => {
     </section>
 
     <section
+      v-if="!compact"
       class="field recurrence"
       :aria-labelledby="`${idPrefix}-recurrence-title`"
     >
@@ -922,6 +943,7 @@ onMounted(() => {
     </section>
 
     <section
+      v-if="!compact"
       class="field subtasks-edit"
       :aria-labelledby="`${idPrefix}-subtasks-title`"
     >
@@ -1012,6 +1034,7 @@ onMounted(() => {
     </section>
 
     <fieldset
+      v-if="!compact"
       class="field recurrence"
       :aria-describedby="`${idPrefix}-reminders-hint`"
     >
@@ -1130,8 +1153,12 @@ onMounted(() => {
     </fieldset>
 
     <div class="field">
-      <label :for="fieldId('tags')">Tags</label>
+      <label
+        v-if="!compact"
+        :for="fieldId('tags')"
+      >Tags</label>
       <input
+        v-if="!compact"
         :id="fieldId('tags')"
         v-model="form.tags"
         name="tags"
@@ -1139,7 +1166,10 @@ onMounted(() => {
         :aria-invalid="Boolean(errors.tags)"
         :aria-describedby="describedBy('tags')"
       >
-      <p class="field-hint">
+      <p
+        v-if="!compact"
+        class="field-hint"
+      >
         Separe por vírgulas. Até {{ TASK_LIMITS.tags }} tags com {{ TASK_LIMITS.tag }} caracteres cada.
       </p>
       <p

@@ -15,6 +15,10 @@ type FoundationApi = Pick<TaskFlowDesktopApi, 'verifyFoundation'>
 function mountApp(foundation: FoundationApi): VueWrapper {
   const api: TaskFlowDesktopApi = {
     ...foundation,
+    openQuickAdd: vi.fn(), openTaskManager: vi.fn(), captureClipboard: vi.fn(),
+    getPendingCapture: vi.fn().mockResolvedValue({ version: 1, status: 'ok', inbox: { state: 'none' } }),
+    acknowledgeCapture: vi.fn(), discardCapture: vi.fn(), getShortcutSettings: vi.fn(),
+    setShortcut: vi.fn(), setShortcutEditing: vi.fn(),
     getDesktopStatus: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAVAILABLE' }),
     setStartAtLogin: vi.fn(),
     requestQuit: vi.fn(),

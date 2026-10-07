@@ -1,20 +1,21 @@
 import {
-  DESKTOP_EVENT_CHANNEL, desktopFailure, parseActivationRequest, parseDesktopRequest, parseStartupRequest,
+  DESKTOP_EVENT_CHANNEL, desktopFailure, desktopControlFailure, parseActivationRequest, parseDesktopRequest, parseDesktopLegacyRequest, parseDesktopEvent, parseStartupRequest, parseDesktopStatusResult,
   type ActivationResult, type DesktopAck, type DesktopEvent, type DesktopFailure, type DesktopStatus,
-  type DesktopStatusResult, type StartupResult,
+  type DesktopStatusResult, type DesktopControlAck, type StartupResult,
 } from '../../contracts/desktop.js'
 import type { DocumentSessions, DocumentTicket, InvocationLike } from './document-sessions.js'
 import type { StorageCoordinator } from '../storage/coordinator.js'
 import type { ReminderService } from '../../application/reminders/reminder-service.js'
 import { classifyReminderOccurrence } from '../../domain/task-reminders.js'
 import { projectTaskReminders, reminderTag } from '../reminders/projection.js'
+import type { SurfaceRole, CaptureEnvelope } from '../../application/capture/capture-ports.js'
 
 export interface DesktopIpcOptions {
   control: DocumentSessions
   product: DocumentSessions
   storage: StorageCoordinator
   reminders(): ReminderService | undefined
-  status(): DesktopStatus
+  status(role: SurfaceRole): Omit<DesktopStatus, 'role'>
   startup(desired: boolean, current: () => boolean): Promise<StartupResult>
   quit(): void
 }
@@ -24,6 +25,7 @@ export class DesktopIpcService {
   readonly #subscriptions = new Map<number, DocumentTicket>()
   #sequence = 1
   #pendingLocate: string | undefined
+  readonly #pendingCapture = new Map<SurfaceRole, Pick<CaptureEnvelope, 'id' | 'sequence' | 'replaced'>>()
   readonly #removeInvalidated: () => void
   constructor(readonly options: DesktopIpcOptions) {
     this.#removeInvalidated = options.control.onInvalidated((key) => {
@@ -32,34 +34,37 @@ export class DesktopIpcService {
   }
   get sequence(): number { return this.#sequence }
   get subscribers(): number { return this.#subscriptions.size }
-  #status(): DesktopStatusResult { return { version: 1, status: 'ok', desktop: { ...this.options.status(), surfaceSequence: this.#sequence } } }
+  #status(ticket: DocumentTicket): DesktopStatusResult { return parseDesktopStatusResult({ version: 2, status: 'ok', desktop: { ...this.options.status(ticket.role), role: ticket.role, surfaceSequence: this.#sequence } }) ?? desktopControlFailure('RESOURCE_LIMIT') }
   async status(event: InvocationLike, request: unknown): Promise<DesktopStatusResult> {
-    if (this.options.control.authorize(event) === null) return desktopFailure('UNAUTHORIZED')
-    return parseDesktopRequest(request) === null ? desktopFailure('INVALID_REQUEST') : this.#status()
+    const ticket = this.options.control.authorize(event)
+    if (ticket === null) return desktopControlFailure('UNAUTHORIZED')
+    return parseDesktopRequest(request) === null ? desktopControlFailure('INVALID_REQUEST') : this.#status(ticket)
   }
   async subscribe(event: InvocationLike, request: unknown): Promise<DesktopStatusResult> {
     const ticket = this.options.control.authorize(event)
-    if (ticket === null) return desktopFailure('UNAUTHORIZED')
-    if (parseDesktopRequest(request) === null) return desktopFailure('INVALID_REQUEST')
+    if (ticket === null) return desktopControlFailure('UNAUTHORIZED')
+    if (parseDesktopRequest(request) === null) return desktopControlFailure('INVALID_REQUEST')
     this.#subscriptions.set(ticket.contentsId, ticket)
-    const result = this.#status()
-    if (this.#pendingLocate !== undefined) {
+    const result = this.#status(ticket)
+    if (ticket.role === 'MANAGER' && this.#pendingLocate !== undefined) {
       const tag = this.#pendingLocate
-      this.emit(result.status === 'ok' && result.desktop.visibility === 'VISIBLE' && result.desktop.recovery === 'ACTIVE' ? 'surface-active' : 'surface-suspended')
+      this.emit(result.status === 'ok' && result.desktop.visibility === 'VISIBLE' && result.desktop.recovery === 'ACTIVE' ? 'surface-active' : 'surface-suspended', ticket.role)
       this.locate(tag)
     }
+    const capture = this.#pendingCapture.get(ticket.role)
+    if (capture) this.captureAvailable(ticket.role, capture)
     return result
   }
-  async unsubscribe(event: InvocationLike, request: unknown): Promise<DesktopAck | DesktopFailure> {
+  async unsubscribe(event: InvocationLike, request: unknown): Promise<DesktopControlAck> {
     const ticket = this.options.control.authorize(event)
-    if (ticket === null) return desktopFailure('UNAUTHORIZED')
-    if (parseDesktopRequest(request) === null) return desktopFailure('INVALID_REQUEST')
+    if (ticket === null) return desktopControlFailure('UNAUTHORIZED')
+    if (parseDesktopRequest(request) === null) return desktopControlFailure('INVALID_REQUEST')
     this.#subscriptions.delete(ticket.contentsId)
-    return { version: 1, status: 'ok' }
+    return { version: 2, status: 'ok' }
   }
   async startup(event: InvocationLike, request: unknown): Promise<StartupResult> {
     const ticket = this.options.product.authorize(event)
-    if (ticket === null) return desktopFailure('UNAUTHORIZED')
+    if (ticket === null || ticket.role !== 'MANAGER') return desktopFailure('UNAUTHORIZED')
     const parsed = parseStartupRequest(request)
     if (parsed === null) return desktopFailure('INVALID_REQUEST')
     try {
@@ -71,13 +76,13 @@ export class DesktopIpcService {
   }
   async quit(event: InvocationLike, request: unknown): Promise<DesktopAck | DesktopFailure> {
     if (this.options.product.authorize(event) === null) return desktopFailure('UNAUTHORIZED')
-    if (parseDesktopRequest(request) === null) return desktopFailure('INVALID_REQUEST')
+    if (parseDesktopLegacyRequest(request) === null) return desktopFailure('INVALID_REQUEST')
     setImmediate(() => this.options.quit())
     return { version: 1, status: 'ok' }
   }
   async resolve(event: InvocationLike, request: unknown): Promise<ActivationResult> {
     const ticket = this.options.product.authorize(event)
-    if (ticket === null) return desktopFailure('UNAUTHORIZED')
+    if (ticket === null || ticket.role !== 'MANAGER') return desktopFailure('UNAUTHORIZED')
     const parsed = parseActivationRequest(request)
     if (parsed === null) return desktopFailure('INVALID_REQUEST')
     const service = this.options.reminders()
@@ -101,19 +106,35 @@ export class DesktopIpcService {
     if (!result.ok) return desktopFailure(result.reason === 'QUEUE_FULL' || result.reason === 'WAIT_TIMEOUT' || result.reason === 'LOCKED' ? 'BUSY' : 'UNAVAILABLE')
     return result.value === undefined ? desktopFailure('NOT_AVAILABLE') : { version: 1, status: 'ok', revision: result.revision.toString(), taskOrdinal: result.value }
   }
-  emit(kind: Exclude<DesktopEvent['kind'], 'locate-reminder'>): void { this.#send({ version: 1, sequence: ++this.#sequence, kind }) }
+  emit(kind: 'surface-active' | 'surface-suspended' | 'desktop-status-changed', target?: SurfaceRole): void {
+    const sequence = ++this.#sequence
+    for (const role of ['MANAGER', 'QUICK_ADD'] as const) if (!target || target === role) this.#send({ version: 2, role, sequence, kind })
+    if (kind === 'surface-active' && target) { const capture = this.#pendingCapture.get(target); if (capture) this.captureAvailable(target, capture) }
+  }
   locate(tag: string): void {
     this.#pendingLocate = tag
-    if (this.#send({ version: 1, sequence: ++this.#sequence, kind: 'locate-reminder', tag })) this.#pendingLocate = undefined
+    if (this.#send({ version: 2, role: 'MANAGER', sequence: ++this.#sequence, kind: 'locate-reminder', tag })) this.#pendingLocate = undefined
   }
-  #send(event: DesktopEvent): boolean {
+  captureAvailable(role: SurfaceRole, capture: Pick<CaptureEnvelope, 'id' | 'sequence' | 'replaced'>): void {
+    this.#pendingCapture.set(role, capture)
+    if (this.#send({ version: 2, role, sequence: ++this.#sequence, kind: 'capture-available', id: capture.id, captureSequence: capture.sequence, replaced: capture.replaced }, true)) this.#pendingCapture.delete(role)
+  }
+  shortcutsChanged(configRevision: string, statusSequence: string): void {
+    const sequence = ++this.#sequence
+    for (const role of ['MANAGER', 'QUICK_ADD'] as const) this.#send({ version: 2, role, sequence, kind: 'shortcuts-changed', configRevision, statusSequence })
+  }
+  #send(event: DesktopEvent, admitted = false): boolean {
+    if (!parseDesktopEvent(event)) return false
     let delivered = false
     for (const [id, ticket] of this.#subscriptions) {
+      if (ticket.role !== event.role) continue
       const frame = this.options.control.currentFrame(ticket)
       if (frame === null) { this.#subscriptions.delete(id); continue }
+      const status = this.options.status(ticket.role)
+      if (admitted && (status.visibility !== 'VISIBLE' || status.recovery !== 'ACTIVE')) continue
       try { frame.send(DESKTOP_EVENT_CHANNEL, event); delivered = true } catch { this.#subscriptions.delete(id) }
     }
     return delivered
   }
-  dispose(): void { this.#subscriptions.clear(); this.#pendingLocate = undefined; this.#removeInvalidated() }
+  dispose(): void { this.#subscriptions.clear(); this.#pendingLocate = undefined; this.#pendingCapture.clear(); this.#removeInvalidated() }
 }

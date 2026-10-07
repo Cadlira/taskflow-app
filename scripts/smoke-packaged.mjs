@@ -53,6 +53,8 @@ const markerPrefix = 'TASKFLOW_FOUNDATION_TEST '
 const productMarkerPrefix = 'TASKFLOW_PRODUCT_TEST '
 const benchTimeoutMs = 600_000
 const skipBench = process.argv.includes('--skip-bench')
+// Diagnóstico focado; não substitui o smoke completo sem flags.
+const entriesOnly = process.argv.includes('--entries-only')
 const ciRunner = process.argv.includes('--ci-runner')
 const launchTimeoutMs = 60_000
 const secondInstanceTimeoutMs = 20_000
@@ -124,6 +126,13 @@ function launch(exe, args, cwd, environment) {
   child.stderrText = ''
   child.stdout.on('data', (chunk) => {
     child.stdoutText += chunk.toString()
+    // Somente progresso finito do benchmark fictício; nunca encaminhar stdout arbitrário.
+    for (const match of chunk.toString().matchAll(/TASKFLOW_BENCH_STAGE (\{[^\r\n]+\})/g)) {
+      try {
+        const stage = JSON.parse(match[1])
+        if ([1000, 10000].includes(stage.size) && ['dataset', 'capture', 'dom', 'interactions', 'complete'].includes(stage.stage)) out(`UI-BENCH progresso ${stage.size}: ${stage.stage}`)
+      } catch { /* Chunk parcial não é evidência. */ }
+    }
   })
   child.stderr.on('data', (chunk) => {
     child.stderrText += chunk.toString()
@@ -228,6 +237,16 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     assert(reason === 'marker', `cenário ${scenario} não reportou resultado (${reason})`)
     return { child, marker }
   }
+  const verifyEntries = async () => {
+    const entries = await runScenario('entries', 180_000)
+    evidence.entries = entries.marker
+    const entriesExit = await waitForExit(entries.child, 30000)
+    out(`ENTRIES ${JSON.stringify(entries.marker)}`)
+    assert(entries.marker.ok === true, `Quick Add/captura reprovou: ${Object.entries(entries.marker.checks ?? {}).filter(([, ok]) => ok !== true).map(([name]) => name).join(', ')}`)
+    assert(!entriesExit.timedOut && entriesExit.code === 0, 'Sair das duas superfícies não encerrou com saída0')
+    record('produto: Quick Add/captura/roles35/14 e Sair', true)
+  }
+  if (entriesOnly) { await verifyEntries(); return }
   const reopen = async () => {
     const { child, marker } = await runScenario('reopen')
     const exit = await waitForExit(child, 20_000)
@@ -476,6 +495,7 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
   }
 
   // P7 — UI real, negativas, foco, reload sem duplicação e Sair sem residual
+  await verifyEntries()
   const tasks = await runScenario('tasks', 180_000)
   evidence.tasks = tasks.marker
   const tasksExit = await waitForExit(tasks.child, 30_000)

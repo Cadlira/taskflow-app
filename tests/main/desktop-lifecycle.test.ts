@@ -9,7 +9,7 @@ function fixture() {
     window: () => window,
     create: () => { calls.push('create'); destroyed = false; return window },
     admit: () => calls.push('admit'), withdraw: () => calls.push('withdraw'), suspended: () => calls.push('suspended'), active: () => calls.push('active'),
-    pauseReminders: () => calls.push('pause'), resumeReminders: () => calls.push('resume'), stop: () => calls.push('stop'), quit: () => calls.push('quit'),
+    pauseReminders: () => calls.push('pause'), resumeReminders: () => { calls.push('resume') }, stop: () => calls.push('stop'), quit: () => calls.push('quit'),
   }
   return { lifecycle: new DesktopLifecycle(ports), calls, crash: () => { destroyed = true }, ports }
 }

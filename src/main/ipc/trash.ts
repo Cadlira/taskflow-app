@@ -140,7 +140,7 @@ export class TrashCommandIpcService {
   ): Promise<PrepareTrashConfirmationResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return trashFailure('UNAUTHORIZED')
       const parsed = parsePrepareTrashConfirmationRequest(request)
       if (parsed === null) return trashFailure('INVALID_REQUEST')
       if (!this.#hasContext(ticket, parsed.contextSequence)) return trashFailure('STALE_CONTEXT')
@@ -229,7 +229,7 @@ export class TrashCommandIpcService {
   async handleMove(event: InvocationLike, request: unknown): Promise<MoveTaskToTrashResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashMoveFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return trashMoveFailure('UNAUTHORIZED')
       const parsed = parseMoveTaskToTrashRequest(request)
       if (parsed === null) return trashMoveFailure('INVALID_REQUEST')
       if (!this.#hasContext(ticket, parsed.contextSequence)) return trashMoveFailure('STALE_CONTEXT')
@@ -295,7 +295,7 @@ export class TrashCommandIpcService {
   async handleRestore(event: InvocationLike, request: unknown): Promise<RestoreTrashItemResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return trashFailure('UNAUTHORIZED')
       const parsed = parseRestoreTrashItemRequest(request)
       if (parsed === null) return trashFailure('INVALID_REQUEST')
       if (!this.#hasContext(ticket, parsed.contextSequence)) return trashFailure('STALE_CONTEXT')
@@ -336,7 +336,7 @@ export class TrashCommandIpcService {
   async handleDelete(event: InvocationLike, request: unknown): Promise<DeleteTrashItemResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return trashFailure('UNAUTHORIZED')
       const parsed = parseDeleteTrashItemRequest(request)
       if (parsed === null) return trashFailure('INVALID_REQUEST')
       if (!this.#hasContext(ticket, parsed.contextSequence)) return trashFailure('STALE_CONTEXT')
@@ -367,7 +367,7 @@ export class TrashCommandIpcService {
   async handleEmpty(event: InvocationLike, request: unknown): Promise<EmptyTrashResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return trashFailure('UNAUTHORIZED')
       const parsed = parseEmptyTrashRequest(request)
       if (parsed === null) return trashFailure('INVALID_REQUEST')
       if (!this.#hasContext(ticket, parsed.contextSequence)) return trashFailure('STALE_CONTEXT')
@@ -403,7 +403,7 @@ export class TrashCommandIpcService {
   async handlePrepareView(event: InvocationLike, request: unknown): Promise<PrepareTrashViewResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return trashFailure('UNAUTHORIZED')
       const parsed = parsePrepareTrashViewRequest(request)
       if (parsed === null) return trashFailure('INVALID_REQUEST')
       if (!this.#hasContext(ticket, parsed.contextSequence)) return trashFailure('STALE_CONTEXT')
@@ -434,7 +434,7 @@ export class TrashCommandIpcService {
   async handleUndo(event: InvocationLike, request: unknown): Promise<UndoLastTaskActionResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return trashFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return trashFailure('UNAUTHORIZED')
       const parsed = parseUndoLastTaskActionRequest(request)
       if (parsed === null) return trashFailure('INVALID_REQUEST')
       if (!this.#hasContext(ticket, parsed.contextSequence)) return trashFailure('STALE_CONTEXT')

@@ -17,6 +17,10 @@ import TaskForm, { type TaskFormSubmission } from './TaskForm.vue'
 import TaskList from './TaskList.vue'
 import { STATUS_LABELS } from './task-labels.js'
 import type { StatusChangeOrigin, TaskStatusAction } from './task-status-origin.js'
+import CapturePanel from '../capture/CapturePanel.vue'
+import ShortcutHint from '../capture/ShortcutHint.vue'
+import { useCaptureReview } from '../capture/use-capture-review.js'
+import type { CapturedDraft } from '../../../../domain/clipboard-capture.js'
 
 type Feedback = { tone: 'success' | 'warning' | 'error'; text: string }
 
@@ -65,6 +69,18 @@ const formMessageAlert = ref<HTMLElement | null>(null)
 const conflictPanel = ref<HTMLElement | null>(null)
 const taskList = ref<InstanceType<typeof TaskList> | null>(null)
 const taskForm = ref<InstanceType<typeof TaskForm> | null>(null)
+const initialCapture = ref<CapturedDraft | undefined>()
+const captureSafe = () => !store.commandsBlocked && !store.submitting && !store.awaitingConfirmation && !store.updatePending &&
+  !store.trashMode && !store.backupMode && !store.locatedTask && !store.locationMessage && !store.confirmation && !store.notFound &&
+  !pendingAction.value && !pendingCancellation.value && !deleteTarget.value && !busyTaskId.value && !reloadConfirm.value &&
+  (mode.value === 'list' || editingRecord.value === null && taskForm.value?.pristine === true)
+const { state: captureState, review: captureReview } = useCaptureReview({ active: () => !store.surfaceSuspended,
+  epoch: () => store.surfaceEpoch, generation: () => formKey.value * 1000000 + (taskForm.value?.generation ?? 0), safe: captureSafe,
+  apply: draft => {
+    if (mode.value === 'form') taskForm.value?.applyCapture(draft)
+    else { openCreate(); initialCapture.value = draft }
+  },
+})
 const locationHeading = ref<HTMLElement | null>(null)
 watch(() => [store.locatedTask, store.locationMessage], () => { void nextTick(() => locationHeading.value?.focus()) })
 watch(() => store.surfaceSuspended, suspended => {
@@ -167,6 +183,7 @@ function resetMessages(): void {
 }
 
 function openCreate(): void {
+  initialCapture.value = undefined
   // Abrir formulário é uma ação nova: limpa oferta/confirmação próprias antes do percurso.
   void store.startAction()
   resetMessages()
@@ -174,8 +191,13 @@ function openCreate(): void {
   formKey.value += 1
   mode.value = 'form'
 }
+async function openQuickAdd(): Promise<void> {
+  try { const result = await window.taskflowDesktop.openQuickAdd({ version: 1 }); if (result.status !== 'ok') actionError.value = 'Não foi possível abrir a janela rápida.' }
+  catch { actionError.value = 'A abertura da janela rápida não foi confirmada.' }
+}
 
 function openEdit(task: Task): void {
+  initialCapture.value = undefined
   const record = store.records.find((candidate) => candidate.task.id === task.id)
   if (record === undefined) {
     actionError.value = 'A tarefa não está mais na lista atual.'
@@ -191,6 +213,7 @@ function openEdit(task: Task): void {
 }
 
 function closeForm(focusButton = true): void {
+  initialCapture.value = undefined
   mode.value = 'list'
   editingRecord.value = null
   formMessage.value = null
@@ -686,6 +709,13 @@ async function closeBackup(): Promise<void> {
         Voltar à lista
       </button>
     </section>
+    <CapturePanel
+      v-if="store.trashMode || store.backupMode"
+      :state="captureState"
+      :review="captureReview"
+      :can-review="false"
+      :inactive="store.surfaceSuspended"
+    />
     <TrashManager v-if="store.trashMode" />
     <BackupManager
       v-else-if="store.backupMode"
@@ -724,6 +754,20 @@ async function closeBackup(): Promise<void> {
           </button>
         </div>
       </header>
+
+      <button
+        type="button"
+        class="button-secondary"
+        @click="openQuickAdd"
+      >
+        Adicionar em janela rápida<ShortcutHint action="QUICK_ADD" />
+      </button>
+      <CapturePanel
+        :state="captureState"
+        :review="captureReview"
+        :can-review="captureSafe()"
+        :inactive="store.surfaceSuspended"
+      />
 
       <div
         aria-live="polite"
@@ -915,6 +959,7 @@ async function closeBackup(): Promise<void> {
           ref="taskForm"
           :key="formKey"
           :task="editingRecord?.task ?? null"
+          :initial-capture="initialCapture"
           :errors="formErrors"
           :saving="store.submitting"
           @submit="handleSubmit"

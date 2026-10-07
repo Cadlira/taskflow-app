@@ -8,6 +8,8 @@ import type { Task } from '../../src/domain/task.js'
 import TaskManager from '../../src/renderer/src/components/tasks/TaskManager.vue'
 import { useTasksStore } from '../../src/renderer/src/stores/tasks.js'
 import { buildTask } from '../support/task-fixtures.js'
+import { MemoryCaptureInbox } from '../../src/application/capture/memory-capture-inbox.js'
+import { mapClipboardText } from '../../src/domain/clipboard-capture.js'
 
 let wrapper: VueWrapper | undefined
 
@@ -41,6 +43,11 @@ interface Harness {
     prepareTrashView: Mock
     undoLastTaskAction: Mock
     resolveReminderActivation: Mock
+    captureClipboard: Mock
+    getPendingCapture: Mock
+    acknowledgeCapture: Mock
+    discardCapture: Mock
+    subscribeDesktopEvents: Mock
   }
   emit(update: StateUpdate): void
   setSnapshot(next: StateSnapshot): void
@@ -49,6 +56,8 @@ interface Harness {
 function setupHarness(initial: StateSnapshot, subscribeFails = false): Harness {
   let current = initial
   let listener: ((update: StateUpdate) => void) | undefined
+  const owner = { role: 'MANAGER' as const, documentId: 'capture-document', sessionId: 'capture-session' }
+  const inbox = new MemoryCaptureInbox({ monotonic: () => 0 }, { next: () => '00000000-0000-4000-8000-000000000001' })
 
   const api = {
     verifyFoundation: vi.fn(),
@@ -77,6 +86,21 @@ function setupHarness(initial: StateSnapshot, subscribeFails = false): Harness {
     prepareTrashView: vi.fn(),
     undoLastTaskAction: vi.fn(),
     resolveReminderActivation: vi.fn(),
+    captureClipboard: vi.fn<TaskFlowDesktopApi['captureClipboard']>(async () => {
+      const mapped = mapClipboardText('Captura fictícia para revisão'); if (!mapped.ok) throw new Error('fixture')
+      const capture = inbox.stage('MANAGER', mapped.draft)!
+      return { version: 1, status: 'ok', reference: { id: capture.id, sequence: capture.sequence }, replaced: capture.replaced }
+    }),
+    getPendingCapture: vi.fn<TaskFlowDesktopApi['getPendingCapture']>(async () => ({ version: 1, status: 'ok', inbox: inbox.get(owner) })),
+    acknowledgeCapture: vi.fn<TaskFlowDesktopApi['acknowledgeCapture']>(async request => {
+      const result = inbox.acknowledge(owner, request, request.disposition)
+      return result.ok ? { version: 1, status: 'ok', receipt: result.receipt } : { version: 1, status: 'error', code: result.code }
+    }),
+    discardCapture: vi.fn<TaskFlowDesktopApi['discardCapture']>(async request => {
+      const result = inbox.discard(owner, request)
+      return result.ok ? { version: 1, status: 'ok', receipt: result.receipt } : { version: 1, status: 'error', code: result.code }
+    }),
+    subscribeDesktopEvents: vi.fn<TaskFlowDesktopApi['subscribeDesktopEvents']>(async () => ({ dispose: () => undefined })),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api as unknown as TaskFlowDesktopApi })
 
@@ -113,6 +137,31 @@ afterEach(() => {
 })
 
 describe('TaskManager: estados e fluxo básico', () => {
+  it.each(['submitting', 'awaitingConfirmation', 'updatePending', 'trashMode', 'backupMode'] as const)(
+    'Q05: %s conserva captura como oferta; terminar ocupação não aplica automaticamente', async flag => {
+      const h = setupHarness(snapshot('1', [])), view = await mountManager(), store = useTasksStore()
+      store[flag] = true
+      await flushPromises()
+      await view.get('.capture-panel > button').trigger('click'); await flushPromises()
+      expect(view.find('.capture-offer').exists()).toBe(true)
+      expect(view.find('form input[name="title"]').exists()).toBe(false)
+      expect(view.get('.capture-offer button').attributes('disabled')).toBeDefined()
+      store[flag] = false; await flushPromises()
+      expect(view.find('form input[name="title"]').exists()).toBe(false)
+      await view.get('.capture-offer button').trigger('click'); await flushPromises()
+      expect((view.get('form input[name="title"]').element as HTMLInputElement).value).toBe('Captura fictícia para revisão')
+      expect(h.api.createTask).not.toHaveBeenCalled(); expect(h.api.updateTask).not.toHaveBeenCalled()
+    },
+  )
+  it('Q05: editor de tarefa vazia conserva base/form e Descarta não salva', async () => {
+    const h = setupHarness(snapshot('1', [record(buildTask({id: 'empty', title: ''}))])), view = await mountManager()
+    await view.get('[data-action="edit"]').trigger('click')
+    await view.get('.capture-panel > button').trigger('click'); await flushPromises()
+    expect((view.get('form input[name="title"]').element as HTMLInputElement).value).toBe('')
+    expect(view.get('.capture-offer button').attributes('disabled')).toBeDefined()
+    await view.findAll('.capture-offer button')[1]!.trigger('click'); await flushPromises()
+    expect(view.find('.capture-offer').exists()).toBe(false); expect(h.api.updateTask).not.toHaveBeenCalled()
+  })
   it('erro inicial mostra estado bloqueado com Retry; vazio real oferece Criar primeira tarefa', async () => {
     setupHarness(snapshot('1', []), true)
     const blocked = await mountManager()

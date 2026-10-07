@@ -168,7 +168,7 @@ export class TaskCommandIpcService {
   async handleUpdate(event: InvocationLike, request: unknown): Promise<TaskUpdateResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return taskUpdateFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return taskUpdateFailure('UNAUTHORIZED')
 
       const parsed = parseTaskUpdateRequest(request)
       if (parsed.kind === 'invalid-request') return taskUpdateFailure('INVALID_REQUEST')
@@ -219,7 +219,7 @@ export class TaskCommandIpcService {
   async handleStatus(event: InvocationLike, request: unknown): Promise<TaskMutationResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return taskMutationFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return taskMutationFailure('UNAUTHORIZED')
 
       const parsed = parseTaskStatusRequest(request)
       if (parsed.kind === 'invalid-request') return taskMutationFailure('INVALID_REQUEST')
@@ -269,7 +269,7 @@ export class TaskCommandIpcService {
   async handleSubtaskDone(event: InvocationLike, request: unknown): Promise<TaskCheckResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return taskCheckFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return taskCheckFailure('UNAUTHORIZED')
 
       const parsed = parseSubtaskDoneRequest(request)
       if (parsed.kind === 'invalid-request') return taskCheckFailure('INVALID_REQUEST')
@@ -303,7 +303,7 @@ export class TaskCommandIpcService {
   async handleOpenSource(event: InvocationLike, request: unknown): Promise<TaskOpenSourceResult> {
     try {
       const ticket = this.#sessions.authorize(event)
-      if (ticket === null) return taskSourceFailure('UNAUTHORIZED')
+if (ticket === null || ticket.role !== 'MANAGER') return taskSourceFailure('UNAUTHORIZED')
 
       const parsed = parseTaskOpenSourceRequest(request)
       if (parsed.kind === 'invalid-request') return taskSourceFailure('INVALID_REQUEST')
