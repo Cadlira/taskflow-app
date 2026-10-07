@@ -35,7 +35,7 @@ export async function runEntryHarness(ports: EntryHarnessPorts, lifecycle: Deskt
   const manager = ports.window('MANAGER'); if (!manager) throw new Error('manager missing')
   const reset = await storage.run(unit => { unit.emptyTrash(); return unit.replaceAllTasks([], unit.baseRevision) })
   if (!reset.ok) throw new Error('fixture reset failed')
-  checks['managerCatalog35'] = await evaluate(manager, `JSON.stringify(Object.keys(window.taskflowDesktop).sort()) === ${JSON.stringify(JSON.stringify([...MANAGER_OPERATIONS].sort()))}`)
+  checks['managerCatalog43'] = await evaluate(manager, `JSON.stringify(Object.keys(window.taskflowDesktop).sort()) === ${JSON.stringify(JSON.stringify([...MANAGER_OPERATIONS].sort()))}`)
   await evaluate(manager, `(async () => { await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: 1 });
     return window.taskflowDesktop.createTask({ version: 4, contextSequence: 1, draft: { title: 'Base fictícia para edição' } }); })()`)
   checks['managerSeedVisible'] = await wait(manager, `document.querySelector('[data-task-id] [data-action="edit"]')`)

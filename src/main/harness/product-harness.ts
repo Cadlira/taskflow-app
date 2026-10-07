@@ -72,6 +72,7 @@ export type ProductHarnessScenario =
   | { name: 'trash' }
   | { name: 'lifecycle' }
   | { name: 'entries' }
+  | { name: 'ai' }
   | { name: 'entries-native' }
   | { name: 'entries-native-reopen' }
   | { name: 'reminders' }
@@ -129,7 +130,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
-  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash' || value === 'lifecycle' || value === 'reminders' || value === 'reminders-seed' || value === 'entries' || value === 'entries-native' || value === 'entries-native-reopen') {
+  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash' || value === 'lifecycle' || value === 'reminders' || value === 'reminders-seed' || value === 'entries' || value === 'ai' || value === 'entries-native' || value === 'entries-native-reopen') {
     return { name: value }
   }
   if (value === 'a11y') return { name: 'a11y', opener: 'real' }
@@ -289,7 +290,7 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
     })`,
   )
   info['catalog'] = catalog
-  // Vinte e seis wrappers: catálogo anterior e cinco operações desktop fechadas.
+  // Quarenta e três wrappers: catálogo do manager com as oito operações de IA incluídas.
   checks['catalogClosed'] =
     JSON.stringify(catalog['keys']) ===
       JSON.stringify([
@@ -321,6 +322,14 @@ async function runBridge(deps: ProductHarnessDependencies): Promise<void> {
         'unsubscribeState',
         'updateTask',
         'verifyFoundation',
+        'cancelAiSuggestion',
+        'authorizeAiUse',
+        'getAiProviderStatus',
+        'prepareAiSuggestion',
+        'removeAiProviderConfig',
+        'saveAiProviderConfig',
+        'suggestAiSubtasks',
+        'testAiConnection',
       ].sort()) &&
     catalog['frozen'] === true &&
     (catalog['globals'] as string[]).every((kind) => kind === 'undefined')
@@ -1221,7 +1230,7 @@ async function runTasks(deps: ProductHarnessDependencies): Promise<void> {
   // versões antigas recusadas sem perder a validação de valor na versão corrente).
   const catalog = await evaluate<{ keys: string[]; frozen: boolean; globals: string[] }>(surfaceA, CATALOG_SCRIPT)
   info['catalog'] = catalog
-  checks['catalogThirtyFiveClosed'] =
+  checks['catalogFortyThreeClosed'] =
     JSON.stringify(catalog.keys) === JSON.stringify([...MANAGER_OPERATIONS].sort()) &&
     catalog.frozen === true &&
     catalog.globals.every((kind) => kind === 'undefined') &&
@@ -2709,6 +2718,110 @@ function runLifecycle(deps: ProductHarnessDependencies): void {
   lifecycle.quit()
 }
 
+interface AiStatusProbe {
+  status: string
+  code?: string
+  provider?: { state?: string; revision?: string; summary?: { hasCredential?: boolean; origin?: string } }
+}
+
+interface AiPreparedProbe {
+  status: string
+  code?: string
+  prepared?: { requestId?: string; content?: string; origin?: string; consentRequired?: boolean }
+}
+
+interface AiSuggestProbe {
+  status: string
+  code?: string
+  proposal?: { drafts?: { title: string }[]; discardedByLimit?: boolean }
+}
+
+/**
+ * Cenário `ai`: perfil `test` com proteção/transporte fictícios e diretório próprio. Exercita a
+ * bridge real do pacote até os serviços e o arquivo versionado, sem chamada paga e sem DPAPI da
+ * máquina: catálogo, estado NONE, gravação cifrada sem plaintext, CAS, consentimento de credencial
+ * e de conteúdo, prévia exata, sugestão com transporte fake, consumo do requestId e remoção.
+ */
+async function runAiHarness(deps: ProductHarnessDependencies): Promise<void> {
+  const surface = deps.mainWindow
+  const checks: Record<string, boolean> = {}
+  const info: Record<string, unknown> = {}
+  const aiFile = path.join(deps.app.getPath('userData'), 'ai-harness', 'ai.json')
+  rmSync(aiFile, { force: true })
+  rmSync(`${aiFile}.previous`, { force: true })
+  rmSync(`${aiFile}.temporary`, { force: true })
+
+  checks['catalogHasAi'] = await evaluate<boolean>(
+    surface,
+    `['getAiProviderStatus','saveAiProviderConfig','removeAiProviderConfig','authorizeAiUse','testAiConnection','prepareAiSuggestion','suggestAiSubtasks','cancelAiSuggestion'].every((name) => typeof window.taskflowDesktop[name] === 'function')`,
+  )
+
+  const initial = await evaluate<AiStatusProbe>(surface, 'window.taskflowDesktop.getAiProviderStatus({ version: 1 })')
+  checks['statusNone'] = initial.status === 'ok' && initial.provider?.state === 'NONE'
+
+  const saved = await evaluate<AiStatusProbe>(
+    surface,
+    'window.taskflowDesktop.saveAiProviderConfig({ version: 1, expectedRevision: "0", provider: "CUSTOM", apiBase: "http://127.0.0.1:9/v1", credential: "sk-ficticia-harness", model: "modelo-fake" })',
+  )
+  checks['savedConfigured'] =
+    saved.status === 'ok' && saved.provider?.state === 'CONFIGURED' && saved.provider?.summary?.hasCredential === true
+  checks['summaryWithoutSecret'] = !JSON.stringify(saved).includes('sk-ficticia-harness')
+  checks['ciphertextOnDisk'] = existsSync(aiFile) && !readFileSync(aiFile, 'utf8').includes('sk-ficticia-harness')
+
+  const stale = await evaluate<AiStatusProbe>(
+    surface,
+    'window.taskflowDesktop.saveAiProviderConfig({ version: 1, expectedRevision: "0", provider: "CUSTOM", apiBase: "http://127.0.0.1:9/v1", credential: "sk-outra", model: "m" })',
+  )
+  checks['staleRevisionRefused'] = stale.status === 'error' && stale.code === 'BLOCKED'
+
+  const withoutConsent = await evaluate<AiStatusProbe>(surface, 'window.taskflowDesktop.testAiConnection({ version: 1, probe: "MODEL_LIST" })')
+  checks['testConsentRequired'] = withoutConsent.status === 'error' && withoutConsent.code === 'CONSENT_REQUIRED'
+  await evaluate(surface, 'window.taskflowDesktop.authorizeAiUse({ version: 1, scope: "CREDENTIAL" })')
+  const tested = await evaluate<AiStatusProbe>(surface, 'window.taskflowDesktop.testAiConnection({ version: 1, probe: "MODEL_LIST" })')
+  checks['tested'] = tested.status === 'ok'
+
+  const prepared = await evaluate<AiPreparedProbe>(
+    surface,
+    'window.taskflowDesktop.prepareAiSuggestion({ version: 1, title: "Tarefa fictícia", description: "Roteiro", existingSubtaskCount: 0 })',
+  )
+  const requestId = prepared.prepared?.requestId ?? ''
+  checks['preparedExact'] =
+    prepared.status === 'ok' &&
+    requestId.length === 32 &&
+    (prepared.prepared?.content ?? '').includes('Título: Tarefa fictícia') &&
+    prepared.prepared?.origin === 'http://127.0.0.1:9' &&
+    prepared.prepared?.consentRequired === true
+
+  const suggestWithout = await evaluate<AiSuggestProbe>(
+    surface,
+    `window.taskflowDesktop.suggestAiSubtasks({ version: 1, requestId: ${JSON.stringify(requestId)} })`,
+  )
+  checks['suggestConsentRequired'] = suggestWithout.status === 'error' && suggestWithout.code === 'CONSENT_REQUIRED'
+  await evaluate(
+    surface,
+    `window.taskflowDesktop.authorizeAiUse({ version: 1, scope: "CONTENT", requestId: ${JSON.stringify(requestId)} })`,
+  )
+  const suggested = await evaluate<AiSuggestProbe>(
+    surface,
+    `window.taskflowDesktop.suggestAiSubtasks({ version: 1, requestId: ${JSON.stringify(requestId)} })`,
+  )
+  checks['suggestedFake'] =
+    suggested.status === 'ok' && JSON.stringify(suggested.proposal?.drafts) === JSON.stringify([{ title: 'Item um' }, { title: 'Item dois' }])
+  const consumed = await evaluate<AiSuggestProbe>(
+    surface,
+    `window.taskflowDesktop.suggestAiSubtasks({ version: 1, requestId: ${JSON.stringify(requestId)} })`,
+  )
+  checks['requestConsumed'] = consumed.status === 'error' && consumed.code === 'STALE_REQUEST'
+
+  const removed = await evaluate<AiStatusProbe>(surface, 'window.taskflowDesktop.removeAiProviderConfig({ version: 1 })')
+  checks['removed'] = removed.status === 'ok' && removed.provider?.state === 'NONE'
+  checks['removedNoPlaintext'] = existsSync(aiFile) && !readFileSync(aiFile, 'utf8').includes('sk-ficticia-harness')
+  info['aiFile'] = { exists: existsSync(aiFile), bytes: existsSync(aiFile) ? statSync(aiFile).size : 0 }
+
+  emit({ scenario: 'ai', ok: Object.values(checks).every(Boolean), checks, info })
+  await endScenario(deps)
+}
+
 export async function runProductHarness(
   scenario: ProductHarnessScenario,
   deps: ProductHarnessDependencies,
@@ -2729,6 +2842,10 @@ export async function runProductHarness(
     if (scenario.name === 'entries') {
       if (!deps.entries || !deps.lifecycle) throw new Error('entry harness not composed')
       await runEntryHarness(deps.entries, deps.lifecycle, deps.coordinator)
+      return
+    }
+    if (scenario.name === 'ai') {
+      await runAiHarness(deps)
       return
     }
     if (scenario.name === 'entries-native' || scenario.name === 'entries-native-reopen') {

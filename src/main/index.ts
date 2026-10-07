@@ -8,6 +8,7 @@ import { electronShortcutRegistry } from './shortcuts/electron-registry.js'
 import { EntryIpcService } from './ipc/entries.js'
 import { ENTRY_CHANNELS } from '../contracts/capture-shortcuts.js'
 import { randomBytes, randomUUID } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BackupResourceLedger } from '../application/backup/backup-resources.js'
@@ -58,6 +59,17 @@ import { PRODUCT_STORAGE_DEFINITION } from './storage/product-schema.js'
 import { DESKTOP_CHANNELS, DESKTOP_RESOLVE_CHANNEL, type ReminderCapability } from '../contracts/desktop.js'
 import type { ReminderServiceStatus } from '../application/reminders/reminder-ports.js'
 import { DesktopIpcService } from './ipc/desktop.js'
+import { AiIpcService } from './ipc/ai.js'
+import { createAiProviderService } from '../application/ai/ai-provider-service.js'
+import { createAiSuggestionService } from '../application/ai/ai-suggestion-service.js'
+import { AiConsentRegistry } from '../application/ai/ai-consent.js'
+import { AiRequestRegistry } from '../application/ai/ai-request-registry.js'
+import { FileAiProviderConfig } from './ai/file-ai-config.js'
+import { createNativeProtection } from './ai/native-protection.js'
+import { createNetTransport } from './ai/net-transport.js'
+import { createHarnessAiProtection, createHarnessAiTransport } from './harness/ai-fake.js'
+import { createProviderConnectionTester, createProviderSubtaskSuggester } from './ai/provider-adapters.js'
+import { AI_CHANNELS } from '../contracts/ai.js'
 import { DesktopLifecycle, type DesktopWindow } from './desktop/lifecycle.js'
 import { createDesktopTray, type DesktopTray } from './desktop/tray.js'
 import { NATIVE_IDENTITIES, LOGIN_ARGUMENT, STARTUP_NAME, prepareNativeIdentity } from './desktop/native-identity.js'
@@ -180,6 +192,33 @@ function startOwner(): void {
     faults: harnessBackupWriteFaults,
   })
   const backupIpc = new BackupCommandIpcService({ sessions, services: backupServices })
+  // IA opcional: segredo cifrado no userData, consentimento e pedidos em memória, rede injetável.
+  // O cenário `ai` do harness usa proteção/transporte fictícios e diretório próprio.
+  const aiHarness = harnessScenario?.name === 'ai'
+  const aiDirectory = aiHarness ? path.join(app.getPath('userData'), 'ai-harness') : app.getPath('userData')
+  if (aiHarness) mkdirSync(aiDirectory, { recursive: true })
+  const aiRepository = new FileAiProviderConfig(
+    aiDirectory,
+    aiHarness ? createHarnessAiProtection() : createNativeProtection(),
+  )
+  const aiConsents = new AiConsentRegistry()
+  const aiRequests = new AiRequestRegistry()
+  const aiTransport = aiHarness ? createHarnessAiTransport() : createNetTransport()
+  const aiProviders = createAiProviderService({
+    repository: aiRepository,
+    consents: aiConsents,
+    requests: aiRequests,
+    tester: createProviderConnectionTester(aiTransport),
+  })
+  const aiSuggestions = createAiSuggestionService({
+    repository: aiRepository,
+    consents: aiConsents,
+    requests: aiRequests,
+    suggester: createProviderSubtaskSuggester(aiTransport),
+    generateRequestId: () => randomBytes(24).toString('base64url'),
+  })
+  const aiIpc = new AiIpcService({ sessions, providers: aiProviders, suggestions: aiSuggestions })
+  sessions.onInvalidated((key) => aiIpc.forgetDocument(key))
   let mainWindow: BrowserWindow | null = null
   let quickWindow: BrowserWindow | null = null
   let quitDrained = false
@@ -235,7 +274,7 @@ function startOwner(): void {
         startupTimer = undefined
       }
     },
-    suspended: role => desktopIpc.emit('surface-suspended', role),
+    suspended: role => { aiIpc.suspend(); desktopIpc.emit('surface-suspended', role) },
     active: role => {
       desktopIpc.emit('surface-active', role)
       if (role === 'MANAGER') {
@@ -451,6 +490,14 @@ function startOwner(): void {
     ipcMain.handle(BACKUP_PREPARE_CHANNEL, (event, request: unknown) => backupIpc.handlePrepare(event, request))
     ipcMain.handle(BACKUP_CONFIRM_CHANNEL, (event, request: unknown) => backupIpc.handleConfirm(event, request))
     ipcMain.handle(BACKUP_CANCEL_CHANNEL, (event, request: unknown) => backupIpc.handleCancel(event, request))
+    ipcMain.handle(AI_CHANNELS.getAiProviderStatus, (event, request: unknown) => aiIpc.handleStatus(event, request))
+    ipcMain.handle(AI_CHANNELS.saveAiProviderConfig, (event, request: unknown) => aiIpc.handleSave(event, request))
+    ipcMain.handle(AI_CHANNELS.removeAiProviderConfig, (event, request: unknown) => aiIpc.handleRemove(event, request))
+    ipcMain.handle(AI_CHANNELS.authorizeAiUse, (event, request: unknown) => aiIpc.handleAuthorize(event, request))
+    ipcMain.handle(AI_CHANNELS.testAiConnection, (event, request: unknown) => aiIpc.handleTest(event, request))
+    ipcMain.handle(AI_CHANNELS.prepareAiSuggestion, (event, request: unknown) => aiIpc.handlePrepare(event, request))
+    ipcMain.handle(AI_CHANNELS.suggestAiSubtasks, (event, request: unknown) => aiIpc.handleSuggest(event, request))
+    ipcMain.handle(AI_CHANNELS.cancelAiSuggestion, (event, request: unknown) => aiIpc.handleCancel(event, request))
     ipcMain.handle(DESKTOP_CHANNELS.status, (event, request: unknown) => desktopIpc.status(event, request))
     ipcMain.handle(DESKTOP_CHANNELS.startup, (event, request: unknown) => desktopIpc.startup(event, request))
     ipcMain.handle(DESKTOP_CHANNELS.quit, (event, request: unknown) => desktopIpc.quit(event, request))
@@ -492,6 +539,7 @@ function startOwner(): void {
       BACKUP_PREPARE_CHANNEL,
       BACKUP_CONFIRM_CHANNEL,
       BACKUP_CANCEL_CHANNEL,
+      ...Object.values(AI_CHANNELS),
       ...Object.values(DESKTOP_CHANNELS), DESKTOP_RESOLVE_CHANNEL, ...Object.values(ENTRY_CHANNELS),
     ]) {
       ipcMain.removeHandler(channel)
@@ -499,6 +547,8 @@ function startOwner(): void {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) sessions.unregister(window.webContents.id)
     }
+    aiRequests.abortAll()
+    aiConsents.clearAll()
     stateIpc.dispose()
     desktopIpc.dispose()
     return coordinator.shutdown()
@@ -594,6 +644,14 @@ function startOwner(): void {
               entries.editing(event, { version: 1, editing: true }), taskIpc.handleUpdate(event, { version: 5 }),
               taskIpc.handleStatus(event, { version: 4 }), trashIpc.handleMove(event, { version: 2 }),
               backupIpc.handleExport(event, { version: 1 }), desktopIpc.startup(event, { version: 1, desired: true }),
+              aiIpc.handleStatus(event, { version: 1 }),
+              aiIpc.handleSave(event, { version: 1, expectedRevision: '0', provider: 'OPENAI', model: 'm' }),
+              aiIpc.handleRemove(event, { version: 1 }),
+              aiIpc.handleAuthorize(event, { version: 1, scope: 'CREDENTIAL' }),
+              aiIpc.handleTest(event, { version: 1, probe: 'MODEL_LIST' }),
+              aiIpc.handlePrepare(event, { version: 1, title: 'T', description: '', existingSubtaskCount: 0 }),
+              aiIpc.handleSuggest(event, { version: 1, requestId: 'A'.repeat(32) }),
+              aiIpc.handleCancel(event, { version: 1, requestId: 'A'.repeat(32) }),
             ])
             return replies.every(reply => reply.status === 'error' && reply.code === 'UNAUTHORIZED')
           },

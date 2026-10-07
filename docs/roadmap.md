@@ -1,6 +1,6 @@
 # Roadmap de Changes — TaskFlow App
 
-Preparado em **2026-10-03**; atualizado em **2026-10-07**. Estado: **TFA-001 a TFA-008 integradas/arquivadas: TFA-008 concluída em 2026-10-06 com 60/60 tasks, specs consolidadas e [relatório de verificação](../openspec/changes/archive/2026-10-06-migrar-lembretes-e-ciclo-de-vida-desktop/verification.md) aprovado; README atualizado; [PR #8](https://github.com/Cadlira/taskflow-app/pull/8) integrado à principal (DONE)**. A campanha instalada foi concluída no escopo de usuário único (waives registrados para segunda conta/Unicode por conta e logoff real simulado por `WM_QUERYENDSESSION`): identidade/AUMID/CLSID/COM, toast real com clique→localizar, startup opt-in/out com readback, upgrade/uninstall/reinstall com dados preservados e CPU ocioso 60 s 0,208%. Seis defeitos instalados foram corrigidos com regressão. D10 foi revisado formalmente por novos limites (1.000 mantém 500/250/2 s; 10.000 ≤2.500 ms de interações/heartbeat e ≤8 s de montagem), registrado em `d10-budget-review.md` na Change arquivada. Smoke integral PASS (40 verificações) e validate 935+11. No propose, origin/main foi atualizado e a branch própria TFA-008 criada sobre o merge da TFA-007 `c7dcf845ba82a74e7027e764626decf6e0bfd82c`; a exploração pré-existente foi preservada. A **TFA-009** está **READY_FOR_MERGE**, arquivada em2026-10-07 com relatório aprovado,43 tarefas executadas e2 dispensadas; integração pendente.
+Preparado em **2026-10-03**; atualizado em **2026-10-07**. Estado: **TFA-001 a TFA-008 integradas/arquivadas: TFA-008 concluída em 2026-10-06 com 60/60 tasks, specs consolidadas e [relatório de verificação](../openspec/changes/archive/2026-10-06-migrar-lembretes-e-ciclo-de-vida-desktop/verification.md) aprovado; README atualizado; [PR #8](https://github.com/Cadlira/taskflow-app/pull/8) integrado à principal (DONE)**. A campanha instalada foi concluída no escopo de usuário único (waives registrados para segunda conta/Unicode por conta e logoff real simulado por `WM_QUERYENDSESSION`): identidade/AUMID/CLSID/COM, toast real com clique→localizar, startup opt-in/out com readback, upgrade/uninstall/reinstall com dados preservados e CPU ocioso 60 s 0,208%. Seis defeitos instalados foram corrigidos com regressão. D10 foi revisado formalmente por novos limites (1.000 mantém 500/250/2 s; 10.000 ≤2.500 ms de interações/heartbeat e ≤8 s de montagem), registrado em `d10-budget-review.md` na Change arquivada. Smoke integral PASS (40 verificações) e validate 935+11. No propose, origin/main foi atualizado e a branch própria TFA-008 criada sobre o merge da TFA-007 `c7dcf845ba82a74e7027e764626decf6e0bfd82c`; a exploração pré-existente foi preservada. A **TFA-009** está **READY_FOR_MERGE**, arquivada em2026-10-07 com relatório aprovado,43 tarefas executadas e2 dispensadas; integração pendente. A **TFA-010** foi explorada em 2026-10-07 — branch `codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas` sobre a `main` que registra o merge `c250870` do PR #9 — e teve a proposta criada no mesmo dia (proposal/design/três deltas/tasks, 0/38). Os artefatos foram aprovados explicitamente pelo usuário em 2026-10-07 e o apply foi autorizado; **38/38 tasks concluídas em 2026-10-07**, com `npm run validate` (100 arquivos/1.337 testes +11 skipped), OpenSpec estrito 17/17 e 9/9, `package:win`/`verify:package` e `smoke:packaged` 42 PASS incluindo o cenário `ai` (14 verificações) com transporte/proteção fictícios. O [relatório de verificação](../openspec/changes/archive/2026-10-07-migrar-provedores-ia-e-sugestao-de-subtarefas/verification.md) foi aprovado pelo usuário e a Change está **arquivada em 2026-10-07** (specs `desktop-ai-providers` e `desktop-ai-task-assistance` criadas; `desktop-state-ipc` consolidada em 43/14 com a exceção de 16 KiB e a nova requirement de operações de IA); estado **READY_FOR_MERGE/ARCHIVE**, com [PR #10](https://github.com/Cadlira/taskflow-app/pull/10) aberto para revisão e integração pendente. A prova real com provedor (AI16) não foi executada e fica como waive explícito aprovado; distribuição e TFA-011 permanecem não iniciados.
 
 ## Objetivo e limites confirmados
 
@@ -84,7 +84,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-007 | `migrar-backups-e-importar-dados-da-extensao` | DONE | — | 2026-10-05 | 2026-10-05 | TFA-006 | Apply 45/45, verificação aprovada, archive e README factual; PR #7 integrado em 2026-10-05, merge `c7dcf84` conferido no GitHub em 2026-10-06; referências locais ainda desatualizadas |
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | DONE | — | 2026-10-06 | 2026-10-06 | TFA-007 | 60/60 tasks; verificação aprovada e archive em 2026-10-06; README atualizado; [PR #8](https://github.com/Cadlira/taskflow-app/pull/8) integrado à principal. Waives de usuário único e D10 revisado registrados na Change |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | READY_FOR_MERGE | ARCHIVE | 2026-10-06 | — | TFA-008 | Archive e relatório aprovado em2026-10-07;43 tasks executadas/2 dispensadas; gates finais16/16 specs e9/9 archives; integração pendente |
-| TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | PLANNED | — | — | — | TFA-009 | Após dependências, usar o prompt abaixo |
+| TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | READY_FOR_MERGE | ARCHIVE | 2026-10-07 | — | TFA-009 | Apply38/38, relatório aprovado e archive em2026-10-07; specs consolidadas; [PR #10](https://github.com/Cadlira/taskflow-app/pull/10) aberto; integração pendente |
 | TFA-011 | `finalizar-instalador-e-distribuicao-windows` | PLANNED | — | — | — | TFA-010 | Após dependências, usar o prompt abaixo |
 | TFA-012 | `homologar-paridade-e-primeira-versao-desktop` | PLANNED | — | — | — | TFA-011 | Após dependências, usar o prompt abaixo |
 
@@ -2320,6 +2320,226 @@ Leia domain/ai-provider.ts, ai-subtask-suggestion.ts, application/ai, infrastruc
 Entregue achados com referências, alternativas e recomendação justificada, escopo e exclusões, dúvidas materiais, riscos e critérios de aceitação/testes a refinar no propose. Pare após a exploração: não implemente, não instale dependências, não crie artefatos da Change e não inicie propose/apply sem pedido explícito.
 ```
 
+### Exploração concluída — 2026-10-07
+
+**Estado:** READY_FOR_PROPOSE/EXPLORE; início e conclusão de implementação permanecem vazios. Nenhum diretório ou artefato OpenSpec da TFA-010 foi criado; somente este roadmap registra a exploração e seu encaminhamento, conforme AGENTS.md item 10. As recomendações técnicas abaixo não constituem aprovação dos futuros artefatos.
+
+**Pedido e entrega:** a branch `codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas` foi criada por solicitação explícita, antes da exploração, a partir da `main` que registra o merge `c250870` do PR #9 da TFA-009 (conferido no Git local; a confirmação formal de integração/DONE permanece com o usuário). A branch permanece sem commits. Nenhuma dependência foi instalada, nenhum código ou artefato da Change foi criado e nenhuma chamada de rede real foi executada. A origem `C:\QSI\Workspaces\taskflow-extension` e seu Git permaneceram estritamente somente leitura na referência `a763e7a0d646c664ecd4f979528bc2c3589fa8c4`. **Decisões humanas:** nenhuma decisão de produto nova foi confirmada nesta sessão; todas as escolhas abaixo são recomendações a revisar no propose.
+
+**Contexto conferido:** OpenSpec 1.14.0, raiz local e schema `spec-driven`, nenhuma Change ativa e 16 specs consolidadas. Foram lidos na origem: specs `ai-providers` e `ai-task-assistance`, `domain/ai-provider.ts`, `domain/ai-subtask-suggestion.ts`, `application/ai/*`, `infrastructure/ai/*`, `stored-ai-config.ts`, composição, componentes de IA (trechos) e designs arquivados de 2026-09-19/2026-09-20. No app: `docs/architecture.md` (D2/D3/D7 e riscos), `docs/parity-matrix.md` (P11/P12), `docs/test-strategy.md`, spec `desktop-state-ipc`, `src/main/ipc/*`, `src/main/index.ts`, `src/preload/bridge.ts`, `src/contracts/*`, `src/main/shortcuts/file-preferences.ts`, `TaskForm.vue` do renderer e `electron.d.ts` da versão 44.5.1 fixada.
+
+#### Achados com referências e implicações
+
+| Evidência consultada | Achado verificado | Implicação para o propose |
+| --- | --- | --- |
+| [ai-provider.ts](C:/QSI/Workspaces/taskflow-extension/src/domain/ai-provider.ts:7) | União OPENAI/ANTHROPIC/CUSTOM; bases oficiais fixas; http somente em loopback (`localhost`, `127.0.0.1`, `[::1]`); recusa userinfo/query/fragmento; caminho permitido com barra final descartada; credencial intocada preservada em `buildAiProviderConfig`. | Portar por cópia revisada; campo de credencial vazio preserva a salva; base oficial sem campo editável; origem resolvida exibida antes do envio; nenhuma credencial embutida em URL. |
+| [ai-subtask-suggestion.ts:64-149](C:/QSI/Workspaces/taskflow-extension/src/domain/ai-subtask-suggestion.ts:64) | Fonte única do texto transmitido; corte da descrição em 1.000 caracteres antes da prévia; limite de saída 3.000 tokens; parser tolerante com dedupe; proposta submetida ao mesmo validador da digitação e cortada pelas vagas restantes (`discardedByLimit`). | Prévia preparada no main devolve a string exata; edição re-prepara e invalida `requestId`; adaptar o validador ao contrato do app (`resolveSubtaskDrafts`), sem validador paralelo. |
+| [ai-subtask-suggestion-service.ts:68-165](C:/QSI/Workspaces/taskflow-extension/src/application/ai/ai-subtask-suggestion-service.ts:68) | Uma requisição em voo (`ALREADY_RUNNING`); cancelamento tem precedência sobre resposta tardia; timeout de 30 s; nenhuma persistência em nenhum caminho. | Registro por documento no main; segundo acionamento `BUSY`; descarte após `await`; sem retry automático. |
+| [ai-probe.ts:60-107](C:/QSI/Workspaces/taskflow-extension/src/infrastructure/ai/ai-probe.ts:60) vs [ai-generation.ts:79-145](C:/QSI/Workspaces/taskflow-extension/src/infrastructure/ai/ai-generation.ts:79) | Executores separados de propósito: o probe não lê o corpo; a geração lê com limite defensivo de 64 KiB; `redirect:'error'` + recusa explícita de 3xx, `cache:'no-store'`, `credentials:'omit'`, `referrerPolicy:'no-referrer'`. | Manter dois executores no main sobre transporte injetável; nunca um `readBody` booleano; preservar as opções restritivas e o limite. |
+| [ai-probe.ts:14-47](C:/QSI/Workspaces/taskflow-extension/src/infrastructure/ai/ai-probe.ts:14) e [ai-subtask-suggester.ts:9-19](C:/QSI/Workspaces/taskflow-extension/src/application/ai/ai-subtask-suggester.ts:9) | Falhas em conjunto fechado; log somente de `reason`/`origin`/`status`; 401/403→credencial, 404 (listagem)→não suportado, 408/504→timeout. | União de erros versionada no contrato; espião de log nos testes; corpo do provedor nunca transportado nem persistido. |
+| [stored-ai-config.ts:72-94](C:/QSI/Workspaces/taskflow-extension/src/infrastructure/storage/stored-ai-config.ts:72) | Envelope `schemaVersion 1`; estrutura desconhecida recusada integralmente sem sobrescrever; bloqueio de salvar/testar até remoção explícita. | `ai.json` versionado no `userData`; `INCOMPATIBLE_DATA` preserva o arquivo; a UI só oferece remover. |
+| [chrome-host-permissions.ts:7-27](C:/QSI/Workspaces/taskflow-extension/src/infrastructure/ai/chrome-host-permissions.ts:7) e [ai-provider-service.ts:144-175](C:/QSI/Workspaces/taskflow-extension/src/application/ai/ai-provider-service.ts:144) | Permissão de host por origem (sem padrão amplo), obtida sob gesto; remover revoga; revogação externa é detectada ao abrir/testar. | Substituir por autorização/consentimento no main por documento; remover limpa registros; origem trocada exige novo consentimento; sem consentimento nada é enviado. |
+| [TaskForm.vue:409-420/511-546](C:/QSI/Workspaces/taskflow-extension/src/components/tasks/TaskForm.vue:409) e [ai-suggestion-labels.ts:52-57](C:/QSI/Workspaces/taskflow-extension/src/components/ai/ai-suggestion-labels.ts:52) | Consentimento de conteúdo distinto do de credencial, em memória, por origem, válido enquanto o painel está aberto. | Dois escopos no main (credencial/conteúdo), sem persistência; limpos ao invalidar sessão, salvar/remover configuração e sair. |
+| [AiProviderManager.vue:101-117/231-246](C:/QSI/Workspaces/taskflow-extension/src/components/ai/AiProviderManager.vue:101) | Aviso antes do primeiro teste; campo de credencial nunca preenchido com o valor salvo; marca `hasCredential` irreconstruível; remoção com confirmação. | Área de provedores somente no manager; resumo sem segredo; nenhum preenchimento automático; remoção explícita revoga autorizações. |
+| [TaskForm.vue:352-358/967-1043](C:/QSI/Workspaces/taskflow-extension/src/components/tasks/TaskForm.vue:352) | Proposta revisável: seleção/edição item a item; aceitar somente acrescenta linhas (sem `id`/`done`); descartar/fechar eliminam; nada é gravado sem salvar; desfazer cobre ao salvar. | Mesma integração no `TaskForm.vue` do app (`subtaskRows`); salvar segue create/update + undo, sem caminho novo de gravação. |
+| [surface-catalog.ts](../src/contracts/surface-catalog.ts:1), [entries.ts](../src/main/ipc/entries.ts:27) e spec [desktop-state-ipc](../openspec/specs/desktop-state-ipc/spec.md) | Catálogo fechado 35/14; guardas de role/frame/sessão antes do efeito; invalidação por geração; requests novos 1 KiB e results 8 KiB, exceção de captura 64 KiB. | Operações de IA somente no manager; oito wrappers `:v1`; exceção declarada de 16 KiB para prévia/resultado; atualizar contagens e transporte na spec. |
+| [file-preferences.ts:77-147](../src/main/shortcuts/file-preferences.ts:77) | Publicação atômica versionada: temp exclusivo 0600, flush, readback, `previous`, rename e `UNKNOWN` bloqueando setters. | Reutilizar o padrão para `ai.json` (limite proposto 8 KiB); fora de SQL2/codec4/backup e fora do backup de tarefas. |
+| [electron.d.ts:12076-12151](../node_modules/electron/electron.d.ts:12076) | `isEncryptionAvailable()` (no Windows, verdadeiro após `ready`/DPAPI); `encryptString`/`decryptString` síncronos; variantes async; backend Linux apenas informativo. | Cifrar/decifrar somente no main sob demanda; indisponível ⇒ `PROTECTION_UNAVAILABLE`; falha de decifra bloqueia preservando o arquivo; plaintext nunca como fallback silencioso. |
+| [electron.d.ts:10358](../node_modules/electron/electron.d.ts:10358) | `net.fetch` disponível no main (pilha Chromium). | Recomendação: `net.fetch` atrás de transporte injetável, por integrar proxy/PAC e certificados do Windows; `fetch` global como alternativa de uma linha no adapter. |
+| [task-subtasks.ts:9-70](../src/domain/task-subtasks.ts:9) | `resolveSubtaskDrafts` substitui `validateSubtaskDrafts` da origem; `MAX_SUBTASKS=20` e `SUBTASK_TITLE_LIMIT=200` idênticos. | Adaptar o builder de proposta aos nomes/contratos do app, reusando os limites existentes. |
+| Testes da origem: [ai-provider.test](C:/QSI/Workspaces/taskflow-extension/tests/domain/ai-provider.test.ts), [ai-adapters.test](C:/QSI/Workspaces/taskflow-extension/tests/infrastructure/ai-adapters.test.ts), [ai-subtask-suggestion-service.test](C:/QSI/Workspaces/taskflow-extension/tests/application/ai-subtask-suggestion-service.test.ts), [TaskFormAiSuggestion.test](C:/QSI/Workspaces/taskflow-extension/tests/components/tasks/TaskFormAiSuggestion.test.ts), [stored-ai-config.test](C:/QSI/Workspaces/taskflow-extension/tests/infrastructure/stored-ai-config.test.ts) e [backup-ai-credential.test](C:/QSI/Workspaces/taskflow-extension/tests/integration/backup-ai-credential.test.ts) | Mocks/fakes sem rede paga; exclusão estrutural da credencial do backup verificada por teste. | Portar por cópia revisada; repetir a exclusão no app; nenhuma chamada paga em gates. |
+
+#### Decisões e recomendações para o propose
+
+| Tema | Alternativas consideradas | Recomendação |
+| --- | --- | --- |
+| Transporte HTTP no main | `fetch` global do Node/undici; `net.fetch` do Electron (pilha Chromium) | `net.fetch` com transporte injetável, por integrar proxy/PAC e certificados do Windows; `fetch` global permanece alternativa documentada. |
+| Segredo em repouso | `ai.json` + safeStorage; tabela SQLite (SQL3/migração); Credential Manager via addon nativo | `ai.json` versionado + safeStorage/DPAPI no padrão de `shortcuts.json`; não migrar SQL2/codec4/backup; Credential Manager sem ganho sobre safeStorage. |
+| Proteção indisponível | bloquear (D7); plaintext avisado; manter somente em memória | Bloquear gravação/uso com `PROTECTION_UNAVAILABLE`, gerenciamento offline; plaintext nunca. |
+| Consentimento | estado no main por documento; booleano do renderer (recusado por D7); diálogo nativo infalsificável | Estado no main por documento, dois escopos, vínculo origem/provider/base/revisão/`requestId`; diálogo nativo registrado como endurecimento sujeito a decisão. |
+| Onde montar a prévia | renderer monta string opaca; main prepara e devolve string + token | Main prepara (D7) e o renderer exibe o devolvido; edição re-prepara e invalida `requestId`; igualdade por construção preservada. |
+| Orçamentos | manter 1 KiB/8 KiB; abrir exceção | Exceção declarada de 16 KiB para prévia/sugestão e respectivos results; demais 1/8 KiB; alterar a requirement de transporte da spec. |
+| Header da Anthropic | manter; remover (não há `Origin` no main) | Manter por paridade (inócuo); reavaliar com prova real autorizada; se removido, ajustar a spec derivada. |
+| Parâmetro de saída | manter `max_tokens`; `max_completion_tokens` | Manter `max_tokens` (paridade e gateways); documentar que modelos de raciocínio OpenAI podem responder 400. |
+| Timeouts/cancelamento | 15 s (teste) e 30 s (geração) da origem | Manter constantes; abort no main, descarte pós-`await`, uma requisição por documento. |
+| Consentimento persistente | não persistir; arquivo dedicado | Não persistir (espelha a origem; evita autorização pegajosa). |
+| CAS ao salvar | substituição simples; `expectedRevision` | `expectedRevision` no padrão dos atalhos, contra corrida de reload/salvar concorrente. |
+| Ocultar durante pedido | abortar; deixar concluir e descartar | Abortar em `surface-suspended` (evita custo; a entrega pós-epoch já seria rejeitada). |
+| Local da área de IA | seção no manager; modal próprio; Quick Add | Seção no manager (nunca Quick Add), preservando identidade/acessibilidade existentes. |
+
+#### Catálogo IPC candidato (somente MANAGER, `:v1`, schemas exatos)
+
+| Operação | Request (até) | Result (até) | Notas |
+| --- | --- | --- | --- |
+| `ai:get-status` | 1 KiB | 8 KiB | resumo sem segredo: provider/base/origin/model/`hasCredential`/revisão/consentimentos. |
+| `ai:save-config` | 8 KiB | 8 KiB | CAS por `expectedRevision`; credencial entra uma única vez; `PROTECTION_UNAVAILABLE` sem safeStorage. |
+| `ai:remove-config` | 1 KiB | 1 KiB | apaga credencial e revoga consentimentos da origem. |
+| `ai:authorize` | 1 KiB | 1 KiB | `scope: CREDENTIAL | CONTENT` (com `requestId` no conteúdo); registra no main. |
+| `ai:test-connection` | 1 KiB | 1 KiB | somente com consentimento de credencial; `MODEL_LIST` com alternativa `MINIMAL_COMPLETION` explícita. |
+| `ai:prepare-suggestion` | 16 KiB | 16 KiB | devolve `requestId` + conteúdo exato + `descriptionTruncated` + origem; edição re-prepara. |
+| `ai:suggest` | 1 KiB | 16 KiB | executa o snapshot preparado; uma em voo; teto de 3.000 tokens. |
+| `ai:cancel` | 1 KiB | 1 KiB | aborta por `requestId`; resposta tardia descartada. |
+
+Sem eventos/subscriptions nesta capability; nenhum booleano de consentimento vem do renderer. O Quick Add permanece com 14 wrappers e sem IA; o manager passa de 35 para 43 (contagem e budgets exatos para revisão no propose), com delta nas requirements de catálogo e transporte da `desktop-state-ipc`.
+
+#### Fluxo candidato
+
+```text
+painel do formulario
+   --> ai:prepare-suggestion {titulo, descricao, vagas}
+         main: mesma funcao pura do dominio + requestId + origem + corte
+   --> renderer exibe EXATAMENTE a string devolvida (e a origem)
+         edicao de titulo/descricao --> novo prepare invalida o requestId anterior
+   --> ai:authorize(CONTENT, requestId) quando faltar consentimento
+   --> ai:suggest {requestId}
+         uma requisicao; 15 s (teste) / 30 s (geracao); cancelavel
+   --> proposta validada (parser + limites + vagas) para revisar/selecionar
+         aceitar --> subtaskRows do formulario; salvar segue create/update + undo
+```
+
+```text
+pedido em voo {requestId, ticket, configRevision, controller}
+  +-- ai:cancel / fechar / reload / crash / suspend (recomendado) / quit --> abort + descarte
+  +-- save-config / remove-config --> revision++ ; abort de todos os pedidos ; limpa consentimentos
+  +-- resposta chega --> sessao atual? revision igual? se nao --> descarta sem entregar nem logar
+```
+
+#### Escopo, exclusões, dúvidas materiais e riscos
+
+**Escopo proposto:** provedores OpenAI/Anthropic/CUSTOM (compatível OpenAI, inclusive loopback); configuração BYOK com CAS e resumo sem segredo; segredo cifrado com safeStorage/DPAPI e bloqueio quando indisponível; teste de conexão por gesto com `MODEL_LIST`/`MINIMAL_COMPLETION`; consentimento de credencial e conteúdo por origem/configuração no main; prévia exata preparada no main; geração única com timeout/cancelamento e descarte de resposta tardia; validação/revisão/seleção das sugestões integrada ao formulário; IPC mínimo por role; documentação e testes.
+
+**Exclusões:** conta TaskFlow, backend, sincronização, telemetria e uso automático/agendado de IA; streaming, histórico de conversa, ferramentas/múltiplos turnos e SDKs; novas dependências de runtime; alteração de SQL2/codec4/backup/atalhos; IA no Quick Add; edição de prompt pelo usuário; sugestão de modelo via listagem; chamadas pagas em testes; distribuição/instalador (TFA-011) e homologação (TFA-012).
+
+**Dúvidas materiais a fechar no propose:** (1) transporte `net.fetch` versus `fetch` global; (2) consentimento no main versus diálogo nativo como gate; (3) abort em ocultar/suspender; (4) exceção de orçamento de 16 KiB e forma de declará-la na spec; (5) CAS em `save-config`; (6) header da Anthropic (manter ou remover); (7) local/forma da área de provedores; (8) existência de prova real autorizada com chave do usuário ou waive explícito. Nenhuma resposta aqui aprova os demais artefatos.
+
+**Riscos principais:** proxy/inspeção corporativa quebrar HTTPS no main (mitigado por `net.fetch`, a validar em rede real); DPAPI por usuário/máquina (perfil móvel/outra conta) falhar na decifra (bloquear preservando o arquivo); consentimento forjável por renderer comprometido (diálogo nativo como mitigação máxima, decisão pendente); prévia assíncrona obsoleta (exibir a string do main e invalidar `requestId` a cada re-preparação); vazamento por corpo/erro do provedor (executores separados, limite de 64 KiB, log mínimo); custo em dinheiro (requisição única, teto de saída, sem retry, cancelamento em ocultar); `max_tokens` em modelos de raciocínio OpenAI; contagens/orçamentos de spec desatualizados (teste de catálogo impede vazamento de ops); segredo em memória/GC sem garantia além do safeStorage; dependência de rede real somente em prova autorizada.
+
+#### Critérios de aceitação e testes candidatos AI01–AI16
+
+| ID | Caso e oráculo propostos para refinamento |
+| --- | --- |
+| AI01 | Sem configuração/ação não há rede nem permissão e o app se comporta como hoje; `get-status` apenas lê o arquivo. |
+| AI02 | União de provedores; bases oficiais fixas; http somente loopback; recusa de userinfo/query/fragmento; normalização de barra; troca de base/provedor reapresenta aviso. |
+| AI03 | Credencial gravada somente por `save`; cifrada em repouso; nunca no renderer/log/backup; campo nunca preenchido; `hasCredential` irreconstruível; safeStorage indisponível bloqueia; decifra falha bloqueia preservando o arquivo. |
+| AI04 | Consentimento por origem e escopo; credencial não autoriza conteúdo; re-consentir após troca/salvar/reabrir; remover revoga; sem consentimento nada é enviado. |
+| AI05 | Teste somente por gesto; `MODEL_LIST`; alternativa `MINIMAL_COMPLETION` explícita com `ping`/1 token; 15 s; cancelável; redirect/3xx recusados; corpo nunca lido; motivos fechados. |
+| AI06 | Prévia idêntica ao transmitido; corte de 1.000 sinalizado antes; somente título/descrição/instruções; edição re-prepara e invalida `requestId` antigo. |
+| AI07 | Uma requisição em voo; teto de 3.000 tokens; sem streaming; 30 s; cancelar descarta; novo acionamento `BUSY`; sem retry. |
+| AI08 | Parser tolerante/dedupe; itens inválidos descartados; corte por vagas com aviso; sem item válido não altera o formulário. |
+| AI09 | Selecionar/editar/aceitar acrescenta somente linhas (sem `done`/`id`); descartar não altera; salvar usa create/update + undo; fechar sem salvar não persiste; a IA não escreve nada. |
+| AI10 | QUICK_ADD recusa todas as operações; tokens/pedidos por documento; fechar/reload/crash do manager aborta e limpa; a outra superfície não é afetada. |
+| AI11 | Troca de provedor/configuração com pedido em curso: aborta, limpa consentimentos, resposta tardia descartada; novo pedido usa a configuração nova. |
+| AI12 | Falhas fechadas: corpo com trecho da chave não aparece em retorno/log; URL completa/cabeçalhos/body ausentes; log somente `reason`/`origin`/`status`. |
+| AI13 | Conteúdo externo tratado como dado: descrição instrucional não muda destino/config; resposta não aciona efeito. |
+| AI14 | Contratos/bytes: schemas exatos, extras/versões recusados, orçamentos 1/8/16 KiB declarados, códigos fechados. |
+| AI15 | Pacote: catálogo do manager ampliado e Quick Add inalterado; ASAR sem segredo; cenário fake local sem chamada paga; backup sem credencial. |
+| AI16 | Windows instalado autorizado: provedor real com chave do usuário, redirect/erro/limite, evidência sanitizada; waive explícito se não houver ambiente. |
+
+**Verificações desta exploração:** Node 24.21.0/npm 11.21.0 do runtime extraído na TFA-002 (o shell global 22/10 não foi usado nos gates). `npm run validate` aprovado: lint, cinco typechecks, **87 arquivos/1.134 testes aprovados + 11 skipped**, volume **1 arquivo/2 testes** (M12: 1.000 → rebuild 86,12 ms e SQL p95 15,51 ms; 10.000 → 712,42 ms e 9,29 ms) e build main/preload/renderer. Log local ignorado `.tmp/tfa010-explore-validate.log`. OpenSpec estrito: `--all` **16/16** e `--archived` **9/9**, sem falhas; somente INFOs preexistentes de requisito longo em `desktop-task-management` e `windows-per-user-installation`. `git diff --check` aprovado e diff limitado a `docs/roadmap.md`. Nenhum package/smoke/Setup, instalação, chamada real a provedor ou escrita na extensão; AI01–AI16 permanecem planejados, não executados.
+
+### Prompt consolidado para opsx:propose
+
+Pronto para novo pedido explícito. Este registro não cria Change, aprova artefatos ou inicia implementação.
+
+```text
+$openspec-propose TFA-010 — migrar-provedores-ia-e-sugestao-de-subtarefas
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app e reutilize codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas, criada antes do explore sobre a main que registra o merge c250870 (PR #9 da TFA-009). Confira raiz/branch/diff/base e preserve o trabalho preexistente. Leia AGENTS.md, docs/roadmap.md (exploração TFA-010 de 2026-10-07, achados, recomendações, dúvidas e AI01–AI16), os artefatos arquivados da TFA-009 e os contratos/specs pertinentes das TFA-003/004/005/007/008/009. Extensão C:\QSI\Workspaces\taskflow-extension e seu Git estritamente somente leitura, referência a763e7a0d646c664ecd4f979528bc2c3589fa8c4; sem editar/buildar/testar/instalar/alterar configurações ou Git ali.
+
+Crie somente proposal/design/specs/tasks desta Change pela CLI/schema existentes (consulta 1.14.0/spec-driven), com scaffold pela CLI. Registre IN_PROGRESS/PROPOSE/data de início antes e IN_REVIEW/REVIEW depois, sem aprovação inferida. Não implemente, não instale dependências, não faça chamadas pagas e não crie código nesta etapa.
+
+Porto por cópia revisada: domínio portátil de providers (união OPENAI/ANTHROPIC/CUSTOM, bases fixas, validação https/http-loopback, origem resolvida, credencial intocada preservada) e de sugestão (fonte única do texto, corte de 1.000 antes da prévia, instruções fixas, parser tolerante com dedupe, proposta pelas mesmas regras dos limites existentes). Adapte validateSubtaskDrafts para resolveSubtaskDrafts/MAX_SUBTASKS/SUBTASK_TITLE_LIMIT do app, sem validador paralelo. Preserve 15 s (teste), 30 s (geração), 3.000 tokens de saída, uma requisição por acionamento e sem retry.
+
+Decida e documente: credencial em ai.json versionado no userData com safeStorage/DPAPI, publicação atômica no padrão de shortcuts.json, decifra sob demanda nunca no renderer; indisponibilidade da proteção e falha de decifra bloqueiam sem plaintext, preservando o arquivo e oferecendo só remoção. Rede e segredo no main; executores separados para probe (corpo nunca lido) e geração (corpo limitado a 64 KiB); redirect:'error', recusa de 3xx, cache/credentials/referrer restritivos; transporte injetável com net.fetch recomendado (proxy/certificados do sistema) e fetch Node como alternativa. Motivos em conjunto fechado e log somente reason/origin/status.
+
+Defina o IPC mínimo manager-only (v1, schemas exatos, CAS por expectedRevision, orçamentos 1/8 KiB com exceção declarada de 16 KiB para prévia/resultado, roles/sessão/documento/bytes antes do efeito): status, salvar, remover, autorizar (CREDENTIAL/CONTENT), testar conexão (MODEL_LIST com fallback MINIMAL_COMPLETION explícito), preparar sugestão (requestId + string exata + origem + corte), sugerir (executa o snapshot), cancelar (aborta e descarta). Atualize as requirements de catálogo e transporte da desktop-state-ipc; Quick Add permanece sem IA e sem rede.
+
+Fixe consentimento no main por documento e em memória, dois escopos independentes (credencial e conteúdo), vínculo a origem/provider/base/revisão/requestId, limpeza ao invalidar sessão, salvar/remover configuração e sair; sem persistência; remover revoga. Documente a alternativa de diálogo nativo como endurecimento sujeito a decisão e o risco de renderer comprometido.
+
+Trate troca de provedor/configuração durante pedido em curso: revisão monotônica capturada no início, abortar pedidos e limpar consentimentos ao salvar/remover, resposta tardia descartada sem entrega nem log. Defina cancelamento por requestId, abort em fechar/reload/crash/quit e recomendação de abort em ocultar/suspender; uma requisição em voo por documento.
+
+Planeje os testes AI01–AI16 com mocks/fakes locais e nenhuma chamada paga: validação de base, segredo cifrado/fora de renderer/log/backup, indisponibilidade e decifra falha, consentimento por origem/escopo, prévia exata com edição re-preparando, uma requisição/cancelamento/timeout, parser/proposta/vagas, revisão/aceitação sem persistência, isolamento de role/sessão, troca de provider em voo, falhas fechadas sem corpo da chave, contratos/bytes, catálogo no pacote e prova real opcional/autorizada com waive explícito. Porte por revisão os testes da origem (ai-provider, ai-subtask-suggestion, ai-subtask-suggestion-service, adapters, stored-ai-config, backup-ai-credential) e mantenha os gates existentes.
+
+Exclua conta/backend/sync/telemetria, uso automático de IA, streaming/histórico/ferramentas/SDKs, novas dependências, alteração de SQL2/codec4/backup/atalhos, IA no Quick Add e outras Changes. Entregue os artefatos para revisão, registre/entregue o prompt de apply no roadmap e pare: sem apply/verify/archive/commit/push/PR/merge/publicação ou TFA-011 automaticamente.
+```
+
+### Início do propose — 2026-10-07
+
+Pedido explícito de `$openspec-propose` com o prompt consolidado da exploração anexado. Raiz local, CLI 1.14.0/schema `spec-driven`, branch `codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas` sobre o merge `c2508703a2581848771f72ffafe8f010fc025cbc` (PR #9) e trabalho preexistente (este roadmap) conferidos antes da escrita. Estado registrado como **IN_PROGRESS/PROPOSE**; início **2026-10-07**. A extensão permanece somente leitura em `a763e7a0d646c664ecd4f979528bc2c3589fa8c4`. Este registro não aprova artefatos e não autoriza apply.
+
+### Proposta criada para revisão — 2026-10-07
+
+Pedido explícito de `$openspec-propose` com o prompt consolidado anexado; a etapa passou por IN_PROGRESS/PROPOSE/data antes do scaffold e agora está **IN_REVIEW/REVIEW**. Início da proposta **2026-10-07**; conclusão da Change sem data. **Artefatos não aprovados; apply não iniciado.**
+
+**Artefatos criados pela CLI 1.14.0/schema `spec-driven`:** [proposal](../openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas/proposal.md), [design](../openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas/design.md), [tasks](../openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas/tasks.md) (**0/38**, todas abertas) e três deltas:
+
+- Novas: [desktop-ai-providers](../openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas/specs/desktop-ai-providers/spec.md) e [desktop-ai-task-assistance](../openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas/specs/desktop-ai-task-assistance/spec.md).
+- Modificada: [desktop-state-ipc](../openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas/specs/desktop-state-ipc/spec.md), com catálogo35→43/14, transporte com exceção8/16KiB e nova requirement de operações de IA manager-only.
+
+**Decisões propostas para revisão:** D1–D10 do design fecham domínio portátil de provedores/sugestão adaptado a `resolveSubtaskDrafts`/`MAX_SUBTASKS`/`SUBTASK_TITLE_LIMIT`; credencial em `ai.json` v1 no `userData` com `safeStorage`/DPAPI e publicação atômica no padrão de `shortcuts.json` (bloqueio sem plaintext e preservação de arquivo incompatível/indecifrável); rede e segredo no main com executores separados de probe/geração e transporte injetável (`net.fetch` recomendado); consentimentos CREDENTIAL/CONTENT por documento e em memória; oito operações v1 com CAS e orçamentos1/8/16KiB; prévia preparada no main com `requestId`; uma requisição por documento com aborto em salvar/remover, fechar, reload, crash, suspender e sair, e resposta tardia descartada; UI no manager e no formulário, Quick Add sem IA. O design registra alternativas recusadas (SQL, plaintext, SDK, renderer fetch) e questões em aberto (copy de UI, diálogo nativo como endurecimento e parâmetros de protocolo com prova real).
+
+**Verificações do propose:** `openspec status`4/4; Change estrita válida; `--all --strict --no-interactive`**17/17** (16 specs + esta Change) e `--archived`**9/9**, sem falhas além de INFOs preexistentes de requisito longo. `npm run validate` com Node24.21.0/npm11.21.0 da TFA-002: lint, cinco typechecks, **87 arquivos/1.134 testes aprovados +11 skipped**, volume1arquivo/2testes e build. Log local ignorado `.tmp/tfa010-propose-validate.log`. São gates da base inalterada e validação do planejamento, não prova da implementação futura. Nenhum código, dependência, instalador, chamada paga ou escrita na extensão; somente este roadmap e os artefatos desta Change foram gravados. Sem commit/push/PR/merge/archive.
+
+### Prompt consolidado para opsx:apply
+
+Usar **somente depois de revisar e aprovar explicitamente** os artefatos acima. O texto abaixo é modelo para uma nova mensagem humana; sua presença no roadmap não é aprovação nem início de apply.
+
+```text
+$openspec-apply-change TFA-010 — migrar-provedores-ia-e-sugestao-de-subtarefas
+
+Aprovo proposal.md, design.md, os dois deltas novos, o delta de desktop-state-ipc e tasks.md da TFA-010 apresentados em 2026-10-07 e autorizo implementar esta Change conforme esses artefatos.
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app. Reutilize codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas, base c2508703a2581848771f72ffafe8f010fc025cbc (merge do PR #9); confira raiz/branch/diff/base e preserve trabalho preexistente. Leia AGENTS.md e docs/roadmap.md integralmente, especialmente exploração e propose TFA-010; leia proposal/design/três deltas/tasks em openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas e os contratos/specs das dependências TFA-003/004/005/007/008/009. CLI1.14.0/schema spec-driven; 38 tasks inicialmente abertas; registre IN_PROGRESS/APPLY e datas reais.
+
+Extensão C:\QSI\Workspaces\taskflow-extension e seu Git estritamente somente leitura, referência a763e7a0d646c664ecd4f979528bc2c3589fa8c4. Reutilize apenas funções/testes portáveis revisados por cópia; nunca execute build/teste/instalação/escrita/Git/configuração na origem.
+
+Implemente D1–D10 sem fallback material: domínio portátil de provedores e sugestão adaptado a resolveSubtaskDrafts/MAX_SUBTASKS/SUBTASK_TITLE_LIMIT; credencial em ai.json v1 no userData com safeStorage/DPAPI, publicação atômica no padrão shortcuts.json, decifra sob demanda, bloqueio sem plaintext e preservação de arquivo incompatível/indecifrável; rede e segredo no main com executores separados de probe (corpo nunca lido) e geração (corpo≤64KiB), redirect:'error'/recusa3xx/no-store/omit/no-referrer e transporte injetável com net.fetch na produção. Preserve 15s/30s/3.000 tokens/1.000 caracteres, uma requisição por documento, sem retry e sem streaming.
+
+Implemente as oito operações v1 somente no manager (getAiProviderStatus/saveAiProviderConfig/removeAiProviderConfig/authorizeAiUse/testAiConnection/prepareAiSuggestion/suggestAiSubtasks/cancelAiSuggestion) com schemas exatos, CAS por expectedRevision, orçamentos1/8/16KiB medidos em UTF-8 antes do efeito, guardas de role/frame/documento/sessão/origem antes de qualquer leitura de credencial/rede e erros fechados; Quick Add permanece com14 e sem IA. Atualize contratos/preload/surface-catalog e a spec desktop-state-ipc conforme os deltas.
+
+Consentimentos CREDENTIAL/CONTENT independentes, por documento e em memória, com vínculo origem/provider/base/revisão/requestId e limpeza em invalidar sessão, salvar/remover e sair; sem persistência; remover revoga. Prévia preparada no main com string exata/requestId/corte/origem; edição re-prepara e invalida; sugestão executa o snapshot, interpreta com parser tolerante, valida pelas regras de subtarefa e corta por vagas com aviso; aceitar só acrescenta linhas sem id/done e sem persistência; salvar segue create/update + undo.
+
+Trate concorrência: revisão monotônica capturada no início; salvar/remover aborta pedidos e limpa consentimentos; fechar/reload/crash/suspend/quit descartam; resposta tardia é descartada sem entrega nem log. Cancelamento somente do próprio requestId. A chamada real a provedor é opcional/autorizada e exige waive explícito se ausente; nenhuma chamada paga em gates.
+
+Complete testes e documentação junto a cada grupo (AI01–AI16, cópia revisada dos testes da origem, fakes sem chamadas pagas) e execute os gates existentes com Node24.21.0/npm11.21.0: npm run validate, OpenSpec Change/--all/--archived estritos, package:win/verify:package/smoke:packaged com cenário de IA por transporte fake/loopback; registre evidências e pendências sem marcar o não comprovado.
+
+Exclusões: conta/backend/sync/telemetria, uso automático de IA, streaming/histórico/ferramentas/SDKs, novas dependências, SQL2/codec4/backup/atalhos, IA no Quick Add, distribuição e outras Changes. Mudança material exige revisar artefatos antes do ponto correspondente, continuando o trabalho independente autorizado.
+
+Após o apply execute $openspec-verify-change e entregue verification.md na própria Change com aderência a tasks/deltas/AI01–AI16, gates/evidências e pendências; pare para aprovação humana do relatório. Não archive/consolide specs/commit/push/PR/merge/distribua ou inicie TFA-011 automaticamente. README final/archive/integração ficam para a etapa autorizada correspondente.
+```
+
+### Início do apply — 2026-10-07
+
+O usuário invocou `$openspec-apply-change` com a autorização anexada: **“Aprovo proposal.md, design.md, os dois deltas novos, o delta de desktop-state-ipc e tasks.md da TFA-010 apresentados em 2026-10-07 e autorizo implementar esta Change conforme esses artefatos.”** Estado registrado como **IN_PROGRESS/APPLY**, início **2026-10-07**. Raiz/OpenSpec local (nenhum store registrado), CLI 1.14.0/schema `spec-driven`; branch `codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas` conferida sobre o merge `c2508703a2581848771f72ffafe8f010fc025cbc` (PR #9), roadmap preexistente preservado e artefatos da Change presentes. Início com **0/38 tasks** abertas. A extensão `C:\QSI\Workspaces\taskflow-extension` e seu Git permanecem estritamente somente leitura na referência `a763e7a0d646c664ecd4f979528bc2c3589fa8c4`. Sem archive, consolidação de specs, commit/push/PR/merge, distribuição ou TFA-011 por inferência; a chamada real a provedor é opcional e exige autorização/waive explícito.
+
+### Apply concluído e verificação — 2026-10-07
+
+O apply executou as **38/38 tasks** na branch autorizada, sem commit e sem archive. Entregues: domínio portátil de provedores/sugestão adaptado a `resolveSubtaskDrafts`/`MAX_SUBTASKS`/`SUBTASK_TITLE_LIMIT`; credencial em `ai.json` v1 no `userData` com `safeStorage`/DPAPI, publicação atômica no padrão de `shortcuts.json`, decifra sob demanda e bloqueio sem plaintext; rede e segredo no main com executores separados (corpo nunca lido no probe; 64 KiB na geração) e transporte injetável com `net.fetch`; oito operações `:v1` somente no manager com CAS, orçamentos 1/8/16 KiB medidos em UTF-8 antes do efeito e erros fechados; consentimentos CREDENTIAL/CONTENT em memória por documento; prévia preparada no main com `requestId`; uma requisição por documento, cancelamento pelo próprio `requestId` e descarte de resposta tardia; aceitação somente como linhas novas sem `id`/`done`, sem persistência; UI no manager e no formulário, Quick Add com 14 e sem IA; documentação `docs/ai-assistance.md`, D7 e P11/P12.
+
+**Gates (2026-10-07, Node 24.21.0/npm 11.21.0):** `npm run validate` exit 0 — lint sem warnings, cinco typechecks, **100 arquivos/1.337 testes aprovados +11 skipped**, volume 2 testes, build main/preload/renderer; OpenSpec estrito Change válida, `--all` **17/17** e `--archived` **9/9**; `package:win` exit 0 (Setup não executado); `verify:package` exit 0 no pacote final (13 arquivos ASAR na allowlist, sem segredos, `asInvoker/uiAccess=false`; hashes no relatório); `smoke:packaged` exit 0 com **42 PASS**, incluindo o cenário `ai` (14 verificações) e `roles43/14`. Logs locais ignorados em `.tmp/tfa010-*.log`. A extensão permaneceu somente leitura (`a763e7a0…`, árvore limpa). Sem chamadas pagas.
+
+**Verificação:** [verification.md](../openspec/changes/migrar-provedores-ia-e-sugestao-de-subtarefas/verification.md) entregue com scorecard, aderência AI01–AI16, gates/evidências e pendências. **Waive explícito a confirmar:** a prova real com provedor (AI16) não foi executada por ausência de ambiente/chave autorizados; DPAPI real entre perfis/máquinas e proxy corporativo também não foram exercitados. Nada disso foi marcado como comprovado.
+
+### Prompt de continuidade — aprovação e archive da TFA-010
+
+Usar **somente após aprovar explicitamente o relatório de verificação** (ou após registrar o waive da prova real). Este registro não inicia archive nem integração por si só.
+
+```text
+$openspec-archive-change TFA-010 — migrar-provedores-ia-e-sugestao-de-subtarefas
+
+Aprovo o relatório de verificação (verification.md) da TFA-010 entregue em 2026-10-07 e confirmo o waive explícito da prova real com provedor (AI16), não executada por ausência de ambiente/chave autorizados. Autorizo o archive desta Change conforme os artefatos aprovados.
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app, na branch codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas, preservando o trabalho preexistente e sem tocar a extensão. Consolide os deltas nas specs principais (desktop-ai-providers, desktop-ai-task-assistance e desktop-state-ipc), arquive a Change, atualize README/documentação para o funcionamento atual (sem afirmar paridade além do comprovado), registre datas/evidências no roadmap e execute novamente os gates finais (npm run validate, OpenSpec --all/--archived estritos). Não distribua, não instale em máquina corporativa e não inicie TFA-011.
+```
+
+### Aprovação humana, archive e integração — 2026-10-07
+
+O usuário respondeu à entrega do relatório com **“Aprove a validação, faça o archive, commit, faça o push e abra o PR”**, aprovando o `verification.md` e o waive da prova real (AI16) e autorizando archive, commit, push e PR na mesma branch. **Archive executado em 2026-10-07:** a Change foi movida para `openspec/changes/archive/2026-10-07-migrar-provedores-ia-e-sugestao-de-subtarefas/` preservando proposal/design/tasks/verification e o `.openspec.yaml`; o diretório de Changes ativas ficou vazio.
+
+**Specs consolidadas:** criadas `openspec/specs/desktop-ai-providers/spec.md` (8 requisitos) e `openspec/specs/desktop-ai-task-assistance/spec.md` (10 requisitos) a partir dos deltas; `openspec/specs/desktop-state-ipc/spec.md` recebeu as duas requirements modificadas (catálogo 43/14 e transporte com a exceção de 16 KiB e o cenário de prévia de IA nos limites) e a nova requirement “Operações de IA aceitam somente intenções finitas de manager”, sem cabeçalhos de delta. `openspec validate --specs --strict` passou **18/18** (INFOs herdados de requisito longo).
+
+**README atualizado** para o funcionamento atual (43/14 na bridge, área de provedores e sugestão de IA, orçamentos de IA, cenário `ai` no smoke e link do guia de IA), sem status/datas nem paridade além do comprovado. Commit/push/PR autorizados na mesma mensagem: branch publicada em `origin` com o commit de implementação (`65df897`) e o de archive/documentação (`c74c6ca`), e **[PR #10](https://github.com/Cadlira/taskflow-app/pull/10) aberto contra `main`** para revisão. Merge/distribuição e TFA-011 permanecem fora da autorização; `DONE` somente após integração aprovada.
+
 ## TFA-011 — Instalador definitivo e distribuição Windows
 
 **Slug sugerido:** `finalizar-instalador-e-distribuicao-windows`. **Dependências:** TFA-010.
@@ -2366,7 +2586,7 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 ## Como continuar em outra sessão
 
-As **TFA-001 a TFA-008** estão **DONE**, arquivadas e integradas pelos **PRs #1 a #8**. A **TFA-009** está **READY_FOR_MERGE/ARCHIVE**, relatório aprovado e arquivada em2026-10-07, com43 tarefas executadas e2 dispensadas. Reutilizar a branch `codex/tfa-009-adaptar-quick-add-captura-e-atalhos-globais` e o prompt de continuidade na seção TFA-009. Validate/package/verify:package/smoke completo e Q14 passaram; gates finais OpenSpec16/16 specs e9/9 archives. Q13 integral e campanha instalada/humana/conta/hash/offline/energia/logoff continuam não comprovados, dispensados por decisão humana. Não repetir como requisito ou anunciar PASS. Commit/push/PR autorizados; revisão e integração pendentes. Sem merge/distribuição automático; DONE somente após integração aprovada. TFA-010 e seguintes PLANNED; extensão somente leitura.
+As **TFA-001 a TFA-008** estão **DONE**, arquivadas e integradas pelos **PRs #1 a #8**. A **TFA-009** está **READY_FOR_MERGE/ARCHIVE**, relatório aprovado e arquivada em2026-10-07, com43 tarefas executadas e2 dispensadas. Reutilizar a branch `codex/tfa-009-adaptar-quick-add-captura-e-atalhos-globais` e o prompt de continuidade na seção TFA-009. Validate/package/verify:package/smoke completo e Q14 passaram; gates finais OpenSpec16/16 specs e9/9 archives. Q13 integral e campanha instalada/humana/conta/hash/offline/energia/logoff continuam não comprovados, dispensados por decisão humana. Não repetir como requisito ou anunciar PASS. Commit/push/PR autorizados; revisão e integração pendentes. Sem merge/distribuição automático; DONE somente após integração aprovada. A **TFA-010** teve a proposta criada em 2026-10-07 na branch `codex/tfa-010-migrar-provedores-ia-e-sugestao-de-subtarefas`, foi aprovada explicitamente pelo usuário no mesmo dia, teve o apply 38/38 e o relatório de verificação aprovados, e está **arquivada em 2026-10-07** com specs consolidadas; estado **READY_FOR_MERGE/ARCHIVE**, com [PR #10](https://github.com/Cadlira/taskflow-app/pull/10) aberto para revisão e integração pendente (waive da prova real de provedor aprovado); **TFA-011 e TFA-012** permanecem PLANNED; extensão somente leitura.
 
 ## Fechamento da TFA-008 — 2026-10-06
 

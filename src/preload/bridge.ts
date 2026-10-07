@@ -7,6 +7,7 @@ import { createDesktopClient } from '../application/reminders/desktop-client.js'
 import { DESKTOP_CHANNELS, DESKTOP_EVENT_CHANNEL, DESKTOP_RESOLVE_CHANNEL } from '../contracts/desktop.js'
 import { TaskCommandTransportError } from '../application/tasks/task-client.js'
 import { createBackupCommandClient, type BackupCommandTransport } from '../application/backup/backup-client.js'
+import { createAiCommandClient, type AiCommandTransport } from '../application/ai/ai-client.js'
 import { createStateClient, type StateTransport } from '../application/state/state-client.js'
 import { createTaskCommandClient, type TaskCommandTransport } from '../application/tasks/task-client.js'
 import { createTrashCommandClient, type TrashCommandTransport } from '../application/tasks/trash-client.js'
@@ -49,6 +50,23 @@ import {
   type RestoreTrashItemRequest,
   type UndoLastTaskActionRequest,
 } from '../contracts/trash.js'
+import {
+  AI_CHANNEL_LIST,
+  type AiAuthorizeRequest,
+  type AiCancelSuggestionResult,
+  type AiPrepareSuggestionRequest,
+  type AiPrepareSuggestionResult,
+  type AiProviderStatusResult,
+  type AiRemoveConfigRequest,
+  type AiRemoveConfigResult,
+  type AiRequestIdRequest,
+  type AiSaveConfigRequest,
+  type AiSaveConfigResult,
+  type AiStatusRequest,
+  type AiSuggestSubtasksResult,
+  type AiTestConnectionRequest,
+  type AiTestConnectionResult,
+} from '../contracts/ai.js'
 
 const FOUNDATION_CHANNEL = 'foundation:verify:v1'
 
@@ -102,6 +120,13 @@ const backupTransport: BackupCommandTransport = {
   },
 }
 
+const aiTransport: AiCommandTransport = {
+  invoke(channel: string, request: unknown): Promise<unknown> {
+    if (!AI_CHANNEL_LIST.includes(channel)) return Promise.reject(new Error('channel not allowed'))
+    return productInvoke(channel, request)
+  },
+}
+
 let productEpoch = 0
 let productActive = true
 async function productInvoke(channel: string, request: unknown): Promise<unknown> {
@@ -143,6 +168,7 @@ let stateClient = makeStateClient()
 const taskClient = createTaskCommandClient(taskTransport)
 const trashClient = createTrashCommandClient(trashTransport)
 const backupClient = createBackupCommandClient(backupTransport)
+const aiClient = createAiCommandClient(aiTransport)
 const entries = createEntryClient({ invoke: (channel, request) => {
   if (!(Object.values(ENTRY_CHANNELS) as readonly string[]).includes(channel)) return Promise.reject(new Error('channel not allowed'))
   return productInvoke(channel, request)
@@ -179,6 +205,14 @@ const desktopApi: TaskFlowDesktopApi = Object.freeze({
   prepareBackupRestore: (request: PrepareBackupRestoreRequest) => backupClient.prepareBackupRestore(request),
   confirmBackupRestore: (request: ConfirmBackupRestoreRequest) => backupClient.confirmBackupRestore(request),
   cancelBackupRestore: (request: CancelBackupRestoreRequest) => backupClient.cancelBackupRestore(request),
+  getAiProviderStatus: (request: AiStatusRequest): Promise<AiProviderStatusResult> => aiClient.getAiProviderStatus(request),
+  saveAiProviderConfig: (request: AiSaveConfigRequest): Promise<AiSaveConfigResult> => aiClient.saveAiProviderConfig(request),
+  removeAiProviderConfig: (request: AiRemoveConfigRequest): Promise<AiRemoveConfigResult> => aiClient.removeAiProviderConfig(request),
+  authorizeAiUse: (request: AiAuthorizeRequest) => aiClient.authorizeAiUse(request),
+  testAiConnection: (request: AiTestConnectionRequest): Promise<AiTestConnectionResult> => aiClient.testAiConnection(request),
+  prepareAiSuggestion: (request: AiPrepareSuggestionRequest): Promise<AiPrepareSuggestionResult> => aiClient.prepareAiSuggestion(request),
+  suggestAiSubtasks: (request: AiRequestIdRequest): Promise<AiSuggestSubtasksResult> => aiClient.suggestAiSubtasks(request),
+  cancelAiSuggestion: (request: AiRequestIdRequest): Promise<AiCancelSuggestionResult> => aiClient.cancelAiSuggestion(request),
 })
 
 const surfaceApi = role === 'MANAGER' ? desktopApi : Object.freeze(Object.fromEntries(

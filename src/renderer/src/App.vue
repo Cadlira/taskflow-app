@@ -2,6 +2,7 @@
 import { storeToRefs } from 'pinia'
 import TaskManager from './components/tasks/TaskManager.vue'
 import DesktopSettings from './components/DesktopSettings.vue'
+import AiProviderSettings from './components/ai/AiProviderSettings.vue'
 import QuickAdd from './components/capture/QuickAdd.vue'
 import ShortcutSettings from './components/capture/ShortcutSettings.vue'
 import { useFoundationStore } from './stores/foundation'
@@ -83,6 +84,7 @@ const quickAdd = typeof window.taskflowDesktop.openQuickAdd !== 'function'
       </section>
     </details>
     <DesktopSettings />
+    <AiProviderSettings />
     <ShortcutSettings />
   </div>
 </template>
