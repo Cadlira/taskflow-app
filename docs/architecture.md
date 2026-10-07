@@ -1,10 +1,12 @@
 # Arquitetura proposta — TaskFlow App
 
+**TFA-010 implementada:** IA opcional com credencial cifrada por `safeStorage`/DPAPI em `ai.json` versionado no `userData`, rede e segredo exclusivos do main com transporte injetável (`net.fetch`), consentimentos CREDENTIAL/CONTENT em memória, prévia preparada no main e oito operações `:v1` somente no manager; catálogo manager43/Quick Add14. [Contratos e política de IA](ai-assistance.md); provas com provedor real e Windows permanecem evidências separadas.
+
 **TFA-009 implementada:** duas BrowserWindows singleton, roles main, um owner/coordenador/writer SQL/scheduler. Entradas de preload constantes e autocontidas expõem catálogos manager35/Quick Add14; domínio/portas de captura/atalhos independem de Vue/Pinia/Electron. [Contratos](capture-shortcuts-ipc.md) e [política das janelas/preferências](quick-add-and-shortcuts.md) documentam implementação; provas Windows/humanas permanecem evidências separadas.
 
 **TFA-001 · revisão documental · 2026-10-03**
 
-Este documento registra o baseline arquitetural aprovado na TFA-001 e, nas seções **Fundação TFA-002 implementada** e **Persistência e IPC de estado TFA-003 implementados**, os contratos que passaram a existir no aplicativo. O restante descreve contratos para as Changes futuras e não declara funcionalidades de tarefas, lixeira, lembretes, captura ou IA disponíveis.
+Este documento registra o baseline arquitetural aprovado na TFA-001 e, nas seções **Fundação TFA-002 implementada**, **Persistência e IPC de estado TFA-003 implementados** e **IA implementada**, os contratos que passaram a existir no aplicativo. O restante descreve contratos para as Changes futuras e não declara funcionalidades de lixeira, lembretes ou captura além das já registradas.
 
 ## Estado das decisões
 
@@ -146,6 +148,15 @@ Conservar protocolos/validação portáveis e executar adapters HTTP e acesso ao
 TFA-010 avaliará `safeStorage`/DPAPI na versão Electron fixada. Se proteção não estiver disponível, proposta é bloquear gravação/uso que dependa do segredo e manter o gerenciamento offline; não usar plaintext como fallback silencioso. Isso não promete proteção contra outros processos ou malware da mesma conta. Renderer lê apenas resumo; segredo novo pode entrar pelo comando de gravação e é descartado do estado transitório. Segredo existente nunca retorna por IPC.
 
 A prévia da geração é preparada no main e vinculada à requisição exata e ao consentimento. Sugestões validadas voltam para revisão/seleção no draft; nunca são aplicadas automaticamente. Cancelamento usa requestId escopado e controller interno. Resposta tardia é descartada mesmo quando o transporte não interrompe imediatamente. Sem probe/rede automática no startup, edição, save ou testes. Referência: [safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+
+### IA implementada — 2026-10-07 (TFA-010)
+
+- `src/domain/ai-provider.ts` e `src/domain/ai-subtask-suggestion.ts` portam o domínio da origem adaptado a `resolveSubtaskDrafts`/`MAX_SUBTASKS`/`SUBTASK_TITLE_LIMIT`; `src/application/ai` define as portas puras (repositório, tester, suggester, consentimentos e registro de pedidos) sem Vue/Pinia/Electron/rede.
+- `src/main/ai/file-ai-config.ts` guarda `ai.json` v1 no `userData` com ciphertext de `safeStorage` e publicação atômica no padrão de `shortcuts.json`; `native-protection.ts` isola o acesso nativo, e `net-transport.ts` é o único ponto com `net.fetch`.
+- Executores separados por decisão de desenho: a verificação (`ai-probe.ts`) nunca lê o corpo; a geração (`ai-generation.ts`) lê com limite de 64 KiB. Ambos usam `redirect:'error'`, recusa de 3xx, `no-store`/`omit`/`no-referrer`, timeout próprio (15 s/30 s) e sinal externo.
+- `src/main/ipc/ai.ts` expõe as oito operações `:v1` somente ao manager, com guardas de role/frame/documento/sessão antes do efeito, orçamentos 1/8/16 KiB medidos em UTF-8 e erros fechados; o preload entra por allowlist (`AI_CHANNEL_LIST`) e o Quick Add permanece com 14 operações sem IA.
+- Consentimentos e pedidos vivem somente em memória por documento; salvar/remover configuração incrementa a revisão, aborta pedidos e limpa consentimentos; invalidar sessão, suspender e sair descartam pedidos e resultados. Política e recusas: [ai-assistance.md](ai-assistance.md).
+- Prova opcional com provedor real exige autorização explícita; os testes usam fakes e loopback, sem chamadas pagas, e o cenário `ai` do harness empacotado usa transporte fake.
 
 ## D8 — Windows, identidade e distribuição
 

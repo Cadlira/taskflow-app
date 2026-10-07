@@ -32,6 +32,14 @@ const ALLOWED_OPERATIONS = [
   'unsubscribeState',
   'updateTask',
   'verifyFoundation',
+  'getAiProviderStatus',
+  'saveAiProviderConfig',
+  'removeAiProviderConfig',
+  'authorizeAiUse',
+  'testAiConnection',
+  'prepareAiSuggestion',
+  'suggestAiSubtasks',
+  'cancelAiSuggestion',
 ] as const
 
 const electron = vi.hoisted(() => ({
@@ -68,10 +76,10 @@ beforeAll(async () => {
 const ENTRY = { taskId: 'tarefa-1', contentRevision: '2', deletedAt: '2026-10-04T12:00:00.000Z' }
 
 describe('catálogo da bridge', () => {
-  it('expõe um único objeto congelado com exatamente as vinte e uma operações', () => {
+  it('expõe um único objeto congelado com exatamente as quarenta e três operações', () => {
     expect([...electron.exposed.keys()]).toEqual(['taskflowDesktop'])
     expect(Object.keys(api).sort()).toEqual([...ALLOWED_OPERATIONS].sort())
-    expect(Object.keys(api)).toHaveLength(35)
+    expect(Object.keys(api)).toHaveLength(43)
     expect(Object.isFrozen(api)).toBe(true)
     expect(Object.values(api).every((operation) => typeof operation === 'function')).toBe(true)
   })
@@ -83,8 +91,8 @@ describe('catálogo da bridge', () => {
     }
     for (const forbidden of [
       /sql|query|exec|path|file|repository|invoke|send|channel|ipc/i,
-      /shell|notif|credential|ai\b/i,
-      /harness|smoke|test|hook/i,
+      /shell|notif|credential|secret|password|apikey/i,
+      /harness|smoke|:test:|__test|testChannel|hook/i,
       /UndoPlan|beforeImage|clock|predicate|sessionId/i,
     ]) {
       expect(forbidden.test(names.join(' '))).toBe(false)
@@ -107,6 +115,31 @@ describe('catálogo da bridge', () => {
       }
       if (String(channel).startsWith('backup:')) {
         return Promise.resolve({ version: 1, status: 'error', code: 'UNAUTHORIZED' })
+      }
+      if (channel === 'ai:get-status:v1' || channel === 'ai:save-config:v1' || channel === 'ai:remove-config:v1') {
+        return Promise.resolve({
+          version: 1,
+          status: 'ok',
+          provider: { state: 'NONE', revision: '0', protection: 'AVAILABLE' },
+        })
+      }
+      if (channel === 'ai:authorize:v1') return Promise.resolve({ version: 1, status: 'ok', scope: 'CREDENTIAL' })
+      if (channel === 'ai:test-connection:v1' || channel === 'ai:cancel:v1') return Promise.resolve({ version: 1, status: 'ok' })
+      if (channel === 'ai:prepare-suggestion:v1') {
+        return Promise.resolve({
+          version: 1,
+          status: 'ok',
+          prepared: {
+            requestId: 'A'.repeat(32),
+            content: 'Título: x',
+            descriptionTruncated: false,
+            origin: 'https://api.openai.com',
+            consentRequired: true,
+          },
+        })
+      }
+      if (channel === 'ai:suggest:v1') {
+        return Promise.resolve({ version: 1, status: 'ok', proposal: { drafts: [{ title: 'Item' }], discardedByLimit: false } })
       }
       if (channel === 'trash:move:v2') {
         return Promise.resolve({ version: 2, status: 'error', code: 'UNAUTHORIZED' })
@@ -145,6 +178,14 @@ describe('catálogo da bridge', () => {
     await api.prepareBackupRestore({ version: 1, contextSequence: 1 })
     await api.confirmBackupRestore({ version: 1, contextSequence: 1, restoreToken: 'A'.repeat(32) })
     await api.cancelBackupRestore({ version: 1, contextSequence: 1, restoreToken: 'A'.repeat(32) })
+    await api.getAiProviderStatus({ version: 1 })
+    await api.saveAiProviderConfig({ version: 1, expectedRevision: '0', provider: 'OPENAI', model: 'm' })
+    await api.removeAiProviderConfig({ version: 1 })
+    await api.authorizeAiUse({ version: 1, scope: 'CREDENTIAL' })
+    await api.testAiConnection({ version: 1, probe: 'MODEL_LIST' })
+    await api.prepareAiSuggestion({ version: 1, title: 'T', description: '', existingSubtaskCount: 0 })
+    await api.suggestAiSubtasks({ version: 1, requestId: 'A'.repeat(32) })
+    await api.cancelAiSuggestion({ version: 1, requestId: 'A'.repeat(32) })
 
     const calls = electron.invoke.mock.calls
     expect(calls.map((call) => call[0])).toEqual([
@@ -169,10 +210,18 @@ describe('catálogo da bridge', () => {
       'backup:prepare:v1',
       'backup:confirm:v1',
       'backup:cancel:v1',
+      'ai:get-status:v1',
+      'ai:save-config:v1',
+      'ai:remove-config:v1',
+      'ai:authorize:v1',
+      'ai:test-connection:v1',
+      'ai:prepare-suggestion:v1',
+      'ai:suggest:v1',
+      'ai:cancel:v1',
     ])
-    // As vinte e uma operações passam por vinte e um canais distintos: nenhum canal livre.
-    expect(calls).toHaveLength(21)
-    expect(new Set(calls.map((call) => call[0])).size).toBe(21)
+    // As vinte e nove operações passam por vinte e nove canais distintos: nenhum canal livre.
+    expect(calls).toHaveLength(29)
+    expect(new Set(calls.map((call) => call[0])).size).toBe(29)
     expect(calls.every((call) => call.length === 2)).toBe(true)
     expect(calls.flatMap((call) => Object.values(call[1] as object)).some((value) => typeof value === 'function')).toBe(false)
     expect(calls[2]?.[1]).toEqual({ version: 3 })
@@ -214,6 +263,18 @@ describe('catálogo da bridge', () => {
       { run: () => api.prepareBackupRestore({ version: 1 } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
       { run: () => api.confirmBackupRestore({ version: 1, contextSequence: 1, restoreToken: 'curto' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
       { run: () => api.cancelBackupRestore({ version: 1, contextSequence: 1 } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      // IA: versões, escopos, campos extras e orçamentos são recusados antes de chegar ao main.
+      { run: () => api.getAiProviderStatus({ version: 2 } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.getAiProviderStatus({ version: 1, path: 'C:\\x' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.saveAiProviderConfig({ version: 1, expectedRevision: '0', provider: 'OPENAI', apiBase: 'https://proxy.exemplo', model: 'm' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.saveAiProviderConfig({ version: 1, expectedRevision: '01', provider: 'OPENAI', model: 'm' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.authorizeAiUse({ version: 1, scope: 'CONTENT' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.authorizeAiUse({ version: 1, scope: 'CREDENTIAL', requestId: 'A'.repeat(32) } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.testAiConnection({ version: 1, probe: 'CHAT' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.prepareAiSuggestion({ version: 1, title: 'T', description: '', existingSubtaskCount: 20 } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.prepareAiSuggestion({ version: 1, title: '', description: '', existingSubtaskCount: 0 } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.suggestAiSubtasks({ version: 1, requestId: 'curto' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
+      { run: () => api.cancelAiSuggestion({ version: 1, requestId: 'A'.repeat(32), body: 'x' } as never), expected: { version: 1, status: 'error', code: 'INVALID_REQUEST' } },
     ]
     for (const invalid of invalidRequests) {
       expect(await invalid.run()).toEqual(invalid.expected)
@@ -269,6 +330,14 @@ describe('catálogo da bridge', () => {
     // Saída malformada de backup vira indisponibilidade local; nunca sucesso inventado.
     electron.invoke.mockResolvedValueOnce({ version: 1, status: 'ok', outcome: 'SAVED', taskCount: 1 } as never)
     expect(await api.exportBackup({ version: 1, contextSequence: 1 })).toEqual({ version: 1, status: 'error', code: 'STORAGE_UNAVAILABLE' })
+
+    // Saída malformada de IA vira resultado incerto local (falha de transporte do comando).
+    electron.invoke.mockResolvedValueOnce({ version: 1, status: 'ok', provider: { state: 'CONFIGURED' } } as never)
+    await expect(api.getAiProviderStatus({ version: 1 })).rejects.toThrow('ai-command-transport')
+    electron.invoke.mockResolvedValueOnce({ version: 1, status: 'ok', prepared: { requestId: 'curto' } } as never)
+    await expect(api.prepareAiSuggestion({ version: 1, title: 'T', description: '', existingSubtaskCount: 0 })).rejects.toThrow(
+      'ai-command-transport',
+    )
   })
 
   it('transporte falhou: falha local e nenhuma repetição automática', async () => {
@@ -296,6 +365,8 @@ describe('catálogo da bridge', () => {
     desktopEventListener?.({}, { version: 2, role: 'MANAGER', sequence: 9, kind: 'surface-suspended' })
     await expect(api.createTask({ version: 4, contextSequence: 1, draft: { title: 'x' } })).rejects.toThrow()
     await expect(api.exportBackup({ version: 1, contextSequence: 1 })).rejects.toThrow()
+    await expect(api.getAiProviderStatus({ version: 1 })).rejects.toThrow()
+    await expect(api.prepareAiSuggestion({ version: 1, title: 'T', description: '', existingSubtaskCount: 0 })).rejects.toThrow()
     expect(await api.getStateSnapshot({ version: 3 })).toEqual({ version: 3, status: 'error', code: 'STORAGE_UNAVAILABLE' })
     expect(electron.invoke).not.toHaveBeenCalled()
 
@@ -321,6 +392,9 @@ describe('catálogo da bridge', () => {
     expect(source).not.toMatch(/trash:move:v1/)
     expect(source).not.toMatch(/state:[a-z]+:v1/)
     expect(source.match(/exposeInMainWorld/g)).toHaveLength(1)
+    // Os oito canais de IA entram somente por allowlist fechada, sem canal literal no preload.
+    expect(source).toMatch(/AI_CHANNEL_LIST/)
+    expect(source).not.toMatch(/ai:[a-z-]+:v1/)
     // Os quatro wrappers de backup e a barreira de undo entram só por allowlists fechadas.
     expect(source).toMatch(/BACKUP_COMMAND_CHANNELS/)
     expect(source).toMatch(/STATE_UNDO_INVALIDATED_EVENT/)

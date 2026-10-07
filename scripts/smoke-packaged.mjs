@@ -244,7 +244,7 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
     out(`ENTRIES ${JSON.stringify(entries.marker)}`)
     assert(entries.marker.ok === true, `Quick Add/captura reprovou: ${Object.entries(entries.marker.checks ?? {}).filter(([, ok]) => ok !== true).map(([name]) => name).join(', ')}`)
     assert(!entriesExit.timedOut && entriesExit.code === 0, 'Sair das duas superfícies não encerrou com saída0')
-    record('produto: Quick Add/captura/roles35/14 e Sair', true)
+    record('produto: Quick Add/captura/roles43/14 e Sair', true)
   }
   if (entriesOnly) { await verifyEntries(); return }
   const reopen = async () => {
@@ -496,6 +496,26 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
 
   // P7 — UI real, negativas, foco, reload sem duplicação e Sair sem residual
   await verifyEntries()
+
+  // P7a — TFA-010: IA com transporte/proteção fictícios no pacote (sem chamada paga nem DPAPI).
+  const verifyAi = async () => {
+    const ai = await runScenario('ai', 120_000)
+    evidence.ai = ai.marker
+    const aiExit = await waitForExit(ai.child, 30_000)
+    const failedAi = Object.entries(ai.marker.checks ?? {})
+      .filter(([, ok]) => ok !== true)
+      .map(([name]) => name)
+    out(`AI ${JSON.stringify(ai.marker)}`)
+    assert(ai.marker.ok === true, `IA reprovou: ${failedAi.join(', ') || JSON.stringify(ai.marker)}`)
+    assert(!aiExit.timedOut && aiExit.code === 0, `Sair do cenário ai não encerrou com saída 0 (${aiExit.code})`)
+    record(
+      'produto: IA com transporte fake — credencial cifrada, consentimentos, prévia e sugestão',
+      true,
+      `${Object.keys(ai.marker.checks).length} verificações`,
+    )
+  }
+  await verifyAi()
+
   const tasks = await runScenario('tasks', 180_000)
   evidence.tasks = tasks.marker
   const tasksExit = await waitForExit(tasks.child, 30_000)

@@ -39,6 +39,7 @@ import {
   WEEKDAYS,
   WEEKDAY_LABELS,
 } from './task-labels.js'
+import TaskFormAiSuggestion from '../ai/TaskFormAiSuggestion.vue'
 
 export type TaskFormSubmission = { kind: 'create'; draft: CreateTaskDraft } | { kind: 'edit'; patch: EditTaskPatch }
 
@@ -421,6 +422,27 @@ function moveSubtask(index: number, delta: -1 | 1): void {
   rows[target] = current
   const action = delta === -1 ? 'move-up' : 'move-down'
   void nextTick(() => subtaskActionButton(target, action)?.focus())
+}
+
+/**
+ * Aceitação da proposta de IA: somente linhas novas, sem `id` e sem marcação, na ordem recebida e
+ * dentro das vagas restantes. Nada é persistido aqui: salvar segue o create/update existente.
+ */
+function applyAiDrafts(drafts: readonly { title: string }[]): void {
+  const room = Math.max(0, MAX_SUBTASKS - subtaskRows.value.length)
+  let added = 0
+
+  for (const draft of drafts.slice(0, room)) {
+    const title = draft.title.trim()
+    if (title === '') continue
+    subtaskRows.value.push({ key: nextSubtaskKey++, title })
+    added += 1
+  }
+
+  void nextTick(() => {
+    if (added === 0) return
+    focusSubtaskInput(subtaskRows.value.length - 1)
+  })
 }
 
 // ---- Foco e save ----
@@ -1032,6 +1054,15 @@ const composing = ref(false)
         Adicionar subtarefa
       </button>
     </section>
+
+    <TaskFormAiSuggestion
+      v-if="!compact"
+      :title="form.title"
+      :description="form.description"
+      :existing-subtask-count="subtaskRows.length"
+      :saving="saving"
+      @accept="applyAiDrafts"
+    />
 
     <fieldset
       v-if="!compact"

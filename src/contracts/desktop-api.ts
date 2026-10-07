@@ -51,14 +51,32 @@ import type {
   UndoLastTaskActionRequest,
   UndoLastTaskActionResult,
 } from './trash.js'
+import type {
+  AiAuthorizeRequest,
+  AiAuthorizeResult,
+  AiCancelSuggestionResult,
+  AiPrepareSuggestionRequest,
+  AiPrepareSuggestionResult,
+  AiProviderStatusResult,
+  AiRemoveConfigRequest,
+  AiRemoveConfigResult,
+  AiRequestIdRequest,
+  AiSaveConfigRequest,
+  AiSaveConfigResult,
+  AiStatusRequest,
+  AiSuggestSubtasksResult,
+  AiTestConnectionRequest,
+  AiTestConnectionResult,
+} from './ai.js'
 
 /**
- * Catálogo fechado exposto ao renderer, total26: diagnóstico (v1), três operações de
- * leitura/subscription de estado (v3), create v4, check v3, update v5/status v4, abertura da origem salva
- * (v1), oito operações v1 de contexto/confirmação/lixeira/undo (move v2) e quatro operações v1 de
- * backup, além de cinco operações fechadas de ciclo de vida/lembretes. Não há send/canal livre, SQL, caminho, repository, Task completa, before-image,
- * UndoPlan, clock, URL arbitrária ou hooks de teste; lixeira/undo/backup usam somente referências,
- * tokens e resumos próprios.
+ * Catálogo fechado exposto ao renderer, total43 no manager (estado3; diagnóstico/origem1;
+ * create4/check3, update5/status4, move2, outros contexto/trash/undo1; quatro backup1;
+ * status/inscrição/eventos desktop2, startup/saída/resolução1, nove de captura/atalhos1 e oito de
+ * IA1) e14 operações no Quick Add, sem nenhuma de IA. Não há send/canal livre, SQL, caminho,
+ * repository, Task completa, before-image, UndoPlan, clock, URL arbitrária ou hooks de teste;
+ * lixeira/undo/backup usam somente referências, tokens e resumos próprios, e a credencial de IA
+ * nunca é lida pelo renderer — só o resumo sem segredo.
  */
 export interface TaskFlowDesktopApi {
   openQuickAdd(request: EntryRequest): Promise<EntryAck>
@@ -118,5 +136,21 @@ export interface TaskFlowDesktopApi {
   confirmBackupRestore(request: ConfirmBackupRestoreRequest): Promise<ConfirmBackupRestoreResult>
   /** Cancela a prévia própria; repetição é idempotente. */
   cancelBackupRestore(request: CancelBackupRestoreRequest): Promise<CancelBackupRestoreResult>
+  /** Resumo sem segredo da configuração de IA; nenhuma decifra e nenhuma requisição. */
+  getAiProviderStatus(request: AiStatusRequest): Promise<AiProviderStatusResult>
+  /** Substitui a configuração por completo sob CAS; campo de credencial vazio preserva a salva. */
+  saveAiProviderConfig(request: AiSaveConfigRequest): Promise<AiSaveConfigResult>
+  /** Remove a configuração apagando o ciphertext e revogando os consentimentos da origem. */
+  removeAiProviderConfig(request: AiRemoveConfigRequest): Promise<AiRemoveConfigResult>
+  /** Registra o consentimento do escopo, vinculado a origem/provedor/base/revisão da configuração. */
+  authorizeAiUse(request: AiAuthorizeRequest): Promise<AiAuthorizeResult>
+  /** Testa a conexão somente por gesto do usuário; listagem de modelos ou envio mínimo explícito. */
+  testAiConnection(request: AiTestConnectionRequest): Promise<AiTestConnectionResult>
+  /** Prepara a prévia literal no main; editar título/descrição exige nova preparação. */
+  prepareAiSuggestion(request: AiPrepareSuggestionRequest): Promise<AiPrepareSuggestionResult>
+  /** Executa o snapshot preparado: uma requisição, cancelável e sem retry; nada é persistido. */
+  suggestAiSubtasks(request: AiRequestIdRequest): Promise<AiSuggestSubtasksResult>
+  /** Cancela o pedido do próprio `requestId`; resposta tardia é descartada. */
+  cancelAiSuggestion(request: AiRequestIdRequest): Promise<AiCancelSuggestionResult>
 }
 export type QuickAddDesktopApi = Pick<TaskFlowDesktopApi, (typeof QUICK_ADD_OPERATIONS)[number]>

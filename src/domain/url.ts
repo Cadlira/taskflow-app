@@ -9,6 +9,10 @@ export interface ParsedUrl {
   username: string
   password: string
   href: string
+  origin: string
+  pathname: string
+  search: string
+  hash: string
 }
 
 declare const URL: { new (input: string): ParsedUrl }

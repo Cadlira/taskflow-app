@@ -204,4 +204,58 @@ describe('fronteiras da fundação desktop', () => {
       expect(labelsFor(PRELOAD_FORBIDDEN, source)).toEqual([])
     }
   })
+
+  it('IA portátil (domínio/contratos/aplicação) não tem Vue, Pinia, Electron, Node, fetch nem globais de cancelamento', () => {
+    const aiFiles = [
+      ...sourceFiles(path.join(projectRoot, 'src', 'application', 'ai')),
+      path.join(projectRoot, 'src', 'domain', 'ai-provider.ts'),
+      path.join(projectRoot, 'src', 'domain', 'ai-subtask-suggestion.ts'),
+      path.join(projectRoot, 'src', 'contracts', 'ai.ts'),
+    ]
+    expect(aiFiles.length).toBeGreaterThan(8)
+    const aiRules: Rule[] = [
+      ...CORE_FORBIDDEN,
+      { label: 'cancelamento global', pattern: /\b(?:AbortController|AbortSignal)\b/ },
+      { label: 'proteção nativa', pattern: /safeStorage/ },
+      { label: 'transporte de produção', pattern: /net\.fetch\s*\(/ },
+      { label: 'arquivo de configuração', pattern: /ai\.json/ },
+      { label: 'Chrome', pattern: /\bchrome\b|\bbrowser\b/ },
+    ]
+    for (const filename of aiFiles) {
+      const content = readFileSync(filename, 'utf8')
+      const labels = labelsFor(aiRules, content)
+      expect(labels, `${relative(filename)} → ${labels.join(', ')}`).toEqual([])
+    }
+    // Fixtures negativas: o detector reconhece cada violação nas fixtures de IA.
+    for (const fixture of [
+      { source: 'const controller = new AbortController()', label: 'cancelamento global' },
+      { source: "safeStorage.encryptString('x')", label: 'proteção nativa' },
+      { source: "await net.fetch('https://x')", label: 'transporte de produção' },
+      { source: "readFile('ai.json')", label: 'arquivo de configuração' },
+      { source: 'chrome.storage.local.get()', label: 'Chrome' },
+      { source: "fetch('https://x')", label: 'rede' },
+    ]) {
+      expect(labelsFor(aiRules, fixture.source)).toContain(fixture.label)
+    }
+  })
+
+  it('rede e segredo vivem somente no main: net.fetch, safeStorage e ai.json em arquivos únicos', () => {
+    const sources = sourceFiles(path.join(projectRoot, 'src'))
+    const filesMatching = (pattern: RegExp): string[] =>
+      sources.filter((filename) => pattern.test(readFileSync(filename, 'utf8'))).map(relative).sort()
+
+    expect(filesMatching(/net\.fetch\s*\(/)).toEqual(['src/main/ai/net-transport.ts'])
+    expect(filesMatching(/safeStorage/)).toEqual(['src/main/ai/native-protection.ts'])
+    // O store é o único que grava; o harness apenas lê o arquivo do cenário `ai` para conferir
+    // ausência de plaintext no perfil `test` fictício.
+    expect(filesMatching(/['"]ai\.json['"]/)).toEqual(['src/main/ai/file-ai-config.ts', 'src/main/harness/product-harness.ts'])
+    // O renderer pode citar o campo de entrada da credencial, mas nunca o mecanismo de cifra, o
+    // arquivo ou o valor: nenhum decrypt/ciphertext/safeStorage/ai.json atravessa o preload.
+    expect(
+      violations(rendererRoot, [
+        { label: 'mecanismo de cifra', pattern: /safeStorage|decrypt|ciphertext|encryptString|DPAPI/ },
+        { label: 'arquivo de configuração', pattern: /ai\.json/ },
+      ]),
+    ).toEqual([])
+  })
 })

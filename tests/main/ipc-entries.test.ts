@@ -26,9 +26,9 @@ function setup(role: 'MANAGER' | 'QUICK_ADD' = 'MANAGER') {
   return { contents, product, control, ipc, readText, readPreferences, register, publish, open, focus, shortcuts, reference }
 }
 describe('Q11 guards de entradas e Q07 apresentação', () => {
-  it('catálogos exatos 35/14 e nenhum acesso exclusivo de manager no Quick Add', () => {
-    expect(MANAGER_OPERATIONS).toHaveLength(35)
-    expect(new Set(MANAGER_OPERATIONS).size).toBe(35)
+  it('catálogos exatos 43/14 e nenhum acesso exclusivo de manager no Quick Add', () => {
+    expect(MANAGER_OPERATIONS).toHaveLength(43)
+    expect(new Set(MANAGER_OPERATIONS).size).toBe(43)
     expect(QUICK_ADD_OPERATIONS).toHaveLength(14)
     for (const operation of MANAGER_OPERATIONS) expect(surfaceAllows('QUICK_ADD', operation)).toBe((QUICK_ADD_OPERATIONS as readonly string[]).includes(operation))
   })

@@ -44,6 +44,14 @@ function mountApp(foundation: FoundationApi): VueWrapper {
     prepareBackupRestore: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'INVALID_REQUEST' }),
     confirmBackupRestore: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'INVALID_REQUEST' }),
     cancelBackupRestore: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'INVALID_REQUEST' }),
+    getAiProviderStatus: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
+    saveAiProviderConfig: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
+    removeAiProviderConfig: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
+    authorizeAiUse: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
+    testAiConnection: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
+    prepareAiSuggestion: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
+    suggestAiSubtasks: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
+    cancelAiSuggestion: vi.fn().mockResolvedValue({ version: 1, status: 'error', code: 'UNAUTHORIZED' }),
   }
   Object.defineProperty(window, 'taskflowDesktop', { configurable: true, value: api })
   setActivePinia(createPinia())
