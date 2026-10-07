@@ -1,9 +1,6 @@
-# desktop-application-lifecycle Specification
+# Spec Delta
 
-## Purpose
-Definir como o aplicativo local permanece disponível na bandeja, suspende superfícies, encerra com segurança e inicia opcionalmente com o usuário sem serviço, elevação ou perda de autoridade sobre seus dados.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Fechar suspende sessão e preserva memória transitória
 
@@ -78,52 +75,3 @@ Suspend SHALL impedir novas decisões/submissões e preservar dados/markers. Res
 - **WHEN** energia suspende duas superfícies e depois retoma com uma oculta
 - **THEN** nenhuma leitura/hotkey suspensa publica resultado; só janela visível recebe admissão nova, held vivo conserva memória
 - **AND** hotkeys de recuperação retomam após reconciliação, sem reautorizar renderer oculto
-
-### Requirement: Instância única separa ativação de ownership
-
-Somente owner SHALL abrir storage/scheduler/janela de produto. Segundo lançamento manual SHALL restaurar/focar owner e sair. Ativação COM concorrente SHALL poder usar relay transitório limitado a10s, sem banco/janela/writer, encaminhando apenas referência validada ao owner. Payload externo SHALL não autorizar mutação/URL/path.
-
-#### Scenario: Manual e COM disputam
-- **WHEN** segundo lançamento manual ou COM ocorre com owner ativo/partindo
-- **THEN** manual sai após pedido de foco e COM encaminha no máximo referência finita sem segundo writer ou navegação duplicada
-- **AND** timeout encerra relay; se owner morreu, somente aquisição de lock autoriza compor produto
-
-#### Scenario: Payload e perfil alheios
-- **WHEN** additionalData/argv/cwd contém campo extra, versão/tamanho inválido, URL/path/comando ou perfil dev/test
-- **THEN** nada é executado como autoridade de tarefa ou cadastro prod e remetente não abre outro writer
-
-### Requirement: Iniciar com usuário é opt-in e estado observado
-
-Inicialização com usuário SHALL ser desligada por padrão, modificável por gesto explícito em prod instalado e representada por entrada própria versionada do Windows, fora do backup. Estado observado SHALL distinguir ligado/desligado/desativado externamente/indisponível/incerto. Startup SHALL não reabilitar preferência ou aprovação externa automaticamente.
-
-#### Scenario: Primeira execução opt-in e opt-out
-- **WHEN** app abre pela primeira vez, usuário liga/desliga iniciar com usuário ou inicia manualmente
-- **THEN** default não registra startup, gesto altera somente entrada própria e lançamento manual abre janela
-- **AND** lançamento pelo argumento constante de login inicia na bandeja apenas se tray válido; falha conserva janela visível
-
-#### Scenario: Desativação externa
-- **WHEN** Windows Settings/Task Manager desativa a entrada própria ou existe outra entrada com mesmo executável e args distintos
-- **THEN** UI mostra estado da entrada própria, não infere habilitação por outra e não a reabilita ao abrir/retomar
-- **AND** novo gesto explícito de habilitar pode alterar a aprovação da entrada própria
-
-### Requirement: Falha e manutenção de startup preservam ownership
-
-Setter SHALL verificar estado depois do efeito e representar falha parcial/perda de resposta sem falso rollback ou replay. Upgrade SHALL preservar escolha/desativação no caminho estável. Uninstall SHALL remover apenas entrada/aprovação/identidade nativa próprias conservando dados; cadastro estranho/futuro SHALL não ser sobrescrito ou apagado.
-
-#### Scenario: Registro parcial ou resultado perdido
-- **WHEN** Run/StartupApproved falha parcialmente, leitura não confirma ou sessão encerra depois do efeito
-- **THEN** resultado observado/UNKNOWN é comunicado após releitura autorizada, sem gravar cópia divergente, compensação automática ou sucesso presumido
-
-#### Scenario: Upgrade uninstall e reinstalação
-- **WHEN** versão seguinte atualiza, usuário desinstala/reinstala ou outra conta instala
-- **THEN** upgrade preserva preferência, uninstall remove só recursos próprios e reinstalação começa sem startup; segunda conta permanece independente
-- **AND** dados/markers sobrevivem, sem serviço/tarefa agendada/HKLM/elevação
-
-### Requirement: Política de ciclo de vida é comunicada na janela
-
-Janela SHALL explicar fechar para bandeja, Sair, memória transitória, descarte de undo/prévia e recuperação de cinco minutos em texto acessível. SHALL não prometer avisos com processo encerrado/PC desligado/SO bloqueando. Preferência e erros SHALL ser operáveis por teclado e não depender de toast para compreender comportamento.
-
-#### Scenario: Política e acesso por teclado
-- **WHEN** usuário consulta opções/ciclo de vida ou encontra falha de tray/notificação/startup
-- **THEN** rótulos/status/avisos anunciam comportamento verdadeiro, controles têm foco visível e configuração desligada não é obrigatória
-- **AND** zoom200/DPI/leitor de tela são verificados separadamente de snapshots de componentes

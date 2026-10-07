@@ -1,5 +1,7 @@
 # Arquitetura proposta — TaskFlow App
 
+**TFA-009 implementada:** duas BrowserWindows singleton, roles main, um owner/coordenador/writer SQL/scheduler. Entradas de preload constantes e autocontidas expõem catálogos manager35/Quick Add14; domínio/portas de captura/atalhos independem de Vue/Pinia/Electron. [Contratos](capture-shortcuts-ipc.md) e [política das janelas/preferências](quick-add-and-shortcuts.md) documentam implementação; provas Windows/humanas permanecem evidências separadas.
+
 **TFA-001 · revisão documental · 2026-10-03**
 
 Este documento registra o baseline arquitetural aprovado na TFA-001 e, nas seções **Fundação TFA-002 implementada** e **Persistência e IPC de estado TFA-003 implementados**, os contratos que passaram a existir no aplicativo. O restante descreve contratos para as Changes futuras e não declara funcionalidades de tarefas, lixeira, lembretes, captura ou IA disponíveis.

@@ -105,11 +105,11 @@ renderer pode perder seu draft em memória. Suspend retira a admissão e pausa c
 não iniciados; resume reconstrói a projeção e aplica a graça inclusiva, inclusive oculto.
 Logoff/desligamento não garantem tempo para concluir uma escrita nem entrega visual.
 
-O controle desktop tem cinco wrappers v1 e inscrição própria finita. Controle oculto pode
+O controle desktop tem status/inscrição/eventos v2 por role; startup/saída/resolução seguem v1. Controle oculto pode
 receber eventos e ler estado; não readmite produto, não define clock nem fornece caminho.
 Create v4 e update v5 transportam apenas intenção de reminders; status v4/check v3,
-state v3, move v2 e backup v1 conservam seus contratos. O catálogo é congelado, com 26
-wrappers. Ativação valida somente tag SHA25664, relê marker corrente e devolve revisão
+state v3, move v2 e backup v1 conservam seus contratos. Na TFA-009 o catálogo congelado é manager35/Quick Add14;
+veja [contratos de captura/atalhos](capture-shortcuts-ipc.md) e [política das duas janelas](quick-add-and-shortcuts.md). Ativação valida somente tag SHA25664, relê marker corrente e devolve revisão
 global/ordinal na ordem SQL. A consulta temporária conserva formulário e filtros; uma
 referência removida/alterada fica indisponível. Relay COM usa lock, deadline 10 s e nenhum
 storage enquanto não for dono; esta rota ainda exige prova instalada, inclusive corrida.

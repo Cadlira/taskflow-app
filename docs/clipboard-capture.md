@@ -1,0 +1,19 @@
+# Captura de conteúdo copiado
+
+As entradas da TFA-009 mapeiam somente texto para rascunho revisável. Botão entrega à própria janela; ação global/bandeja ao Quick Add. Abertura não lê clipboard. Disponibilidade nativa depende do registro confirmado no Windows; testes portáveis/pacote não substituem campanha nativa e humana.
+
+URL isolada precisa ser HTTP/HTTPS absoluto com `://` e host válido, sem credenciais/userinfo ou controles C0/C1. O parser canonicaliza casing, IDNA e percent-encoding sem buscar página, remover tracking ou completar esquema. `HTTPS://BÜCHER.example:443/a` vira origem `https://xn--bcher-kva.example/a`, com título vazio obrigatório. Não há título automático. Origem pode ser associada manualmente usando a mesma validação ou removida, sem nova leitura.
+
+Uma URL não é cortada. Quando excede 2.081 unidades UTF-16, o rascunho informa que a política existente de abrir uma origem salva pode impedir sua abertura; isso não altera o codec ou o conteúdo histórico. O transporte recusa envelope excessivo explicitamente.
+
+Uma leitura física em voo para o processo; novos gestos recebem BUSY sem fila. Deadline lógico5s não libera o gate físico enquanto a Promise nativa não termina; travamento exige restart. Limite raw1MiB é pós-alocação nativa. Vazio/falha/timeout/limite conserva draft e pendência anterior. Epoch/sessão/power impedem entrega tardia após hide/reload/crash/suspend/quit.
+
+Cada role tem um slot mapeado<=64KiB. Staged expira em600000ms monotônicos desde captura válida; consulta/evento não renova. Presented confirma e converte em held, sem expiry na execução. Applied/discard usam UUID/seq/documento e recibo idempotente limitado: ack antigo não consome substituta. Reload/crash perde held/cópia da instância; staged não apresentado conserva destino abstrato até TTL. Sair perde tudo; nenhuma fila histórica, log de conteúdo ou backup.
+
+Handshake revalida sessão/UUID/seq/geração do formulário/safe gate após awaits. Criação vazia/lista livre pode preencher após confirmação; qualquer campo dirty, edição mesmo vazia, save/unknown/conflito/trash/backup/modal/localização de lembrete recebe oferta. Held recebido enquanto ocupado exige **Revisar** mesmo ao voltar à lista. Revisar não apaga editor: concluir/cancelar pelo fluxo normal antes. **Descartar** não salva. Ack perdido consulta recibo e conserva inputs; late applied conserva draft novo como oferta local, nova captura prevalece sem segunda fila. Origem manual nova/alterada é revalidada no main; origem histórica intacta/codec/backup permanece preservada.
+
+Texto com espaço interno ou link embutido é texto: `Veja https://example.test` não recebe origem inferida. O título colapsa whitespace e remove espaços nas extremidades. Até 200 unidades UTF-16 normalizadas, só título é gerado, mesmo se o raw tiver muitas quebras de linha. Acima de 200, descrição usa `raw.trim()`, conservando linhas internas, até 4.000 unidades UTF-16. Cada corte inclui `…`, recua para evitar dividir emoji e informa o campo cortado. Substituto literal órfão recebe `INVALID_TEXT`. Vazio recebe `EMPTY`; candidato absoluto proibido ou malformado recebe `UNSUPPORTED`.
+
+Diferença da extensão: não existe captura de aba/título/seleção associada à página, menu Chrome, HTML/RTF/OCR, fetch ou monitoramento contínuo. Capturar não salva nem abre URL. Os exemplos são fictícios; clipboard/drafts não pertencem a logs ou backups.
+
+Evidência portável: `tests/domain/clipboard-capture.test.ts` cobre Q01/Q02, limites 199/200/201 e 3999/4000/4001, linhas, IDNA, URL longa, userinfo, controles e UTF-16. A gramática de atalhos em `tests/domain/global-shortcuts.test.ts` cobre Q08: ações QUICK_ADD/OPEN_TASK_MANAGER/CAPTURE_CLIPBOARD, defaults K/L/null, CTRL_SHIFT/ALT_SHIFT com A–Z/0–9/F1–F24 exceto F4, duplicatas e shapes inválidos. Esses testes não provam foco/clipboard/hotkeys do Windows.
