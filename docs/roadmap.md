@@ -2280,6 +2280,10 @@ Após apply execute $openspec-verify-change e entregue verification.md na própr
 
 **Revisão final aprovada:** o usuário autorizou **“aprove o relatório, faça o archive, commit, faça o push e crie o PR”** em2026-10-07. Archive concluído com specs consolidadas e README/documentação atualizados; commit/push/PR autorizados. READY_FOR_MERGE após gates finais, sem marcar DONE antes da integração aprovada. Q13 integral e campanha instalada/humana permanecem não comprovados e dispensados. Preparação da campanha pública permanece referência histórica; nenhuma política ou processo alheio foi alterado. Merge/distribuição e TFA-010 continuam fora da autorização.
 
+### Publicação para revisão — 2026-10-07
+
+**[PR #9](https://github.com/Cadlira/taskflow-app/pull/9)** aberto contra `main`, com relatório aprovado, evidências e dispensas explícitas. Implementação no commit `12f68b2`; archive/specs/README/documentação no commit `596d0e9`. Branch enviada sem force push; este registro acompanha o PR em commit de documentação. Estado **READY_FOR_MERGE**, aguardando revisão/CI e integração aprovada; sem data de conclusão ou merge. A extensão permaneceu intacta.
+
 ### Prompt de continuidade após fechamento — 2026-10-07
 
 ```text
