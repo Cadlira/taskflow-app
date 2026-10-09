@@ -1,12 +1,9 @@
 {
   "name": "taskflow-app",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "license": "MIT",
   "description": "Aplicativo desktop local-first para gerenciamento de tarefas TaskFlow",
-  "author": {
-    "name": "TaskFlow App"
-  },
   "type": "module",
   "main": "out/main/index.js",
   "packageManager": "npm@11.21.0",
@@ -39,7 +36,7 @@
     "test:volume": "vitest run --config vitest.volume.config.ts",
     "build": "electron-vite build",
     "icon:win": "node scripts/generate-windows-icon.mjs",
-    "package:win": "npm run build && npm run icon:win && electron-builder --win nsis --x64 --publish never",
+    "package:win": "npm run build && npm run icon:win && node scripts/package-windows.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "validate": "npm run lint && npm run typecheck && npm run test && npm run test:volume && npm run build"
@@ -74,8 +71,12 @@
     "executableName": "TaskFlowApp",
     "publish": null,
     "asar": true,
+    "afterPack": "./scripts/windows-metadata.mjs",
     "extraResources": [
-      { "from": "build/icons/taskflow.ico", "to": "taskflow.ico" }
+      { "from": "build/icons/taskflow.ico", "to": "taskflow.ico" },
+      { "from": "build/THIRD-PARTY-NOTICES.txt", "to": "THIRD-PARTY-NOTICES.txt" },
+      { "from": "build/runtime-components.json", "to": "runtime-components.json" },
+      { "from": "build/nsis/THIRD-PARTY-NOTICES.txt", "to": "NSIS-THIRD-PARTY-NOTICES.txt" }
     ],
     "files": [
       "out/**/*",
@@ -86,6 +87,7 @@
       "output": "release"
     },
     "forceCodeSigning": false,
+    "copyright": "Copyright (c) 2026 Leonardo Lira",
     "win": {
       "target": [
         {
@@ -109,6 +111,9 @@
       "createDesktopShortcut": false,
       "shortcutName": "TaskFlow App",
       "include": "build/installer.nsh",
+      "script": "build/nsis/installer.nsi",
+      "useZip": true,
+      "differentialPackage": false,
       "installerIcon": "build/icons/taskflow.ico",
       "uninstallerIcon": "build/icons/taskflow.ico",
       "artifactName": "TaskFlowApp-${version}-win-x64-Setup.exe"

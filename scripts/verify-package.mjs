@@ -14,14 +14,17 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveBuildStage, stageArgument } from './build-artifacts.mjs'
+import { compareInstalledPayload, inventoryPayload } from './payload-inventory.mjs'
+import { readCompanyNames } from './windows-metadata.mjs'
+import { deriveWindowsIcon } from './generate-windows-icon.mjs'
+import { verifyPeIcon } from './windows-icon.mjs'
+import { validateProvenance } from './provenance-validation.mjs'
 
 const require = createRequire(import.meta.url)
 const asar = require('@electron/asar')
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const releaseRoot = path.join(projectRoot, 'release')
-const unpackedRoot = path.join(releaseRoot, 'win-unpacked')
-const resourcesRoot = path.join(unpackedRoot, 'resources')
 
 const UA_MACHINE_AMD64 = 0x8664
 const IMAGE_RESOURCE_TYPE_MANIFEST = 24
@@ -168,6 +171,16 @@ function fail(problems) {
 function main() {
   const problems = []
   const arguments_ = process.argv.slice(2)
+  let selected
+  try {
+    const metadata = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'))
+    selected = resolveBuildStage(projectRoot, stageArgument(arguments_), { version: metadata.version })
+  } catch (error) {
+    fail([error instanceof Error ? error.message : 'Seleção de candidato inválida'])
+    return
+  }
+  const unpackedRoot = selected.unpackedRoot
+  const resourcesRoot = path.join(unpackedRoot, 'resources')
   const installedRootIndex = arguments_.indexOf('--installed-root')
   const installedRoot = installedRootIndex >= 0 ? arguments_[installedRootIndex + 1] : null
   if (installedRootIndex >= 0 && !installedRoot) {
@@ -184,18 +197,25 @@ function main() {
     return
   }
 
-  const unpackedVersion = JSON.parse(asar.extractFile(asarFile, 'package.json').toString('utf8')).version
-  const setupFile = path.join(releaseRoot, `TaskFlowApp-${unpackedVersion}-win-x64-Setup.exe`)
-  if (!existsSync(setupFile)) problems.push(`Setup ausente para a versão ${unpackedVersion}: ${path.basename(setupFile)}`)
+  const setupFile = selected.setupFile
 
   const resourcesEntries = readdirSync(resourcesRoot)
   for (const entry of resourcesEntries) {
-    if (entry !== 'app.asar' && entry !== 'taskflow.ico') problems.push(`recurso inesperado em resources: ${entry}`)
+    if (!['app.asar', 'taskflow.ico', 'THIRD-PARTY-NOTICES.txt', 'runtime-components.json', 'NSIS-THIRD-PARTY-NOTICES.txt'].includes(entry)) problems.push(`recurso inesperado em resources: ${entry}`)
   }
   const runtimeIcon = path.join(resourcesRoot, 'taskflow.ico')
   const sourceIcon = path.join(projectRoot, 'build', 'icons', 'taskflow.ico')
   if (!existsSync(runtimeIcon) || !existsSync(sourceIcon)) problems.push('ícone runtime TaskFlow ausente')
   else if (sha256(runtimeIcon) !== sha256(sourceIcon)) problems.push('ícone runtime diverge do recurso aprovado')
+  try {
+    const ico = readFileSync(sourceIcon)
+    if (!ico.equals(deriveWindowsIcon(readFileSync(path.join(projectRoot, 'assets/taskflow-icon.svg'), 'utf8')))) throw new Error('WINDOWS_ICON_DERIVATION_MISMATCH')
+    for (const [file, group] of [[appExe, 1], [setupFile, 103], [path.join(selected.stage, 'candidate-uninstaller.exe'), 103]]) verifyPeIcon(readFileSync(file), ico, group)
+    if (installedRoot) {
+      verifyPeIcon(readFileSync(path.join(installedRoot, 'TaskFlowApp.exe')), ico, 1)
+      verifyPeIcon(readFileSync(path.join(installedRoot, 'Uninstall TaskFlowApp.exe')), ico, 103)
+    }
+  } catch { problems.push('ícone derivado/recursos PE ausentes ou divergentes') }
 
   const asarFiles = asar.listPackage(asarFile).map((file) => file.replace(/\\/g, '/'))
   problems.push(...findMissingFiles(asarFiles).map((file) => `arquivo obrigatório ausente no ASAR: ${file}`))
@@ -243,8 +263,21 @@ function main() {
 
   problems.push(...checkManifest(readPeManifest(readFileSync(appExe)), 'asInvoker').map((problem) => `app: ${problem}`))
   problems.push(...checkManifest(readPeManifest(readFileSync(setupFile)), 'asInvoker').map((problem) => `Setup: ${problem}`))
+  if ([appExe, setupFile, path.join(selected.stage, 'candidate-uninstaller.exe')].some(file => readCompanyNames(readFileSync(file)).some(value => value !== ''))) {
+    problems.push('CompanyName empresarial inesperado no candidato de uso pessoal')
+  }
 
   if (installedRoot) {
+    try {
+      const inventory = inventoryPayload(unpackedRoot, projectRoot)
+      const expected = JSON.parse(readFileSync(path.join(selected.stage, 'inventory.json'), 'utf8'))
+      if (JSON.stringify(inventory) !== JSON.stringify(expected)) problems.push('inventário divergente do candidato')
+      const generated = [
+        { name: 'Uninstall TaskFlowApp.exe', file: path.join(selected.stage, 'candidate-uninstaller.exe'), origin: 'NSIS WriteUninstaller / candidate UninstallerReader' },
+        { name: 'uninstallerIcon.ico', file: path.join(resourcesRoot, 'taskflow.ico'), origin: 'NSIS File / candidate resources/taskflow.ico' },
+      ].map(({ name, file, origin }) => ({ name, origin, size: readFileSync(file).length, sha256: sha256(file) }))
+      compareInstalledPayload(installedRoot, expected, generated)
+    } catch (error) { problems.push(error instanceof Error ? error.message : 'inspeção instalada indisponível') }
     const uninstaller = path.join(installedRoot, 'Uninstall TaskFlowApp.exe')
     if (!existsSync(uninstaller)) {
       problems.push(`desinstalador ausente em ${installedRoot}`)
@@ -259,15 +292,22 @@ function main() {
     }
   }
 
+  try {
+    const inventory = inventoryPayload(unpackedRoot, projectRoot)
+    const expected = JSON.parse(readFileSync(path.join(selected.stage, 'inventory.json'), 'utf8'))
+    if (JSON.stringify(inventory) !== JSON.stringify(expected)) problems.push('inventário divergente do candidato')
+    validateProvenance(JSON.parse(readFileSync(path.join(selected.stage, 'manifest.json'), 'utf8')), selected.identity, expected)
+  } catch (error) { problems.push(error instanceof Error ? error.message : 'inventário indisponível') }
+
   if (problems.length > 0) {
     fail(problems)
     return
   }
 
-  process.stdout.write(`ASAR: ${asarFiles.length} arquivos dentro da allowlist; sem addon/updater/segredos\n`)
+  process.stdout.write(`ASAR: ${asarFiles.length} arquivos dentro da allowlist; negativas de nomes verificadas\n`)
   process.stdout.write(`Executável: TaskFlowApp.exe x64 asInvoker/uiAccess=false\n`)
-  process.stdout.write(`Setup: ${path.basename(setupFile)} x64 asInvoker/uiAccess=false\n`)
-  if (installedRoot) process.stdout.write('Desinstalador instalado: x64 asInvoker/uiAccess=false\n')
+  process.stdout.write(`Setup: ${path.basename(setupFile)} stub NSIS asInvoker/uiAccess=false, payload x64\n`)
+  if (installedRoot) process.stdout.write('Desinstalador instalado: stub NSIS asInvoker/uiAccess=false\n')
   process.stdout.write(`SHA-256 TaskFlowApp.exe: ${sha256(appExe)}\n`)
   process.stdout.write(`SHA-256 app.asar: ${sha256(asarFile)}\n`)
   process.stdout.write(`SHA-256 Setup: ${sha256(setupFile)}\n`)

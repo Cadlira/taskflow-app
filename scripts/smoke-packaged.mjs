@@ -40,12 +40,16 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveBuildStage, stageArgument } from './build-artifacts.mjs'
 
 const require = createRequire(import.meta.url)
 const asar = require('@electron/asar')
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const releaseUnpacked = path.join(projectRoot, 'release', 'win-unpacked')
+const selectedBuild = resolveBuildStage(projectRoot, stageArgument(process.argv.slice(2)), {
+  version: JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version,
+})
+const releaseUnpacked = selectedBuild.unpackedRoot
 const localAppData = process.env.LOCALAPPDATA ?? ''
 const testProfileProof = path.join(localAppData, 'TaskFlowApp', 'profiles', 'test', 'user-data', 'foundation-proof', 'proof.sqlite')
 const prodProfileRoot = path.join(localAppData, 'TaskFlowApp', 'profiles', 'prod')
@@ -665,7 +669,7 @@ async function main() {
   const testEnvironment = { TASKFLOW_PROFILE: 'dev', ELECTRON_RENDERER_URL: 'http://127.0.0.1:9/' }
 
   if (!existsSync(path.join(releaseUnpacked, 'TaskFlowApp.exe'))) {
-    err('smoke:packaged exige release/win-unpacked; execute npm run package:win antes.')
+    err('smoke:packaged exige um staging selado; execute npm run package:win antes.')
     process.exitCode = 1
     return
   }
@@ -813,7 +817,7 @@ async function main() {
   }
 
   try {
-    writeFileSync(path.join(projectRoot, 'release', 'product-harness-evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`)
+    writeFileSync(path.join(selectedBuild.stage, 'product-harness-evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`)
   } catch (error) {
     err(`aviso: evidência do harness não foi gravada: ${error instanceof Error ? error.message : String(error)}`)
   }

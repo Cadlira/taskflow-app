@@ -44,29 +44,36 @@ jobs:
         run: npm run validate
 
       - name: Package NSIS x64 (no publish)
-        run: npm run package:win
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $commit = git rev-parse HEAD
+          $run = "ci-${{ github.run_id }}-${{ github.run_attempt }}"
+          "TASKFLOW_BUILD_ID=$version-win-x64-$commit-$run" >> $env:GITHUB_ENV
+          npm run package:win -- --run $run
 
       - name: Inspect package
-        run: npm run verify:package
+        run: npm run verify:package -- --stage $env:TASKFLOW_BUILD_ID
 
       - name: Smoke packaged executable
-        run: npm run smoke:packaged -- --ci-runner
+        run: npm run smoke:packaged -- --ci-runner --stage $env:TASKFLOW_BUILD_ID
 
       - name: Hashes and CI notes
         run: |
-          $setup = Get-ChildItem release -Filter 'TaskFlowApp-*-win-x64-Setup.exe' | Select-Object -First 1
+          $stage = "release/candidates/$env:TASKFLOW_BUILD_ID"
+          $selection = Get-Content -Raw "$stage/selection.json" | ConvertFrom-Json
+          $setup = Get-Item -LiteralPath "$stage/$($selection.identity.setup)"
           $assets = @(
             $setup.FullName,
-            'release/win-unpacked/resources/app.asar',
-            'release/win-unpacked/TaskFlowApp.exe'
+            "$stage/win-unpacked/resources/app.asar",
+            "$stage/win-unpacked/TaskFlowApp.exe"
           )
           $lines = foreach ($file in $assets) {
             $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
             $relative = Resolve-Path -Relative $file
             '{0}  {1}' -f $hash, ($relative -replace '\\', '/')
           }
-          $lines | Set-Content -Path release/SHA256SUMS.txt -Encoding ascii
-          Get-Content release/SHA256SUMS.txt
+          $lines | Set-Content -Path "$stage/SHA256SUMS.txt" -Encoding ascii
+          Get-Content "$stage/SHA256SUMS.txt"
           $notes = @(
             "runner=windows-2022 (administrador, UAC desabilitado, sem conta padrão)",
             "commit=$(git rev-parse HEAD)",
@@ -76,18 +83,9 @@ jobs:
             'este run não comprova instalação em conta padrão, UAC, atalhos ou notificações;',
             'a prova manual autorizada está em docs/desktop-foundation-validation.md'
           )
-          $notes | Set-Content -Path release/CI-NOTES.txt -Encoding ascii
-          Get-Content release/CI-NOTES.txt
+          $notes | Set-Content -Path "$stage/CI-NOTES.txt" -Encoding ascii
+          Get-Content "$stage/CI-NOTES.txt"
 
-      - name: Upload review artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: taskflow-app-windows-review
-          path: |
-            release/TaskFlowApp-*-win-x64-Setup.exe
-            release/win-unpacked/resources/app.asar
-            release/SHA256SUMS.txt
-            release/CI-NOTES.txt
-            release/builder-debug.yml
-          retention-days: 14
-          if-no-files-found: error
+      # R7 da TFA-011: upload/distribuição suspensos. Não publicar builder-debug,
+      # perfis ou evidências brutas. Origem/acesso/custo/retenção externos exigem
+      # revisão humana antes de acrescentar uma etapa de upload.

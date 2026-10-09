@@ -459,7 +459,7 @@ function startOwner(): void {
     ipcMain.handle(ENTRY_CHANNELS.setShortcut, (event, request: unknown) => entries.setShortcut(event, request))
     ipcMain.handle(ENTRY_CHANNELS.setShortcutEditing, (event, request: unknown) => entries.editing(event, request))
     ipcMain.handle(FOUNDATION_CHANNEL, (event, request: unknown) =>
-      handleFoundationInvocation(event, request, sessions, busyGate, () =>
+      handleFoundationInvocation(profile, event, request, sessions, busyGate, () =>
         runFoundationProof(
           resolveFoundationProofFile(app.getPath('userData')),
           app.getVersion(),

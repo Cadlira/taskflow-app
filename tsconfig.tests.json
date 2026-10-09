@@ -6,5 +6,5 @@
     "noEmit": true,
     "allowJs": true
   },
-  "include": ["tests/**/*.ts", "src/contracts/**/*.ts", "src/domain/**/*.ts", "src/application/**/*.ts", "src/renderer/src/env.d.ts", "src/renderer/src/vue.d.ts", "scripts/verify-package.mjs"]
+  "include": ["tests/**/*.ts", "src/contracts/**/*.ts", "src/domain/**/*.ts", "src/application/**/*.ts", "src/renderer/src/env.d.ts", "src/renderer/src/vue.d.ts", "scripts/fixtures/**/*.ts", "scripts/verify-package.mjs", "scripts/build-artifacts.mjs", "scripts/windows-metadata.mjs"]
 }

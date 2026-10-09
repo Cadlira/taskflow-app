@@ -34,21 +34,24 @@ function createIcon(pngImages) {
   return icon
 }
 
-const svg = await readFile(sourcePath, 'utf8')
-if (!/^<svg\b/.test(svg.trim()) || !svg.includes('viewBox="0 0 24 24"')) {
-  throw new Error('The reviewed 24x24 master icon is missing or has changed shape')
+export function deriveWindowsIcon(svg) {
+  if (!/^<svg\b/.test(svg.trim()) || !svg.includes('viewBox="0 0 24 24"')) {
+    throw new Error('The reviewed 24x24 master icon is missing or has changed shape')
+  }
+  const pngImages = sizes.map((size) => {
+    const renderer = new Resvg(svg, {
+      fitTo: { mode: 'width', value: size },
+    })
+    const data = renderer.render().asPng()
+    if (data.readUInt32BE(16) !== size || data.readUInt32BE(20) !== size) {
+      throw new Error(`Unexpected ${size}px PNG output`)
+    }
+    return { size, data }
+  })
+  return createIcon(pngImages)
 }
 
-const pngImages = sizes.map((size) => {
-  const renderer = new Resvg(svg, {
-    fitTo: { mode: 'width', value: size },
-  })
-  const data = renderer.render().asPng()
-  if (data.readUInt32BE(16) !== size || data.readUInt32BE(20) !== size) {
-    throw new Error(`Unexpected ${size}px PNG output`)
-  }
-  return { size, data }
-})
-
-await writeFile(outputPath, createIcon(pngImages))
-process.stdout.write(`Generated ${path.relative(projectRoot, outputPath)} (${sizes.join(', ')} px)\n`)
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await writeFile(outputPath, deriveWindowsIcon(await readFile(sourcePath, 'utf8')))
+  process.stdout.write(`Generated ${path.relative(projectRoot, outputPath)} (${sizes.join(', ')} px)\n`)
+}
