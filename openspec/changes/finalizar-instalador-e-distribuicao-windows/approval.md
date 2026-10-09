@@ -87,9 +87,10 @@ as demais autorizações não foram ampliadas.
 
 ## Progresso e ponto material de revisão
 
-Estado corrente: **25/41** tasks (1.3/4.2 registradas; 6.1/6.2/6.3 com o par limpo
-0.2.0→0.2.1 construído, instalado, atualizado e reparado em2026-10-08 sob autorização
-de commits, sem push/PR).
+Estado corrente: **28/41** tasks (1.3/4.2/6.1–6.3/7.9 e a entrega de8.1/8.2
+registradas; par limpo0.2.0→0.2.1 construído, instalado, atualizado e reparado;
+relatório de verificação entregue para aprovação com13 tasks abertas dependentes de
+dispensa/ambiente).
 Preview25 0.2.0 instalado/inspecionado, reparo15→25 exit0/52s, árvore completa dos dados e ACL
 dos dados/pai dos binários intactas. Validate25 PASS (1.411+11 skipped/volume2/
 lint/cinco tipos/build), package/verify/smoke integral42 e inspeção instalada PASS.
