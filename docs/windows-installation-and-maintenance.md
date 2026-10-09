@@ -187,19 +187,21 @@ final, mesmo que o empacotamento técnico passe.
 ## Evidência disponível e provas pendentes
 
 Este guia descreve o contrato implementado; a aceitação do produto final exige
-a campanha no hash final. Resultados detalhados e falhas históricas estão em
+a campanha no hash final. Candidato atual em campanha: **0.2.1 B′** (commit
+`1195277`, Setup f10c308e…); resultados parciais e limites visíveis abaixo.
+Resultados detalhados e falhas históricas estão em
 `openspec/changes/finalizar-instalador-e-distribuicao-windows/campaign-results.md`.
 
 | Instrução | Verificação da implementação | Limite atual |
 | --- | --- | --- |
-| Instalar por usuário/abrir manualmente/unsigned | NSIS per-user/sem runAfterFinish; manifests reais asInvoker/uiAccess=false; instalação13/14 e reparo14→15 executados | Destino offline sem Node/npm e conta com Unicode/espaços NOT_RUN |
-| Salvar rascunhos e usar Sair | Lifecycle drena; guardas CIM de processo/SID/caminho recusam atividade/incerteza sem kill | Matriz completa app ativo/tray/jobs/relay/concorrência instalada NOT_RUN |
-| Recusa silenciosa/destino/identidade | Guardas antes de SetOutPath/cleanup, trace real22/24; dez negativas de Setup14 intactas | Known Folder/ownership/injeções completas pendentes; fixture comprova limitação do retorno do launcher, limitação IR3 aprovada |
-| Upgrade seguro/reparo | Predecessor por caminho/versão/Reader-hash/cópia; um ExecWait sem fallback; reparo14 e 14→15 PASS | Par final limpo 0.2.0→0.2.1 NOT_RUN; nenhum upgrade legado disponível |
-| Retenção/uninstall/reinstall OFF | NSIS sem wipe; cleanup de startup próprio só no uninstall normal, --updated preserva manutenção | Uninstall13 reteve árvore/ACL; reinstall final/startup/DPAPI após manutenção/estrangeiros NOT_RUN |
-| Recuperação seletiva/compatibilidade | Walkthrough SQL2/codec4/markers/shortcuts/auxiliares/recusa SQL1 intacta, sem ai.json | Somente fixtures; não restaura dados reais nem autoriza replay/downgrade |
+| Instalar por usuário/abrir manualmente/unsigned | NSIS per-user/sem runAfterFinish; manifests reais asInvoker/uiAccess=false; instalação limpa normal do A e do B′ (exit0) com registro/atalho e payload conferido contra o manifesto; ACE AppContainer só no root | Destino offline sem Node/npm e conta com Unicode/espaços NOT_RUN |
+| Salvar rascunhos e usar Sair | Guardas de processo recusam app visível e oculto na bandeja (exit111) sem kill; uninstall `/S` recusa efetiva; reparo após Sair exit0; encerramento por sessão gracioso | Duas janelas/jobs/relay/commit em voo e reabertura entre fases pendentes |
+| Recusa silenciosa/destino/identidade | W04 14/14 no B′ (allusers/duplicados/malformados/`/D` externo recusam100; `/D` canônico e `/currentuser` válidos aceitam); HKCU inválido sim recusa100; versão futura129; estrangeiro/unpinned131 preservando bytes; IR3 aprovada | Known Folder redirecionado, ownership ACL, HKLM e reparse sem simulação instalada segura |
+| Upgrade seguro/reparo | Par final A→B′ com pin do predecessor por Reader-hash: upgrade exit0/52s e reparo exit0/47s, dados/ACL intactos; `_?=` propaga não zero; upgrade legado literal não disponível | Corrida de processo durante a remoção do predecessor seguro pendente; 0.1.0 histórico |
+| Retenção/uninstall/reinstall OFF | Uninstall normal e `/S` + reinstall do B′: dados byte a byte intactos, ACLs conservadas, atalho recriado e startup OFF; valor de startup ON simulado preservado no reparo; segundo lançamento único | Credencial fictícia instalada/DPAPI pós-manutenção e segunda conta BLOCKED/dispensa |
+| Recuperação seletiva/compatibilidade | Walkthrough SQL2/codec4/markers/shortcuts/auxiliares/recusa SQL1 intacta, sem ai.json | Somente fixtures; não restaura dados reais nem autoriza replay/downgrade; perfil test instalado está vazio (sem semear) |
 | Excluir dados/revogar IA | Exclusão manual separada do uninstall, root/perfil/ownership/Sair; revogação pelo titular | Exclusão não executada nem autorizada por este guia |
-| Ícones/payload/diagnóstico | Inventário e bytes instalados15; cinco frames PE22, negativas de conteúdo/ícones; handler restrito a test | Visual/DPI, decisão sobre a licença não publicada do SpiderBanner e campanha do hash final pendentes |
+| Ícones/payload/diagnóstico | Inventário/notices (dc9ef68…) e bytes instalados do B′ conferidos contra o manifesto; cinco frames PE22, negativas de conteúdo/ícones; handler restrito a test | Visual/DPI humano, gestos nativos (tray/Quick Add/cópia/toast/COM) e registro CLSID prod (prod não aberto) pendentes |
 
 Segunda conta foi excluída por decisão humana, sem PASS. Logoff/login real,
 energia real e publicação não foram autorizados por inferência. Se uma política

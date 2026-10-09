@@ -25,7 +25,11 @@ por sessão OK; reparo após Sair exit0. W12 parcial: uninstall normal (interfac
 `InstallLocation` inválido simulado e restaurado: recusa100 sem mutação. Upgrade
 A→B′ exit0/52s e reparo exit0/47s com dados/ACL intactos. Smoke B′: FAIL inicial só
 no heartbeat10.000=3.902ms/2.500ms; repetição integral42 PASS/966ms — falha inicial
-conservada, sem WARN.
+conservada, sem WARN. Simulações complementares no B′: versão futura129;
+UninstallString estrangeiro131; predecessor unpinned131 preservando bytes; app na
+bandeja recusa111; instaladores concorrentes (0/2); identidade instalada conferida;
+startup ON preservado no reparo e OFF mantido; segundo lançamento único; snapshot
+lógico do perfil test vazio (sem semear).
 
 ---
 

@@ -1,5 +1,44 @@
 # Evidências intermediárias — TFA-011
 
+## Simulações complementares no B′ — 2026-10-09
+
+Todas restauráveis e com estado final conferido (pair-sims.log, pair-startup.log,
+pair-second-launch.log):
+- **Versão futura** (DisplayVersion9.9.9): Setup recusa **129**, binários intactos;
+  valor original restaurado.
+- **UninstallString estrangeiro**: Setup recusa **131**, binários intactos; valor
+  original restaurado.
+- **Predecessor sem procedência** (uninstaller instalado substituído pelos bytes do
+  candidato A, hash≠pin/candidato): Setup recusa **131** e **preserva os bytes
+  substituídos sem invocá-los/sobrescrevê-los**; uninstaller original restaurado
+  (6e34919d…). Cobre o ramo de recusa de predecessor inseguro (task2.4) no
+  candidato final; o 0.1.0 literal permanece histórico (já removido).
+- **App oculto na bandeja** (X fecha para tray): janela não visível, processo vivo;
+  Setup `/S` recusa **111**; encerramento por sessão gracioso (0 processos).
+- **Instaladores concorrentes**: primeiro exit0, segundo exit2 (instância única);
+  exe presente; `user-data` intacto (o delta observado é só `session-data` do caso
+  tray — cache do app, não manutenção).
+- **Identidade instalada**: InstallLocation/UninstallString corretos, versão0.2.1,
+  atalho presente apontando ao exe, startup ausente. CLSID/toastActivator do perfil
+  prod **não registrados porque prod não é aberto por regra** (`prepareNativeIdentity`
+  só roda em prod empacotado) — limitação registrada; instalação13/14 e campanhas
+  históricas cobrem o registro prod, sem herdar PASS do hash final.
+- **Startup em manutenção**: valor `taskflow.app.startup.v1` simulado como ON
+  (comando próprio) → reparo exit0 **preserva**; removido (OFF) → reparo exit0
+  mantém ausente. Desativação externa (StartupApproved) não simulada.
+- **Snapshot lógico somente leitura** do perfil test: `tasks=0`, `trash=0`,
+  `taskflow_metadata=1` — perfil vazio; por isso a retenção lógica instalada fica
+  limitada a "permaneceu inalterado/vazio", com as fixtures lógicas reais no
+  harness local. Semear o perfil test segue proibido.
+- **Segundo lançamento**: segunda instância sai (exit0) com a primeira viva
+  (escritor único observado); encerramento limpa todos os processos.
+
+Limitações que permanecem sem prova instalada (não PASS): duas janelas/commit/job/
+IA em voo/relay durante manutenção; consulta incerta/timeout; mudança de ownership
+ACL; Known Folder redirecionado; HKLM/reparse; DPAPI com credencial fictícia retida
+no perfil instalado; desativação externa de startup; gestos humanos (tray/Quick Add/
+cópia/toast/COM) e prova visual; segunda conta/logoff/powercut (excluídos).
+
 ## W12 parcial — uninstall normal, reinstall e startup OFF (B′) — 2026-10-09
 
 Uninstall **normal (interface, sem /S)** do B′ com o próprio Reader conferido:
