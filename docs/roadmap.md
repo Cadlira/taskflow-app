@@ -12,8 +12,9 @@ c7d22b05…, B′ f10c308e…), instalado/atualizado/reparado; campanha W01–W1
 do ambiente (W04 14/14 no B′; guardas W05, HKCU/futuro/estrangeiro/unpinned/tray/
 concorrência/startup e propagação direta `_?=` simulados PASS). **Archive em
 2026-10-09** com consolidação de specs (7 ADDED + 5 MODIFIED em
-`desktop-build-validation` e `windows-per-user-installation`); commit de fechamento,
-push da branch e PR autorizados. Merge/distribuição/TFA-012 permanecem fora; itens
+`desktop-build-validation` e `windows-per-user-installation`); commit de fechamento
+e push realizados; [PR #11](https://github.com/Cadlira/taskflow-app/pull/11) aberto
+para revisão e integração pendente. Merge/distribuição/TFA-012 permanecem fora; itens
 de ambiente/homologação seguem para a TFA-012.
 Preview25 0.2.0 instalado/inspecionado; reparo15→25 exit0/52s, dados/ACL intactas.
 Validate25 PASS:1.411 testes+11 skipped/volume2/lint/cinco tipos/build;
@@ -125,7 +126,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | DONE | — | 2026-10-06 | 2026-10-06 | TFA-007 | 60/60 tasks; verificação aprovada e archive em 2026-10-06; README atualizado; [PR #8](https://github.com/Cadlira/taskflow-app/pull/8) integrado à principal. Waives de usuário único e D10 revisado registrados na Change |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | DONE | — | 2026-10-06 | 2026-10-07 | TFA-008 | Archive/relatório aprovados; 43 tasks executadas e 2 dispensadas. Integração do PR #9 conferida na exploração TFA-011: merge `c250870` na main, preservando limites/dispensas |
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | DONE | — | 2026-10-07 | 2026-10-07 | TFA-009 | Apply 38/38, relatório/waive aprovados e archive; integração do PR #10 conferida na exploração TFA-011: main e referência local origin/main em `f91ce40` |
-| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | READY_FOR_MERGE | — | 2026-10-07 | — | TFA-010 | Relatório aprovado em2026-10-09; archive `2026-10-09-finalizar-instalador-e-distribuicao-windows` com specs consolidadas (7 ADDED + 5 MODIFIED); 28 executadas + 13 dispensadas (closure-waivers). ParA/B′ (5a11c6f/c7d22b05…; 1195277/f10c308e…) com W04 14/14 e guardas/simulações PASS. Commit de fechamento/push/PR autorizados; merge e TFA-012 fora do escopo |
+| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | READY_FOR_MERGE | — | 2026-10-07 | — | TFA-010 | Relatório aprovado em2026-10-09; archive `2026-10-09-finalizar-instalador-e-distribuicao-windows` com specs consolidadas (7 ADDED + 5 MODIFIED); 28 executadas + 13 dispensadas (closure-waivers). ParA/B′ (5a11c6f/c7d22b05…; 1195277/f10c308e…) com W04 14/14 e guardas/simulações PASS. [PR #11](https://github.com/Cadlira/taskflow-app/pull/11) aberto; aguardando revisão/integração; merge/TFA-012 fora do escopo |
 | TFA-012 | `homologar-paridade-e-primeira-versao-desktop` | PLANNED | — | — | — | TFA-011 | Após dependências, usar o prompt abaixo |
 | TFA-013 | `ajustar-geometria-inicial-da-janela` | PLANNED | — | — | — | TFA-011 | Registrada em2026-10-09 (opção A); explorar após a TFA-011 concluir. Decisões pendentes: monitor principal vs cursor, largura inicial, Quick Add |
 
@@ -2592,7 +2593,9 @@ com specs consolidadas (7 ADDED + 5 MODIFIED em `desktop-build-validation` e
 ([closure-waivers.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/closure-waivers.md)).
 Par A/B′ e evidências em
 [campaign-results.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/campaign-results.md).
-Commit de fechamento/push/PR autorizados; merge e TFA-012 permanecem fora do escopo.
+Commit de fechamento e push realizados;
+[PR #11](https://github.com/Cadlira/taskflow-app/pull/11) aberto (integração
+pendente); merge e TFA-012 permanecem fora do escopo.
 Os registros abaixo são históricos do apply.
 
 **Continuação 2026-10-08 — IN_PROGRESS/APPLY.** R1–R7 decididas no escopo de
