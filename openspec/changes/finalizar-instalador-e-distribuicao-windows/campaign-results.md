@@ -1,5 +1,35 @@
 # Evidências intermediárias — TFA-011
 
+## Par 0.2.0 (A) — uninstall do estado anterior, instalação e pacote — 2026-10-08
+
+Build selado A: build-id
+`0.2.0-win-x64-5a11c6f29670e702e95d9ab1f64e89feed84d15d-pair-020b` (commit5a11c6f…,
+fonte limpa, source sha256 82816930993befa4beb747ccf293d22cec96fc328517c728d3276dd5636de64c,
+readiness PENDING_INSTALLED_CAMPAIGN). Setup SHA-256
+c7d22b05ed8dcdfe21c9920c0db65abbfc8d9fc65947a8584901dfd2ed5ad3ac,
+153.440.379 bytes; exe febcdd3a…; ASAR a585d0d9…; Reader f4e13085… (estável desde15;
+igual ao uninstaller instalado). Validate do commit: lint/cinco tipos/108 arquivos/
+1.411 testes+11 skipped/volume2/build exit0 (pair-validate.log). package/verify/smoke:
+`verify:package OK` e smoke42PASS/0FAIL (pair020b-package/verify/smoke.logs).
+O primeiro package (run pair-020) falhou por `Toolchain divergente` porque o ambiente
+do host exporta `npm_config_user_agent` estaleiro (npm/undefined node/v26.3.0);
+corrigido com `unset npm_config_user_agent` antes dos scripts npm. O stage pair-020
+não selado permanece preservado como histórico; não foi apagado.
+
+Uninstall do estado anterior (binários0.2.0 + registro estaleiro0.1.0): remoção
+própria com uninstaller conferido igual ao Reader (f4e13085…), launcher0 e conclusão
+efetiva verificada; dados193 arquivos intactos byte a byte, ACLs de pai e dados
+intactas, atalho e registro removidos (pair-uninstall25.log).
+
+Instalação limpa normal (sem `/S`) do A na conta atual: exit0/21,97s; registro0.2.0,
+InstallLocation canônico, atalho criado; uninstaller instalado igual ao Reader;
+dados/ACLs intactos; payload instalado conferido contra o manifesto
+(`verify:package --installed-root OK`, pair020b-verify-installed.log). ACL do root
+com AppContainer `S-1-15-2-1:(OI)(CI)(RX)` (SDDL `(A;OICI;0x1200a9;;;AC)`) e
+pai/dados sem essa ACE. A instalação limpa registrou0.2.0, resolvendo a divergência
+anterior como estado estaleiro (registro removido no uninstall). Task6.1 atendida
+para o A; task6.2 aguarda a preparação do B.
+
 ## R4 — registro de escopo e verificação (task1.3) — 2026-10-08
 
 Autorização vigente: manutenção (Setup/upgrade/uninstall/reparo) somente na conta
@@ -18,6 +48,18 @@ não são publicados. Não comprovados e portanto não PASS: ausência de Node/n
 destino, ambiente offline e perfil com espaços/Unicode — subcasos W02/W15 permanecem
 BLOCKED. Task1.3 concluída quanto ao registro; preview25 segue instalado, sem nova
 operação de manutenção nesta atualização.
+
+## Estado instalado descoberto antes da campanha do par — 2026-10-08
+
+Antes do uninstall do preview25, a leitura do registro (views 64/32) mostra
+`InstallLocation` correto e **`DisplayVersion`0.1.0**/"TaskFlow App 0.1.0", enquanto
+os binários instalados conferem com o preview25 0.2.0: `TaskFlowApp.exe`
+febcdd3a…, `app.asar` a585d0d9…, `Uninstall TaskFlowApp.exe` f4e13085… (igual ao
+Reader do candidato) com FileVersion0.2.0; `NativeIdentity` sem versão preenchida.
+O histórico anterior registrava registro0.2.0; a divergência atual não é explicada
+por esta sessão e fica registrada para revisão. O uninstaller instalado confere
+byte a byte com o `candidate-uninstaller` do par, permitindo a remoção própria
+verificada; nenhuma transição legada nova é executada e nenhum dado é apagado.
 
 ## Decisão 4.2 e autorização do par — 2026-10-08 (continuação)
 

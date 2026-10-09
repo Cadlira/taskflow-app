@@ -58,9 +58,9 @@ existentes; falha depois de extração/remoção pode deixar binários parciais.
 a fase, conserve dados e use reparo compatível quando as guardas o permitirem.
 Não existe rollback atômico do Setup ou recuperação automática de dados.
 
-Use somente o procedimento do candidato identificado. O par completo final e a
-lista de hashes aceitos de predecessores ainda estão pendentes; isso não libera
-um upgrade entre previews quaisquer. A transição manual 0.1.0 foi revisada e
+Use somente o procedimento do candidato identificado. O par completo final
+0.2.0→0.2.1 fixa o predecessor 0.2.0 pelo hash do uninstaller no pacote candidato;
+isso não libera upgrade entre previews quaisquer. A transição manual 0.1.0 foi revisada e
 executada nesta conta, conservando seus limites; não é instrução para repetir o
 legado nem autorização para substituir seu desinstalador.
 
