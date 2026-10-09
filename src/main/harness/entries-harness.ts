@@ -71,15 +71,20 @@ export async function runEntryHarness(ports: EntryHarnessPorts, lifecycle: Deskt
   } else info['trayLimitation'] = 'Tray indisponível: política sem tray coberta pela suíte; hide/reopen não exercitado neste cenário.'
   checks['reopenDoesNotRead'] = ports.reads() === 0
   ports.clipboardText('Captura fictícia em formulário dirty')
-  await evaluate(quick, click('Capturar texto copiado'))
+  // surface-active pode iniciar refresh entre duas chamadas de executeJavaScript.
+  // Esperar e clicar na mesma execução impede perder o gesto nesse intervalo.
+  // O helper só retorna true após um clique e encerra a espera nesse instante.
+  const readsBeforeDirtyCapture = ports.reads()
+  checks['dirtyCaptureInvoked'] = await wait(quick, click('Capturar texto copiado'))
   checks['dirtyOffer'] = await wait(quick, `document.querySelector('.capture-offer') && ${value('description')} === 'Rascunho rápido conservado'`)
+  checks['dirtyCaptureSingleRead'] = ports.reads() === readsBeforeDirtyCapture + 1
   await evaluate(quick, click('Descartar captura'))
   checks['discardNoSave'] = await wait(quick, `!document.querySelector('.capture-offer')`)
   info['clearState'] = await evaluate(quick, `({ cancelPresent: !!document.querySelector('form .form-actions button[type="button"]'), cancelDisabled: document.querySelector('form .form-actions button[type="button"]')?.getAttribute('aria-disabled'), submitting: document.querySelector('form button[type="submit"]')?.getAttribute('aria-disabled'), blockedMessage: document.body.textContent.includes('A lista está indisponível') })`)
   await evaluate(quick, `document.querySelector('form .form-actions button[type="button"]').click()`)
   checks['explicitClear'] = await wait(quick, `${value('description')} === ''`)
   ports.clipboardText('HTTPS://EXAMPLE.TEST/origem-ficticia?q=1')
-  await evaluate(quick, click('Capturar texto copiado'))
+  checks['urlCaptureInvoked'] = await wait(quick, click('Capturar texto copiado'))
   checks['urlWholeManualTitle'] = await wait(quick, `${value('sourceUrl')} === 'https://example.test/origem-ficticia?q=1' && ${value('title')} === ''`)
   checks['captureTitleFocus'] = await evaluate(quick, `document.activeElement === document.querySelector('[name="title"]')`)
   const captureCount = await storage.read(reader => reader.listTasks().length)

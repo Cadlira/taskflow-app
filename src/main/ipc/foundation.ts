@@ -1,5 +1,6 @@
 import type { FoundationFailure, FoundationResult } from '../../contracts/foundation.js'
 import type { DocumentSessions, InvocationLike } from './document-sessions.js'
+import type { FoundationProfile } from '../profile.js'
 
 export const FOUNDATION_CHANNEL = 'foundation:verify:v1'
 const MAX_REQUEST_BYTES = 1024
@@ -53,12 +54,14 @@ export function unauthorizedFoundationInvocation(): FoundationFailure {
  * diagnóstico e independente da fila do banco de produto.
  */
 export async function handleFoundationInvocation(
+  profile: FoundationProfile,
   event: InvocationLike,
   request: unknown,
   sessions: DocumentSessions,
   gate: FoundationBusyGate,
   runProof: () => Promise<FoundationResult> | FoundationResult,
 ): Promise<FoundationResult> {
+  if (profile !== 'test') return unauthorizedFoundationInvocation()
   const ticket = sessions.authorize(event)
   if (ticket === null || ticket.role !== 'MANAGER') return unauthorizedFoundationInvocation()
   if (!isValidFoundationRequest(request)) return invalidFoundationRequest()

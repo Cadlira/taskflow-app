@@ -55,11 +55,19 @@ describe('contrato verifyFoundation v1', () => {
 })
 
 describe('guards de documento no diagnóstico', () => {
+  it.each(['prod', 'dev'] as const)('recusa diagnóstico em %s antes de autorizar documento ou executar a prova', async profile => {
+    const { sessions, contents } = registered()
+    const authorize = vi.spyOn(sessions, 'authorize')
+    const proof = vi.fn(verifiedResult)
+    expect(await handleFoundationInvocation(profile, invocation(contents), { version: 1 }, sessions, new FoundationBusyGate(), proof)).toEqual({ version: 1, status: 'error', code: 'UNAUTHORIZED' })
+    expect(authorize).not.toHaveBeenCalled()
+    expect(proof).not.toHaveBeenCalled()
+  })
   it('documento autorizado recebe o resultado fechado da prova, com o mesmo shape', async () => {
     const { sessions, contents } = registered()
     const proof = vi.fn(verifiedResult)
 
-    const result = await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, new FoundationBusyGate(), proof)
+    const result = await handleFoundationInvocation('test', invocation(contents), { version: 1 }, sessions, new FoundationBusyGate(), proof)
 
     expect(result).toEqual(verifiedResult())
     expect(Object.keys(result).sort()).toEqual(['appVersion', 'electronVersion', 'fingerprint', 'nodeVersion', 'status', 'version'])
@@ -87,7 +95,7 @@ describe('guards de documento no diagnóstico', () => {
       invocation(removed),
     ]
     for (const event of events) {
-      expect(await handleFoundationInvocation(event, { version: 1 }, sessions, gate, proof)).toEqual({
+      expect(await handleFoundationInvocation('test', event, { version: 1 }, sessions, gate, proof)).toEqual({
         version: 1,
         status: 'error',
         code: 'UNAUTHORIZED',
@@ -101,7 +109,7 @@ describe('guards de documento no diagnóstico', () => {
     const proof = vi.fn(verifiedResult)
 
     for (const request of [{ version: 2 }, { version: 1, extra: true }, { version: 1, pad: 'x'.repeat(2048) }, null]) {
-      expect(await handleFoundationInvocation(invocation(contents), request, sessions, new FoundationBusyGate(), proof)).toEqual({
+      expect(await handleFoundationInvocation('test', invocation(contents), request, sessions, new FoundationBusyGate(), proof)).toEqual({
         version: 1,
         status: 'error',
         code: 'INVALID_REQUEST',
@@ -113,7 +121,7 @@ describe('guards de documento no diagnóstico', () => {
   it('documento que muda durante o diagnóstico não recebe a resposta', async () => {
     const { sessions, contents } = registered()
     let finish: ((result: FoundationResult) => void) | undefined
-    const pending = handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, new FoundationBusyGate(), () =>
+    const pending = handleFoundationInvocation('test', invocation(contents), { version: 1 }, sessions, new FoundationBusyGate(), () =>
       new Promise<FoundationResult>((resolve) => {
         finish = resolve
       }),
@@ -137,7 +145,7 @@ describe('guards de documento no diagnóstico', () => {
       return Promise.resolve(operation())
     } } as unknown as FoundationBusyGate
 
-    expect(await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, proof)).toMatchObject({
+    expect(await handleFoundationInvocation('test', invocation(contents), { version: 1 }, sessions, gate, proof)).toMatchObject({
       code: 'UNAUTHORIZED',
     })
     expect(proof).not.toHaveBeenCalled()
@@ -182,13 +190,13 @@ describe('serialização da prova', () => {
 
     // Diagnóstico em andamento: o segundo recebe BUSY, mas o produto segue aceitando unidades.
     let finish: ((result: FoundationResult) => void) | undefined
-    const running = handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, () =>
+    const running = handleFoundationInvocation('test', invocation(contents), { version: 1 }, sessions, gate, () =>
       new Promise<FoundationResult>((resolve) => {
         finish = resolve
       }),
     )
     await Promise.resolve()
-    const second = await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, verifiedResult)
+    const second = await handleFoundationInvocation('test', invocation(contents), { version: 1 }, sessions, gate, verifiedResult)
     const product = coordinator.run((unit) => unit.saveTask(buildFictitiousTask(1)))
     while (queued.length > 0) queued.shift()?.()
 
@@ -200,7 +208,7 @@ describe('serialização da prova', () => {
     await running
     const flood = Array.from({ length: 64 }, (_unused, index) => coordinator.run((unit) => unit.saveTask(buildFictitiousTask(index + 2))))
     expect(await coordinator.run((unit) => unit.saveTask(buildFictitiousTask(999)))).toEqual({ ok: false, reason: 'QUEUE_FULL' })
-    expect(await handleFoundationInvocation(invocation(contents), { version: 1 }, sessions, gate, verifiedResult)).toMatchObject({
+    expect(await handleFoundationInvocation('test', invocation(contents), { version: 1 }, sessions, gate, verifiedResult)).toMatchObject({
       status: 'verified',
     })
     while (queued.length > 0) queued.shift()?.()

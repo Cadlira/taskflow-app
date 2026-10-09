@@ -5,13 +5,14 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['out/**', 'release/**', 'coverage/**', 'node_modules/**'],
+    // .tmp contém cópias/compilações de fixtures locais, já excluídas do Git.
+    ignores: ['out/**', 'release/**', 'coverage/**', 'node_modules/**', '.tmp/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...vue.configs['flat/recommended'],
   {
-    files: ['src/main/**/*.{ts,mts}', 'src/preload/**/*.{ts,mts}', '*.config.ts', 'scripts/**/*.mjs'],
+    files: ['src/main/**/*.{ts,mts}', 'src/preload/**/*.{ts,mts}', '*.config.ts', 'scripts/**/*.mjs', 'scripts/fixtures/**/*.ts'],
     languageOptions: {
       globals: globals.node,
     },

@@ -1,4 +1,4 @@
-# build/installer.nsh — TFA-002
+# build/installer.nsh — TFA-002 / TFA-011
 #
 # Guardas da instalação exclusivamente por usuário e da ACE do AppContainer.
 # Complemento pequeno aos templates do electron-builder 26.17.0 (one-click,
@@ -35,6 +35,10 @@
 # multiUser.nsh (corpo principal) define as mesmas chaves depois deste include;
 # antecipar /ifndef permite reutilizá-las aqui sem depender da ordem dos templates.
 !define /ifndef INSTALL_REGISTRY_KEY "Software\${APP_GUID}"
+!include "${PROJECT_DIR}\build\nsis\process-command.nsh"
+!include "${PROJECT_DIR}\build\nsis\identity-command.nsh"
+!include "${PROJECT_DIR}\build\nsis\predecessor-command.nsh"
+!include "${PROJECT_DIR}\build\nsis\trusted-predecessors.nsh"
 
 Var tfaGuardMode
 Var tfaParams
@@ -54,12 +58,19 @@ Var tfaCanonicalRoot
 Var tfaCanonicalDir
 Var tfaProfilePrefix
 Var tfaCurrent
-Var tfaProbeFile
 Var tfaExpectedDefaultDir
 Var tfaRegistryValue
+Var tfaRuntimeRoot
+Var tfaPostInstall
+Var tfaFailureCode
 
 !macro TFA_FAIL TEXT
-  SetErrorLevel 2
+  ${If} $tfaFailureCode == ""
+  ${OrIf} $tfaFailureCode == 0
+    SetErrorLevel 2
+  ${Else}
+    SetErrorLevel $tfaFailureCode
+  ${EndIf}
   ${If} ${Silent}
     DetailPrint "TaskFlow App: ${TEXT}"
   ${Else}
@@ -237,13 +248,15 @@ Var tfaRegistryValue
     ${EndIf}
   FunctionEnd
 
-  # Resolve o root UserProgramFiles do usuário atual e exige que ele esteja no perfil
-  # e sem reparse point. Saída: $tfaCanonicalDir e $tfaFound (0/1).
+  # Resolve Known Folders sem KF_FLAG_CREATE: preflight não cria pastas.
+  # UserProgramFiles deve ser equivalente a LocalAppData\Programs reconhecido
+  # pelo runtime. KF_FLAG_DONT_VERIFY permite resolver uma pasta ainda inexistente.
+  # Saída: $tfaCanonicalDir e $tfaFound (0/1).
   Function ${PREFIX}TFA_ResolveCanonicalDir
     StrCpy $tfaFound 0
     StrCpy $tfaCanonicalRoot ""
     StrCpy $tfaCanonicalDir ""
-    System::Call 'SHELL32::SHGetKnownFolderPath(g "{5CD7AEE2-2219-4A67-B85D-6C9CE15660CB}", i 0x00008000, p 0, *p .R1)i.R0'
+    System::Call 'SHELL32::SHGetKnownFolderPath(g "{5CD7AEE2-2219-4A67-B85D-6C9CE15660CB}", i 0x00004000, p 0, *p .R1)i.R0'
     ${If} $R0 <> 0
       Return
     ${EndIf}
@@ -256,6 +269,25 @@ Var tfaRegistryValue
     StrCpy $tfaValue $tfaCanonicalRoot
     Call ${PREFIX}TFA_TrimTrailingBackslash
     StrCpy $tfaCanonicalRoot $tfaValue
+
+    # Não assumir LOCALAPPDATA herdado nem aceitar redirecionamento divergente.
+    System::Call 'SHELL32::SHGetKnownFolderPath(g "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}", i 0x00004000, p 0, *p .R1)i.R0'
+    ${If} $R0 <> 0
+      Return
+    ${EndIf}
+    ${If} $R1 = 0
+      Return
+    ${EndIf}
+    System::Call 'KERNEL32::lstrcpynW(w .R2, p R1, i ${NSIS_MAX_STRLEN})'
+    System::Call 'OLE32::CoTaskMemFree(p R1)'
+    StrCpy $tfaValue $R2
+    Call ${PREFIX}TFA_TrimTrailingBackslash
+    StrCpy $tfaRuntimeRoot "$tfaValue\Programs"
+    ${If} $tfaCanonicalRoot != $tfaRuntimeRoot
+      Return
+    ${EndIf}
+
+    StrCpy $tfaValue $tfaCanonicalRoot
     Call ${PREFIX}TFA_IsUnderProfile
     ${If} $tfaFound == 0
       Return
@@ -275,6 +307,19 @@ Var tfaRegistryValue
     StrCpy $tfaValue ""
     ${GetParameters} $tfaParams
     StrCpy $tfaHaystack $tfaParams
+
+    StrCpy $tfaNeedle "--delete-app-data"
+    StrCpy $tfaScanIndex 0
+    Call ${PREFIX}TFA_Find
+    ${If} $tfaFound == 1
+      !insertmacro TFA_FAIL "A exclusão de dados não faz parte da manutenção. A operação foi recusada."
+    ${EndIf}
+    StrCpy $tfaNeedle "--force-run"
+    StrCpy $tfaScanIndex 0
+    Call ${PREFIX}TFA_Find
+    ${If} $tfaFound == 1
+      !insertmacro TFA_FAIL "A abertura automática não faz parte da manutenção. Abra manualmente após a conclusão."
+    ${EndIf}
 
     # /allusers recusado em qualquer combinação
     StrCpy $tfaNeedle "/allusers"
@@ -338,12 +383,13 @@ Var tfaRegistryValue
   # também recusa instalação de máquina legada e testa a escrita; em ambos, fixa o
   # $INSTDIR canônico antes de qualquer efeito.
   Function ${PREFIX}TFA_ValidateDestination
+    StrCpy $tfaFailureCode 100
     Call ${PREFIX}TFA_CheckArguments
     StrCpy $tfaRequestedDir $tfaValue
 
     Call ${PREFIX}TFA_ResolveCanonicalDir
     ${If} $tfaFound == 0
-      !insertmacro TFA_FAIL "Não foi possível continuar: a pasta de programas do usuário não está no perfil autorizado. A operação foi cancelada."
+      !insertmacro TFA_FAIL "Não foi possível continuar: a pasta de programas do usuário não está no perfil autorizado ou diverge de LocalAppData\Programs. A operação foi cancelada."
     ${EndIf}
 
     # o próprio destino canônico não pode ser reparse point (escape por junction)
@@ -385,6 +431,11 @@ Var tfaRegistryValue
 
     # defesa adicional: o destino já resolvido pelo template precisa ser o canônico ou,
     # somente na instalação, o default do próprio template (sem override nem registro).
+    ${If} $tfaGuardMode == "install"
+    ${AndIf} $tfaRequestedDir == ""
+      # A inicialização adaptada não resolve/cria o default do template.
+      StrCpy $INSTDIR $tfaCanonicalDir
+    ${EndIf}
     StrCpy $tfaValue $INSTDIR
     Call ${PREFIX}TFA_MatchesCanonical
     ${If} $tfaFound == 0
@@ -400,29 +451,87 @@ Var tfaRegistryValue
 
     StrCpy $INSTDIR $tfaCanonicalDir
     SetShellVarContext current
+    StrCpy $tfaFailureCode 0
 
-    ${If} $tfaGuardMode == "install"
-      # destino gravável; falha aqui não altera instalação/dados existentes
-      CreateDirectory "$INSTDIR"
-      ClearErrors
-      FileOpen $tfaProbeFile "$INSTDIR\.taskflow-write-probe" w
-      ${If} ${Errors}
-        ClearErrors
-        !insertmacro TFA_FAIL "Não foi possível continuar: o destino autorizado não pode ser preparado para o usuário atual."
-      ${EndIf}
-      FileClose $tfaProbeFile
-      Delete "$INSTDIR\.taskflow-write-probe"
+  FunctionEnd
+
+  Function ${PREFIX}TFA_CheckProcesses
+    StrCpy $tfaFailureCode 110
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_MAINTENANCE_ROOT", w "$INSTDIR") i .R0'
+    ${If} $R0 == 0
+      !insertmacro TFA_FAIL "Não foi possível consultar os processos; manutenção recusada."
     ${EndIf}
+    nsExec::ExecToStack /TIMEOUT=8000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -EncodedCommand ${TFA_PROCESS_COMMAND}'
+    Pop $tfaCount
+    Pop $0
+    ${If} $tfaCount == 11
+      StrCpy $tfaFailureCode 111
+      !insertmacro TFA_FAIL "O TaskFlow App está em execução. Salve os rascunhos e use Sair; fechar a janela mantém o aplicativo na bandeja."
+    ${ElseIf} $tfaCount != 0
+      StrCpy $tfaFailureCode 119
+      !insertmacro TFA_FAIL "A ausência de processos próprios não pôde ser comprovada. Manutenção recusada, sem encerrar processos."
+    ${EndIf}
+    StrCpy $tfaFailureCode 0
+  FunctionEnd
+
+  Function ${PREFIX}TFA_CheckIdentity
+    StrCpy $tfaFailureCode 120
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_MAINTENANCE_ROOT", w "$INSTDIR") i .R0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_MAINTENANCE_VERSION", w "${VERSION}") i .R0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_POST_INSTALL", w "$tfaPostInstall") i .R0'
+    ${If} $R0 == 0
+      !insertmacro TFA_FAIL "Não foi possível consultar a identidade; manutenção recusada."
+    ${EndIf}
+    nsExec::ExecToStack /TIMEOUT=8000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -EncodedCommand ${TFA_IDENTITY_COMMAND}'
+    Pop $tfaCount
+    Pop $0
+    ${If} $tfaCount != 0
+      StrCpy $tfaFailureCode 129
+      !insertmacro TFA_FAIL "A identidade existente é estrangeira, futura ou não pôde ser comprovada. Nenhum cadastro foi corrigido automaticamente."
+    ${EndIf}
+    StrCpy $tfaFailureCode 0
   FunctionEnd
 
 !macroend
 
-!ifdef BUILD_UNINSTALLER
-  !insertmacro TFA_DEFINE_SHARED "un."
-!endif
+!insertmacro TFA_DEFINE_SHARED "un."
 
 !ifndef BUILD_UNINSTALLER
   !insertmacro TFA_DEFINE_SHARED ""
+
+  Function TFA_CheckPredecessor
+    StrCpy $tfaFailureCode 130
+    # Somente TEMP privado após argumentos/path/identity/processos aprovados.
+    # O hash do uninstaller da mesma versão é produzido pelo próprio Setup.
+    InitPluginsDir
+    ClearErrors
+    WriteUninstaller "$PLUGINSDIR\tfa-current-uninstaller.exe"
+    ${If} ${Errors}
+      !insertmacro TFA_FAIL "Não foi possível preparar a prova do desinstalador; manutenção recusada."
+    ${EndIf}
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_MAINTENANCE_ROOT", w "$INSTDIR") i .R0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_MAINTENANCE_CANDIDATE", w "$PLUGINSDIR\tfa-current-uninstaller.exe") i .R0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_MAINTENANCE_VERSION", w "${VERSION}") i .R0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_PREDECESSOR_HASH", w "${TFA_PREDECESSOR_SHA256}") i .R0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "TFA_PREDECESSOR_VERSION", w "${TFA_PREDECESSOR_VERSION}") i .R0'
+    nsExec::ExecToStack /TIMEOUT=8000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -EncodedCommand ${TFA_PREDECESSOR_COMMAND}'
+    Pop $tfaCount
+    Pop $0
+    ${If} $tfaCount != 0
+      ${If} $tfaCount == 31
+        StrCpy $tfaFailureCode 131
+      ${ElseIf} $tfaCount == 32
+        StrCpy $tfaFailureCode 132
+      ${ElseIf} $tfaCount >= 321
+      ${AndIf} $tfaCount <= 325
+        StrCpy $tfaFailureCode $tfaCount
+      ${Else}
+        StrCpy $tfaFailureCode 139
+      ${EndIf}
+      !insertmacro TFA_FAIL "O desinstalador anterior não possui procedência/guarda compatível comprovada. A versão legada não foi removida; é necessária transição revisada."
+    ${EndIf}
+    StrCpy $tfaFailureCode 0
+  FunctionEnd
 
   # Concede somente leitura/execução herdável ao AppContainer no root instalado.
   # Executada em customInstall, depois da validação e da extração; falha interrompe.
@@ -432,6 +541,7 @@ Var tfaRegistryValue
     Pop $tfaCount
     Pop $0
     ${If} $tfaCount != 0
+      StrCpy $tfaFailureCode 202
       !insertmacro TFA_FAIL "Não foi possível concluir a instalação: a permissão de leitura do executável para o sandbox do Windows não pôde ser configurada. Nenhum modo inseguro foi habilitado."
     ${EndIf}
   FunctionEnd
@@ -440,11 +550,26 @@ Var tfaRegistryValue
 !macro customInit
   StrCpy $tfaGuardMode "install"
   Call TFA_ValidateDestination
+  Call TFA_CheckIdentity
+  Call TFA_CheckProcesses
+  Call TFA_CheckPredecessor
 !macroend
 
 !macro customUnInit
   StrCpy $tfaGuardMode "uninstall"
   Call un.TFA_ValidateDestination
+  Call un.TFA_CheckIdentity
+  Call un.TFA_CheckProcesses
+!macroend
+
+!macro customCheckAppRunning
+  !ifdef BUILD_UNINSTALLER
+    Call un.TFA_CheckProcesses
+  !else
+    # uninstaller.nsh is included by the combined custom script; its own
+    # un.checkAppRunning calls the un. function directly in the adapted file.
+    Call TFA_CheckProcesses
+  !endif
 !macroend
 
 !macro customInstall
@@ -472,6 +597,8 @@ Var tfaRegistryValue
   ${If} ${Errors}
     !insertmacro TFA_FAIL "Não foi possível registrar a identidade nativa do aplicativo para este usuário."
   ${EndIf}
+  StrCpy $tfaPostInstall 1
+  Call TFA_CheckIdentity
 !macroend
 
 !macro customUnInstall
