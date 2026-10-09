@@ -1,5 +1,21 @@
 # Evidências intermediárias — TFA-011
 
+## Guardas complementares — 2026-10-09 (parte 2)
+
+- **Duas janelas (harness de UI)**: app instalado B′ com `--foundation-test
+  --product-harness=ui-bench` e `LOCALAPPDATA` fictício criou o perfil na pasta de
+  teste (perfil real intacto) e manteve **2 superfícies**; Setup `/S` recusou **111**
+  sem kill e sem alterar binários; encerramento sem resíduos (pair-two-windows.log).
+- **Uninstaller direto com `_?=`** (app aberto): execução direta do uninstaller
+  instalado retornou **111**, sem remover e preservando os bytes; app vivo
+  (pair-sims2.log).
+- **Predecessor A de cópia verificada com `_?=`** (app aberto): retornou **129**
+  (identidade/versão futura relativa ao seu VERSION0.2.0), sem remover e preservando
+  os bytes — propagação não zero confirmada no par.
+- **Startup desabilitado externamente**: valor Run próprio + entrada
+  `StartupApproved\Run` (blob desabilitado) simulados → reparo exit0 **preservou
+  ambos**; valores removidos e ausência conferida ao final.
+
 ## Simulações complementares no B′ — 2026-10-09
 
 Todas restauráveis e com estado final conferido (pair-sims.log, pair-startup.log,
