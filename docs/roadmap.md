@@ -129,6 +129,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | DONE | — | 2026-10-07 | 2026-10-07 | TFA-009 | Apply 38/38, relatório/waive aprovados e archive; integração do PR #10 conferida na exploração TFA-011: main e referência local origin/main em `f91ce40` |
 | TFA-011 | `finalizar-instalador-e-distribuicao-windows` | IN_PROGRESS | VERIFY | 2026-10-07 | — | TFA-010 | R1–R7/IR1–IR3 aprovados; 28/41. R4 registrada (BLOCKED: Node/npm/offline/Unicode/logoff/2ª conta). Task4.2 concluída (limitação SpiderBanner aceita; notice dc9ef68…). Par0.2.0→0.2.1 (A 5a11c6f/c7d22b05…; B′ 1195277/f10c308e…) instalado/atualizado/reparado; W04 14/14, guardas W05 e simulações PASS; relatório de verificação entregue; 13 tasks abertas aguardam dispensa humana/ambiente. Sem push/PR, sem publicação |
 | TFA-012 | `homologar-paridade-e-primeira-versao-desktop` | PLANNED | — | — | — | TFA-011 | Após dependências, usar o prompt abaixo |
+| TFA-013 | `ajustar-geometria-inicial-da-janela` | PLANNED | — | — | — | TFA-011 | Registrada em2026-10-09 (opção A); explorar após a TFA-011 concluir. Decisões pendentes: monitor principal vs cursor, largura inicial, Quick Add |
 
 ## TFA-001 — Arquitetura e inventário de paridade
 
@@ -2845,6 +2846,18 @@ Use a matriz da TFA-001 e os critérios das TFA-002 a TFA-011 para planejar homo
 
 Entregue achados com referências, alternativas e recomendação justificada, escopo e exclusões, dúvidas materiais, riscos e critérios de aceitação/testes a refinar no propose. Pare após a exploração: não implemente, não instale dependências, não crie artefatos da Change e não inicie propose/apply sem pedido explícito.
 ```
+
+## TFA-013 — Geometria inicial da janela
+
+**Slug sugerido:** `ajustar-geometria-inicial-da-janela`. **Dependências:** TFA-011 (concluir/arquivar antes de iniciar).
+
+**Resultado:** Ao abrir, a janela principal (tarefas) inicia no canto direito do monitor, ocupando a altura útil da tela, **sem comportamento fixo** — continua redimensionável/movível, apenas o estado inicial muda.
+
+**Solicitação registrada em 2026-10-09 (fora do escopo da TFA-011; opção A escolhida pelo usuário):** hoje `new BrowserWindow` em `src/main/index.ts` usa 780×560 e nenhuma posição (o Electron centraliza). Estado desejado: `height` = altura útil do `workArea`, `y` = topo da área útil, `x` = borda direita − largura; preservar `resizable`, mínimos e o restante da UI.
+
+**Dúvidas materiais para a exploração:** monitor principal ou o monitor onde está o cursor; largura inicial (manter 780 ou alargar); aplicar também ao Quick Add (480×560) ou somente ao gerenciador; multimonitor/DPI; posição lembrada entre sessões (hoje não há — decidir se entra no escopo).
+
+**Escopo previsto:** exploração e proposta próprias (Change separada, branch própria); nenhum código até seleção/aprovação. Não alterar a TFA-011, seu candidato B′ nem a campanha em verificação.
 
 ## Como continuar em outra sessão
 
