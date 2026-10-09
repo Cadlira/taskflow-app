@@ -120,9 +120,18 @@ modo inseguro observado.
 3. A pergunta antiga sobre executar `/S /allusers` no uninstaller real continua sem resposta e
    **não foi executada**; a exceção IR3 não depende dela.
 
+## Aprovação humana — 2026-10-09
+
+O usuário aprovou este relatório após a proposta de fechamento: **“Já fiz alguns
+testes em off. Então acho que pode aprovar, arquivar, commitar, fazer o push e abrir
+o PR”**, autorizando archive, commit, push e PR na mesma branch, com as dispensas
+específicas de [closure-waivers.md](closure-waivers.md) para as parcelas não
+comprovadas das 13 tasks (dispensas não são PASS). O usuário relatou ter executado
+testes adicionais fora da sessão; detalhes não registrados nesta Change.
+
 ## Próximo passo
 
-Entrega para **revisão humana** com as decisões acima. Após aprovação (e eventuais dispensas), a
-sequência autorizável é: archive na mesma branch, consolidação dos dois deltas, atualização do
-README conforme o item 38 do AGENTS.md, registro no roadmap e commit final — cada passo mediante
-autorização correspondente. Push/PR/merge/distribuição e TFA-012 permanecem fora do escopo.
+**Aprovado em 2026-10-09**; archive com consolidação dos dois deltas, atualização de
+roadmap/README e commit de fechamento, push da branch e PR foram autorizados na mesma
+mensagem. Merge/distribuição e TFA-012 permanecem fora do escopo; os itens de
+ambiente/homologação seguem para a TFA-012.

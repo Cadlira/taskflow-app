@@ -73,6 +73,15 @@ usuário; em resposta **“Pode continuar”**, a correção do guard foi execut
 f10c308e…). O B anterior (1152e1b, Setup144d413b…) permanece histórico/superseded;
 as demais autorizações não foram ampliadas.
 
+### Aprovação do relatório e fechamento — 2026-10-09
+
+Usuário: **“Já fiz alguns testes em off. Então acho que pode aprovar, arquivar,
+commitar, fazer o push e abrir o PR”**. Relatório aprovado; archive, commit de
+fechamento, push da branch e PR autorizados na mesma branch. As parcelas não
+comprovadas das13 tasks ficam dispensadas conforme
+[closure-waivers.md](closure-waivers.md) (não são PASS). Merge/distribuição/TFA-012
+seguem fora da autorização.
+
 ## Limites de execução
 
 - Branch reutilizada `codex/tfa-011-finalizar-instalador-e-distribuicao-windows`,

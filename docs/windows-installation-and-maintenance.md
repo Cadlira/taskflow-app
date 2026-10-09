@@ -69,7 +69,7 @@ estrangeira/futura e predecessor sem procedência antes da manutenção persiste
 `/S` conserva essas guardas e suprime a mensagem visual; não contorna a recusa.
 O Setup sinaliza a falha por retorno não zero. Uma fixture isolada comprovou que
 o launcher NSIS retorna0 enquanto o processo temporário recusa com111; seu retorno
-isolado não comprova conclusão nem aceitação. A [decisão IR3](../openspec/changes/finalizar-instalador-e-distribuicao-windows/silent-uninstall-review.md)
+isolado não comprova conclusão nem aceitação. A [decisão IR3](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/silent-uninstall-review.md)
 foi aprovada: manter NSIS, sem controlador adicional. O retorno do launcher normal
 não serve como contrato de automação; aguarde e confira o resultado efetivo.
 O uso comum é desinstalar pela interface do Windows após Sair. Guardas e retenção
@@ -190,7 +190,7 @@ Este guia descreve o contrato implementado; a aceitação do produto final exige
 a campanha no hash final. Candidato atual em campanha: **0.2.1 B′** (commit
 `1195277`, Setup f10c308e…); resultados parciais e limites visíveis abaixo.
 Resultados detalhados e falhas históricas estão em
-`openspec/changes/finalizar-instalador-e-distribuicao-windows/campaign-results.md`.
+`openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/campaign-results.md`.
 
 | Instrução | Verificação da implementação | Limite atual |
 | --- | --- | --- |

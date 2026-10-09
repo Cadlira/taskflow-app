@@ -1,31 +1,29 @@
 # Roadmap de Changes — TaskFlow App
 
-**Continuação TFA-011 em 2026-10-09 — IN_PROGRESS/VERIFY:** R1–R7 e IR1/IR2/IR3
-aprovados no escopo de [approval.md](../openspec/changes/finalizar-instalador-e-distribuicao-windows/approval.md).
-**28/41 tasks** confirmadas pela CLI; task1.3 registrada em2026-10-08 (segunda conta
-excluída por decisão humana; ausência de Node/npm, offline, Unicode e logoff/login
-real permanecem BLOCKED/dispensa específica, não PASS). Task4.2 concluída com a
-limitação do SpiderBanner aceita pelo usuário (“Aceita a limitação documentada”):
-procedência dos seis plugins NSIS comprovada byte a byte contra os pacotes oficiais;
-notice atualizado (SHA-256 dc9ef68…) com licença nsisunz integral e a limitação
-explícita. Par limpo0.2.0→0.2.1 construído sob a autorização “2 - autorizado”
-(commits5a11c6f/1152e1b e correção1195277; Setup A c7d22b05…, B′ f10c308e…),
-instalado, atualizado e reparado na conta atual; tasks6.1/6.2/6.3/7.9 e a entrega
-de8.1/8.2 concluídas; campanha no limite do ambiente/autorização (W04 14/14 no B′;
-guardas W05, HKCU/futuro/estrangeiro/unpinned/tray/concorrência/startup simulados
-PASS). [Relatório de verificação](../openspec/changes/finalizar-instalador-e-distribuicao-windows/verification.md)
-entregue para aprovação; **13 tasks abertas** dependem de dispensa humana/ambiente,
-sem push/PR.
+**Fechamento TFA-011 em 2026-10-09 — READY_FOR_MERGE:** R1–R7 e IR1/IR2/IR3
+aprovados no escopo de [approval.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/approval.md).
+Relatório de verificação aprovado pelo usuário (“Já fiz alguns testes em off. Então
+acho que pode aprovar, arquivar, commitar, fazer o push e abrir o PR”):
+[verification.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/verification.md)
+com **28 tasks executadas + 13 dispensadas** ([closure-waivers.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/closure-waivers.md))
+— dispensa não é PASS. Task4.2 concluída com a limitação do SpiderBanner aceita; par
+limpo0.2.0→0.2.1 construído (commits5a11c6f/1152e1b e correção1195277; Setup A
+c7d22b05…, B′ f10c308e…), instalado/atualizado/reparado; campanha W01–W15 no limite
+do ambiente (W04 14/14 no B′; guardas W05, HKCU/futuro/estrangeiro/unpinned/tray/
+concorrência/startup e propagação direta `_?=` simulados PASS). **Archive em
+2026-10-09** com consolidação de specs (7 ADDED + 5 MODIFIED em
+`desktop-build-validation` e `windows-per-user-installation`); commit de fechamento,
+push da branch e PR autorizados. Merge/distribuição/TFA-012 permanecem fora; itens
+de ambiente/homologação seguem para a TFA-012.
 Preview25 0.2.0 instalado/inspecionado; reparo15→25 exit0/52s, dados/ACL intactas.
 Validate25 PASS:1.411 testes+11 skipped/volume2/lint/cinco tipos/build;
 package/verify/smoke integral42 e inspeção instalada25 PASS. IR3 aprovada sem
 controlador novo. Walkthrough/oráculos5.2/5.4 e DPAPI real PASS. Previews22/23 e
 Validate24-retry PASS; smoke24 inicial FAIL no heartbeat conservado, repetição42
 PASS/655,4ms. Inventário/conteúdo/ícones e restrição test-only (4.4) concluídos.
-Fonte do par limpa nos commits A/B/C; campanha no limite do ambiente; relatório de verificação entregue (sem push/PR).
-Sem commit/push/upload/archive. Ver
-[resultados correntes](../openspec/changes/finalizar-instalador-e-distribuicao-windows/campaign-results.md);
-o [prompt de continuação](../openspec/changes/finalizar-instalador-e-distribuicao-windows/continuation-prompt.md)
+Fonte do par limpa nos commits A/B/C. Ver
+[resultados correntes](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/campaign-results.md);
+o [prompt de continuação](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/continuation-prompt.md)
 foi atualizado no checkpoint. Os parágrafos seguintes conservam o histórico; seus
 bloqueios superados não são o estado atual.
 
@@ -37,7 +35,7 @@ não autorizados e campanha instalada BLOCKED. **1/41 tasks concluída**: protoc
 W01–W15/61 cenários. Guarda de destino parcialmente implementada (2.1 desmarcada);
 IR1 requer revisão da abordagem NSIS por SetOutPath anterior aos hooks. Validate
 PASS (1.339 testes +11 skipped, volume2, lint/cinco typechecks/build); OpenSpec19/19
-e archives10/10. Ver [aprovações e condições](../openspec/changes/finalizar-instalador-e-distribuicao-windows/approval.md).
+e archives10/10. Ver [aprovações e condições](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/approval.md).
 Os registros datados anteriores descrevem o estado de suas respectivas entregas.
 
 **Estado atual após o propose da TFA-011 — 2026-10-07:** TFA-001–010 integradas/arquivadas; merges locais PR #9 (`c250870`) e #10 (`f91ce401c8648a8d0aa984975c72885f9c023ee6`) conferidos na exploração. TFA-011 **IN_REVIEW/REVIEW**, início 2026-10-07, na branch reutilizada `codex/tfa-011-finalizar-instalador-e-distribuicao-windows`: proposal/design/dois deltas/tasks (0/41) criados e validados, W01–W15 refinados e prompt de apply registrado abaixo. R1–R7 e transição do uninstaller legado continuam para revisão humana; sem aprovação/apply/build/Setup/contratação/publicação. O parágrafo seguinte conserva o registro anterior à conferência dos merges; suas indicações de integração pendente das TFA-009/010 foram superadas. As dispensas e limitações anteriores continuam válidas; TFA-012 PLANNED.
@@ -127,7 +125,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | DONE | — | 2026-10-06 | 2026-10-06 | TFA-007 | 60/60 tasks; verificação aprovada e archive em 2026-10-06; README atualizado; [PR #8](https://github.com/Cadlira/taskflow-app/pull/8) integrado à principal. Waives de usuário único e D10 revisado registrados na Change |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | DONE | — | 2026-10-06 | 2026-10-07 | TFA-008 | Archive/relatório aprovados; 43 tasks executadas e 2 dispensadas. Integração do PR #9 conferida na exploração TFA-011: merge `c250870` na main, preservando limites/dispensas |
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | DONE | — | 2026-10-07 | 2026-10-07 | TFA-009 | Apply 38/38, relatório/waive aprovados e archive; integração do PR #10 conferida na exploração TFA-011: main e referência local origin/main em `f91ce40` |
-| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | IN_PROGRESS | VERIFY | 2026-10-07 | — | TFA-010 | R1–R7/IR1–IR3 aprovados; 28/41. R4 registrada (BLOCKED: Node/npm/offline/Unicode/logoff/2ª conta). Task4.2 concluída (limitação SpiderBanner aceita; notice dc9ef68…). Par0.2.0→0.2.1 (A 5a11c6f/c7d22b05…; B′ 1195277/f10c308e…) instalado/atualizado/reparado; W04 14/14, guardas W05 e simulações PASS; relatório de verificação entregue; 13 tasks abertas aguardam dispensa humana/ambiente. Sem push/PR, sem publicação |
+| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | READY_FOR_MERGE | — | 2026-10-07 | — | TFA-010 | Relatório aprovado em2026-10-09; archive `2026-10-09-finalizar-instalador-e-distribuicao-windows` com specs consolidadas (7 ADDED + 5 MODIFIED); 28 executadas + 13 dispensadas (closure-waivers). ParA/B′ (5a11c6f/c7d22b05…; 1195277/f10c308e…) com W04 14/14 e guardas/simulações PASS. Commit de fechamento/push/PR autorizados; merge e TFA-012 fora do escopo |
 | TFA-012 | `homologar-paridade-e-primeira-versao-desktop` | PLANNED | — | — | — | TFA-011 | Após dependências, usar o prompt abaixo |
 | TFA-013 | `ajustar-geometria-inicial-da-janela` | PLANNED | — | — | — | TFA-011 | Registrada em2026-10-09 (opção A); explorar após a TFA-011 concluir. Decisões pendentes: monitor principal vs cursor, largura inicial, Quick Add |
 
@@ -2585,8 +2583,20 @@ O usuário respondeu à entrega do relatório com **“Aprove a validação, fa�
 
 ## TFA-011 — Instalador definitivo e distribuição Windows
 
+**Fechamento 2026-10-09 — READY_FOR_MERGE.** Relatório aprovado pelo usuário
+(“Já fiz alguns testes em off. Então acho que pode aprovar, arquivar, commitar,
+fazer o push e abrir o PR”); archive em
+`openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows`
+com specs consolidadas (7 ADDED + 5 MODIFIED em `desktop-build-validation` e
+`windows-per-user-installation`); 28 executadas + 13 dispensadas
+([closure-waivers.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/closure-waivers.md)).
+Par A/B′ e evidências em
+[campaign-results.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/campaign-results.md).
+Commit de fechamento/push/PR autorizados; merge e TFA-012 permanecem fora do escopo.
+Os registros abaixo são históricos do apply.
+
 **Continuação 2026-10-08 — IN_PROGRESS/APPLY.** R1–R7 decididas no escopo de
-[approval.md](../openspec/changes/finalizar-instalador-e-distribuicao-windows/approval.md).
+[approval.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/approval.md).
 Conta atual autorizada para Setup/upgrade/uninstall; segunda conta excluída, sem PASS.
 IR1/adaptação NSIS e IR2/transição manual do legado explicitamente aprovados.
 Windows 11 Home Single Language x64 build 26200, token padrão não elevado/UAC ativo
@@ -2602,18 +2612,18 @@ push/PR/merge/archive/publicação/TFA-012. Registros anteriores abaixo são his
 O usuário declarou **“pode aprovar os artefatos”**, aprovando proposal/design/dois
 deltas/tasks. O pedido de apply desta sessão permanece vigente. A resposta humana
 de R1 foi **“Uso pessoal/controlado, sem atribuição empresarial”**; não atribuir QSI
-como publisher legal. Registro detalhado em [approval.md](../openspec/changes/finalizar-instalador-e-distribuicao-windows/approval.md).
+como publisher legal. Registro detalhado em [approval.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/approval.md).
 R2/R3/R5/R6/R7 e R4 aguardam as perguntas apresentadas na mesma conversa. Ausência
 de resposta não preenche decisões nem autoriza Setup/contas/falhas/logoff.
 
-O [protocolo W01–W15](../openspec/changes/finalizar-instalador-e-distribuicao-windows/validation-protocol.md)
+O [protocolo W01–W15](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/validation-protocol.md)
 é entrega independente da task 1.4, com fixtures, passos, subcasos, oráculos,
 registro de hashes/expected/observed/status e matriz dos 61 cenários dos deltas.
 **1/41 confirmado pela CLI** após verificar 61/61 cenários e 15/15 casos W. Preparação
 documental não executa campanha nem altera dispensas históricas. A task 2.1 tem
 implementação parcial no resolver Known Folders (coerência UserProgramFiles↔
 LocalAppData/Programs e DONT_VERIFY sem CREATE); 13 testes focados PASS. Permanece
-desmarcada por prova W04 ausente e [IR1](../openspec/changes/finalizar-instalador-e-distribuicao-windows/implementation-review.md):
+desmarcada por prova W04 ausente e [IR1](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/implementation-review.md):
 template26.17.0 executa SetOutPath antes de preInit/customInit, podendo criar pasta
 antes da recusa; adaptação da abordagem requer revisão do ponto material, não
 implementada por inferência.
@@ -2795,7 +2805,7 @@ Crie proposal/design/deltas/tasks somente desta Change via CLI suportada, valide
 
 Pedido explícito de `$openspec-propose` recebido em 2026-10-07. Estado registrado antes do scaffold: **IN_PROGRESS/PROPOSE**, início **2026-10-07**; depois da criação/validação: **IN_REVIEW/REVIEW**, conclusão vazia. Raiz própria confirmada por `openspec context --json`; CLI **1.14.0**, schema configurado **spec-driven**, criação via `openspec new change finalizar-instalador-e-distribuicao-windows`. Branch existente/base `f91ce40` preservadas; nenhuma aprovação inferida.
 
-Artefatos para revisão: [proposal](../openspec/changes/finalizar-instalador-e-distribuicao-windows/proposal.md), [design](../openspec/changes/finalizar-instalador-e-distribuicao-windows/design.md), [delta windows-per-user-installation](../openspec/changes/finalizar-instalador-e-distribuicao-windows/specs/windows-per-user-installation/spec.md), [delta desktop-build-validation](../openspec/changes/finalizar-instalador-e-distribuicao-windows/specs/desktop-build-validation/spec.md), [tasks](../openspec/changes/finalizar-instalador-e-distribuicao-windows/tasks.md), **0/41**. W01–W15 mapeados em design D10/deltas/tasks; todos os testes de produto desta proposta estão NOT_RUN. Não foi criado verification.md, que pertence ao apply/verify futuro; specs principais não foram consolidadas.
+Artefatos para revisão: [proposal](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/proposal.md), [design](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/design.md), [delta windows-per-user-installation](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/specs/windows-per-user-installation/spec.md), [delta desktop-build-validation](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/specs/desktop-build-validation/spec.md), [tasks](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/tasks.md), **0/41**. W01–W15 mapeados em design D10/deltas/tasks; todos os testes de produto desta proposta estão NOT_RUN. Não foi criado verification.md, que pertence ao apply/verify futuro; specs principais não foram consolidadas.
 
 **Refinamento material da exploração:** o novo Setup chama o desinstalador anterior; corrigir somente seu próprio hook não elimina kill no binário antigo. D3 propõe recusar predecessor com guarda/procedência não comprovadas antes de invocá-lo, conservar a instalação e testar manutenção entre dois pacotes completos já seguros. R3 recomenda **0.2.0→0.2.1**, ambos candidatos de prova, com 0.2.1 final; é recomendação não aprovada, substituindo o exemplo exploratório de 0.2.0 único. Upgrade direto do 0.1.0 atual não é prometido; desinstalação manual antiga/reinstall é alternativa que exige revisão/autorização própria e perde startup. Se upgrade direto for exigido, revisar abordagem/artefatos antes de implementar, sem remendar o uninstaller antigo por inferência.
 
@@ -2860,6 +2870,14 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 **Escopo previsto:** exploração e proposta próprias (Change separada, branch própria); nenhum código até seleção/aprovação. Não alterar a TFA-011, seu candidato B′ nem a campanha em verificação.
 
 ## Como continuar em outra sessão
+
+**Atualização de 2026-10-09:** TFA-011 aprovada, **arquivada** em
+`openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows`
+(specs consolidadas: 7 ADDED + 5 MODIFIED; 28 tasks executadas + 13 dispensadas em
+[closure-waivers.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/closure-waivers.md)),
+**READY_FOR_MERGE** com commit de fechamento, push e PR autorizados; merge/distribuição
+fora do escopo. Próximas: TFA-012 (homologação; herda itens de ambiente) e TFA-013
+(geometria inicial da janela), ambas PLANNED. O parágrafo abaixo é histórico.
 
 **Atualização de 2026-10-07 após o propose da TFA-011:** TFA-009/010 DONE, com dispensas/limites mantidos; base local `f91ce40`. TFA-011 IN_REVIEW/REVIEW, início 2026-10-07, proposal/design/dois deltas/tasks 0/41 validados na branch existente. Reutilizar esses artefatos e prompt consolidado de apply somente após aprovação explícita; R1–R7/transição legada pendentes, ambiente/Setup dependem de autorização específica. Nenhuma implementação/build/Setup/contratação/publicação; TFA-012 PLANNED. O parágrafo abaixo é histórico anterior à conferência da integração; não retomar TFA-009/010 como se ainda aguardassem merge.
 
