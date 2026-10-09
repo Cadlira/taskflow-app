@@ -52,6 +52,10 @@ Var tfaMaxStart
 Var tfaSlice
 Var tfaFound
 Var tfaCount
+Var tfaTokenBefore
+Var tfaTokenAfter
+Var tfaPrevIndex
+Var tfaNextIndex
 Var tfaValue
 Var tfaRequestedDir
 Var tfaCanonicalRoot
@@ -329,10 +333,39 @@ Var tfaFailureCode
       !insertmacro TFA_FAIL "Não foi possível continuar: o argumento /allusers não é suportado. O TaskFlow App instala somente para o usuário atual."
     ${EndIf}
 
-    # /currentuser duplicado
+    # /currentuser: aceitar no máximo uma vez e somente o token exato. Formas
+    # malformadas como /currentuser=valor ou /currentuserX são recusadas; a contagem
+    # anterior por substring as tratava como o modo válido.
     StrCpy $tfaNeedle "/currentuser"
     StrCpy $tfaScanIndex 0
-    Call ${PREFIX}TFA_Count
+    StrCpy $tfaCount 0
+    ${Do}
+      Call ${PREFIX}TFA_Find
+      ${If} $tfaFound == 0
+        ${Break}
+      ${EndIf}
+      StrCpy $tfaTokenBefore ""
+      ${If} $tfaIndex > 0
+        IntOp $tfaPrevIndex $tfaIndex - 1
+        StrCpy $tfaTokenBefore $tfaHaystack 1 $tfaPrevIndex
+      ${EndIf}
+      ${If} $tfaTokenBefore == ""
+      ${OrIf} $tfaTokenBefore == " "
+      ${OrIf} $tfaTokenBefore == "$\t"
+        IntOp $tfaNextIndex $tfaIndex + 12
+        StrCpy $tfaTokenAfter $tfaHaystack 1 $tfaNextIndex
+        ${If} $tfaTokenAfter == ""
+        ${OrIf} $tfaTokenAfter == " "
+        ${OrIf} $tfaTokenAfter == "$\t"
+          IntOp $tfaCount $tfaCount + 1
+          IntOp $tfaScanIndex $tfaIndex + 12
+        ${Else}
+          !insertmacro TFA_FAIL "Não foi possível continuar: argumento de modo malformado. Use somente /currentuser."
+        ${EndIf}
+      ${Else}
+        !insertmacro TFA_FAIL "Não foi possível continuar: argumento de modo malformado. Use somente /currentuser."
+      ${EndIf}
+    ${Loop}
     ${If} $tfaCount > 1
       !insertmacro TFA_FAIL "Não foi possível continuar: argumento de modo duplicado. Use somente /currentuser."
     ${EndIf}

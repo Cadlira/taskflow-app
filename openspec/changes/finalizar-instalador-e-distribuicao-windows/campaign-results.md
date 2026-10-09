@@ -1,5 +1,60 @@
 # Evidências intermediárias — TFA-011
 
+## W04 — matriz negativa do par e achados — 2026-10-08
+
+Setup B, app fechado, conta atual; casos com `/S`; binários/dados comparados antes/
+depois (pair-negatives.log e reexecuções). Estado após cada caso: registro0.2.1,
+exe134ffcd2…, dados intactos.
+
+Refusões exit100 sem mudança de binários/dados: `/allusers`; `/allusers`
++`/currentuser`; `/currentuser` duplicado exato; `/allusers=bad`; `/D` externo;
+`/D` duplicado; `/D` vazio; `/D` relativo; `--delete-app-data`; `--force-run`.
+Reexecuções com invocação corrigida (argumento único): `/D` externo/duplicado/vazio/
+relativo → exit100; **`/D` canônico equivalente → exit0/44s** (reparo permitido sob
+a mesma política, sem elevação), conforme o cenário "Override equivalente ao
+permitido".
+
+Achados registrados:
+1. **Artefato de harness, não defeito do produto:** `Start-Process -ArgumentList
+   @('/S','/D=...')` insere espaço após `/D=` na linha de comando (comprovado por
+   fixture NSIS própria lendo `GetCommandLineW`: recebida `/D= C:\...`), o NSIS
+   ignora o `/D` e o guard extrai valor com espaço → recusa. A invocação correta é
+   argumento único `/S /D=<destino>`; fixture e Setup real aceitaram. Nenhum modo
+   inseguro observado; a negativa anterior do `/D` canônico fica explicada.
+2. **Achado real pendente de decisão:** `/S /currentuser=bad` é aceito e executa
+   manutenção (exit0/41s, reparo canônico, sem elevação) — o parser conta a
+   substring `/currentuser` sem conferir o limite do token. O protocolo W04 lista
+   `/currentuser` malformado como negativo que deve recusar; guard ausente.
+   Tasks2.1/7.2 permanecem abertas até correção ou dispensa humana explícita.
+
+## Par 0.2.1 (B) — pacote e manutenção 0.2.0→0.2.1 — 2026-10-08
+
+Commit B `1152e1b7b6f021b1dc619319dde75f0c66863c09` (bump0.2.1 + pin do predecessor;
+fonte limpa, source sha256 aeedf4671744b88d346cac8a4d9e969a25cf6abd350923a1d9428d21c72c19b7).
+Build selado B: `0.2.1-win-x64-1152e1b7b6f021b1dc619319dde75f0c66863c09-pair-021`;
+Setup SHA-256 144d413bed9508499c423859ad779468a5e30f8a6e57e130e4faf71d468e70c7,
+153.440.458 bytes; exe 134ffcd2…; ASAR 949fca08…; Reader 893151d6… (idêntico ao
+uninstaller instalado). Validate do commit: 108 arquivos/1.411 testes+11 skipped/
+volume2/lint/cinco tipos/build exit0 (pair-validate-b.log); verify:package OK e
+smoke42PASS/0FAIL (pair021-*). Predecessor0.2.0 fixado em trusted-predecessors.nsh
+pelo hash f4e13085… conferido na instalação A.
+
+Upgrade real/silencioso 0.2.0→0.2.1 na conta atual (app fechado): exit0/48,05s;
+registro0.2.1; atalho conservado; uninstaller instalado igual ao Reader do B; dados
+193 arquivos intactos byte a byte e ACLs de pai/dados intactas (pair-upgrade-b.log).
+Reparo da mesma versão0.2.1/silencioso: exit0/55,80s; registro/atalho conservados;
+dados/ACLs intactos; Reader instalado igual ao candidato (pair-repair-b.log). Sem
+kill, sem elevação e sem transição legada. O Reader do B difere do A: sem o pin o
+guard recusaria; o upgrade exit0 comprova o caminho `prior` fixado.
+
+Bundle/retenção (task6.3): seleção exata selada nos dois stages (selection.json,
+arquivos centrais e inventário completo conferidos por verify:package); nenhuma
+mudança de fonte depois dos hashes (árvore limpa nos commits A/B e após os builds);
+stages preservados localmente em `release/candidates` (ignorado), sem upload (R7);
+reconstrução futura pode divergir em timestamps/metadados do Setup, sem promessa
+byte a byte. OpenSpec estrito da Change/--all19/19/--archived10/10 e git diff
+--check PASS. Tasks6.1/6.2/6.3 concluídas com estas evidências.
+
 ## Par 0.2.0 (A) — uninstall do estado anterior, instalação e pacote — 2026-10-08
 
 Build selado A: build-id

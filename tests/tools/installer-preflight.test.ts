@@ -63,4 +63,17 @@ describe('NSIS — coerência do destino antes de efeitos', () => {
     expect(validate).not.toMatch(/CreateDirectory|FileOpen|WriteReg/)
     expect(validate.slice(guard)).toContain('!insertmacro TFA_FAIL')
   })
+
+  it('trata /currentuser por token exato e recusa malformados', () => {
+    const check = sharedFunction('TFA_CheckArguments')
+    const needle = check.indexOf('StrCpy $tfaNeedle "/currentuser"')
+    expect(needle).toBeGreaterThan(-1)
+    const end = check.indexOf('argumento de modo duplicado. Use somente /currentuser.', needle)
+    expect(end).toBeGreaterThan(needle)
+    const slice = check.slice(needle, end)
+    expect(slice).toContain('argumento de modo malformado. Use somente /currentuser.')
+    expect(slice).toContain('IntOp $tfaNextIndex $tfaIndex + 12')
+    expect(slice).toContain('Call ${PREFIX}TFA_Find')
+    expect(slice).not.toContain('TFA_Count')
+  })
 })

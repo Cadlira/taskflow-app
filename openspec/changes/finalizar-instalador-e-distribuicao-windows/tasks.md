@@ -61,9 +61,9 @@ integral, sem converter implementação parcial ou provas históricas em execuç
 
 ## 6. Gates e par de pacotes limpos
 
-- [ ] 6.1 Executar build limpo pelo lockfile/toolchain fixados no ambiente autorizado e gates validate/OpenSpec estrito pertinentes; verificar resultados/comandos/versões, sem force/legacy-peer-deps ou atualização silenciosa de matriz (W01).
-- [ ] 6.2 Preparar as duas versões completas aprovadas com guarda segura e commits/hashes distintos, package:win/verify:package/smoke:packaged pertinentes; verificar manifests asInvoker/uiAccess=false, app x64/stub x86, notices/inventário e resultados ligados aos bytes (W01/W03/W08/W09), sem executar Setup fora de R4.
-- [ ] 6.3 Conferir bundle de revisão local/CI e retenção do par, usando seleção exata e inspeção do manifesto; verificar nenhuma mudança depois do hash e documentar divergências esperadas em reconstrução funcional (W14). Sem commit/push/disparo/publicação externos por inferência.
+- [x] 6.1 Executar build limpo pelo lockfile/toolchain fixados no ambiente autorizado e gates validate/OpenSpec estrito pertinentes; verificar resultados/comandos/versões, sem force/legacy-peer-deps ou atualização silenciosa de matriz (W01).
+- [x] 6.2 Preparar as duas versões completas aprovadas com guarda segura e commits/hashes distintos, package:win/verify:package/smoke:packaged pertinentes; verificar manifests asInvoker/uiAccess=false, app x64/stub x86, notices/inventário e resultados ligados aos bytes (W01/W03/W08/W09), sem executar Setup fora de R4.
+- [x] 6.3 Conferir bundle de revisão local/CI e retenção do par, usando seleção exata e inspeção do manifesto; verificar nenhuma mudança depois do hash e documentar divergências esperadas em reconstrução funcional (W14). Sem commit/push/disparo/publicação externos por inferência.
 
 ## 7. Campanha final em conta padrão autorizada
 
