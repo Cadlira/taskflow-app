@@ -1,5 +1,65 @@
 # Evidências intermediárias — TFA-011
 
+## W12 parcial — uninstall normal, reinstall e startup OFF (B′) — 2026-10-09
+
+Uninstall **normal (interface, sem /S)** do B′ com o próprio Reader conferido:
+launcher0 em1,0s (semântica IR3); conclusão efetiva verificada em até150s —
+exe/uninstaller/registro/atalho removidos e dados195 arquivos intactos byte a byte
+(pair-uninstall-normal*.log). Reinstall normal do B′: exit0/30,4s; registro0.2.1,
+atalho recriado, Reader instalado igual ao candidato6e34919d…, dados/ACL intactos
+(pair-reinstall-bprime.log). **Startup OFF após reinstall**: sem valor
+`taskflow.app.startup.v1` em HKCU Run e sem entrada em StartupApproved. Uninstall
+`/S` do par também já verificado (pair-uninstall-b.log). Estrangeiros conservados:
+ACLs do pai/dados intactas em todas as operações. Segunda conta permanece
+BLOCKED/dispensa humana (não PASS); retenção de credencial fictícia instalada via
+DPAPI não executada por não ser permitido semear o perfil test — permanece coberta
+pelo probe local de fixture já registrado, sem herdar PASS instalado.
+
+## Par 0.2.1 corrigido (B′) — guard /currentuser, manutenção e campanha — 2026-10-09
+
+Correção do achado W04: `/currentuser` passou a ser tratado por token exato
+(recusa `/currentuser=valor` e `/currentuserX`; duplicado exato segue recusado).
+Commit C `1195277df63579aa244b0b76b8d889e112929594` (fonte limpa) com teste
+estrutural de regressão; validate: 108 arquivos/1.412 testes+11 skipped/volume2/
+lint/cinco tipos/build exit0 (pair-validate-c.log). O candidato anterior B
+(commit1152e1b, Setup144d413b…) fica **histórico/superseded**, sem resselagem.
+
+Build selado B′: `0.2.1-win-x64-1195277df63579aa244b0b76b8d889e112929594-pair-021-fix`;
+Setup SHA-256 f10c308e59fe670d8124314faa338d1d44015326b0d01719a975b2234ac9df17;
+exe134ffcd2…; ASAR949fca08…; Reader6e34919d…. verify:package OK, inclusive
+`--installed-root` após a instalação (pair021fix-verify*). Smoke integral: **FAIL
+inicial só no heartbeat10.000=3.902,2ms/limite2.500ms** (pair021fix-smoke.log);
+repetição integral dos mesmos bytes/flags/limites exit0/42PASS, heartbeat966,4ms
+(pair021fix-smoke-retry.log). Falha inicial conservada, sem WARN.
+
+Manutenção no B′ (conta atual, app fechado):
+- uninstall do B anterior com o próprio Reader conferido: exit0/16,4s; dados/ACL
+  intactos; atalho/registro removidos (pair-uninstall-b.log).
+- instalação limpa do A: exit0/23,9s; registro0.2.0; Reader do A conferido
+  (pair-install-a2.log).
+- upgrade A→B′: exit0/52,3s; registro0.2.1; atalho conservado; dados/ACL intactos;
+  Reader B′ conferido (pair-upgrade-bprime.log).
+- reparo da mesma versão: exit0/46,9s; dados/ACL/atalho conservados (pair-repair-bprime.log).
+
+Matriz W04 final no B′ (14/14 conforme esperado; binários e dados intactos;
+pair-w04-bprime.log): `/S /allusers`, `/allusers /currentuser`,
+`/currentuser /currentuser`, `/currentuser=bad`, `/currentuserX`, `/allusers=bad`,
+`/D` externo/duplicado/vazio/relativo, `--delete-app-data`, `--force-run` →
+exit100; `/S /D=<canônico>` → exit0/43s; `/S /currentuser` válido → exit0/39,3s.
+
+Guardas W05 no B′ (app aberto visível, pid registrado; pair-guards-bprime.log):
+Setup /S recusou exit111 sem kill e sem mudança; uninstall `/S` recusou
+efetivamente (binários presentes, launcher0 pela limitação IR3); encerramento por
+sessão (simulado, separado) saiu graciosamente; reparo após Sair exit0 com
+retenção intacta. Observação: abrir o app altera somente `session-data` (cache) do
+perfil test; `user-data` permanece intacto (delta auditado por nomes/hash).
+
+HKCU simulado restaurável: `InstallLocation` apontado a destino externo →
+refusado exit100/605ms, binários/dados intactos; valor original restaurado e
+conferido igual (pair-hkcu-invalid.log). Known Folder divergente/HKLM/reparse
+permanecem sem simulação instalada segura (HKLM exige admin; redirecionar Known
+Folder é alteração de sistema não autorizada); cobertura estrutural existe.
+
 ## W04 — matriz negativa do par e achados — 2026-10-08
 
 Setup B, app fechado, conta atual; casos com `/S`; binários/dados comparados antes/

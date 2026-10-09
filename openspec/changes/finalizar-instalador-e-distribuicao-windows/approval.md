@@ -67,6 +67,12 @@ distintos na branch), seguidos de package/verify/smoke dos dois lados e da campa
 W01–W15 no escopo R4. A autorização não inclui push/PR/merge/archive/upload/
 distribuição/CI nem TFA-012.
 
+Continuação 2026-10-09: achado W04 do `/currentuser` malformado apresentado ao
+usuário; em resposta **“Pode continuar”**, a correção do guard foi executada
+(commit `1195277`) e o candidato0.2.1 foi reconstruído como **B′** (Setup
+f10c308e…). O B anterior (1152e1b, Setup144d413b…) permanece histórico/superseded;
+as demais autorizações não foram ampliadas.
+
 ## Limites de execução
 
 - Branch reutilizada `codex/tfa-011-finalizar-instalador-e-distribuicao-windows`,

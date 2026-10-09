@@ -1,121 +1,91 @@
 # Prompt para continuar o opsx-apply da TFA-011
 
-Atualizado em2026-10-08 após task1.3 registrada e procedência dos plugins NSIS
-resolvida. Checkpoint por marcos: a ferramenta get_usage_limits não está disponível
-nesta sessão OpenCode; atualizar e entregar este prompt ao atingir novamente5%
-restante do limite. Não é aprovação de verificação, archive, commit ou distribuição.
+Atualizado em2026-10-09 (após correção do guard `/currentuser` e reconstrução do
+candidato B′). Checkpoint por marcos: `get_usage_limits` não está disponível nesta
+sessão OpenCode; atualizar/entregar este prompt ao atingir novamente5% restante.
+Não é aprovação de verificação, archive ou push.
 
-Estado: **21/41 tasks**. Task1.3 registrada (subcasos sem Node/npm/offline/Unicode/
-logoff/2ª conta permanecem BLOCKED, não PASS). Task4.2 aberta somente pela decisão
-humana sobre o SpiderBanner, que não publica licença. Notice NSIS atualizado
-(SHA-256 dc9ef68eee69aae1d40f8bf5673a8c268c29ceeea7beee57ca5815d4de00b128);
-preview25 mantém o notice anterior (9cdcdfa8…) como histórico. Verificações novas:
-testes/tools 9 arquivos/77 testes PASS, eslint, OpenSpec estrito/--all/--archived e
-git diff --check PASS. Nenhuma sessão build/Setup/smoke/inspeção ativa. Não repetir
-reparo nem legado. Commits do par limpo ainda não autorizados.
+Estado: **25/41 tasks**. Par limpo construído e em campanha:
+- A 0.2.0: commit `5a11c6f29670e702e95d9ab1f64e89feed84d15d`; Setup c7d22b05…,
+  build-id `0.2.0-win-x64-5a11c6f…-pair-020b`.
+- B 0.2.1 (inicial): commit `1152e1b7…`; Setup144d413b… — **histórico/superseded**.
+- B′ 0.2.1 (corrigido): commit `1195277df63579aa244b0b76b8d889e112929594`; Setup
+  f10c308e59fe670d8124314faa338d1d44015326b0d01719a975b2234ac9df17; build-id
+  `0.2.1-win-x64-1195277…-pair-021-fix`; Reader6e34919d…; **instalado e reparado**.
+Commits não enviados; sem push/PR/archive/upload/CI/TFA-012. As evidências escritas
+depois do commit C estão **não commitadas** (campaign-results/approval/roadmap/tasks/
+prompt) — precisarão de commit de documentação quando autorizado.
+
+Progresso da campanha: W04 14/14 casos corretos no B′ (inclui `/currentuser=bad` e
+`/currentuserX` recusados após fix; `/D` canônico e `/currentuser` válidos aceitos;
+binários/dados intactos). W05 parcial: Setup /S com app visível recusa111 sem kill;
+uninstall /S recusa efetiva (launcher0 pela limitação IR3); encerramento simulado
+por sessão OK; reparo após Sair exit0. W12 parcial: uninstall normal (interface) +
+`/S` + reinstall do B′ com retenção byte a byte e startup OFF. HKCU
+`InstallLocation` inválido simulado e restaurado: recusa100 sem mutação. Upgrade
+A→B′ exit0/52s e reparo exit0/47s com dados/ACL intactos. Smoke B′: FAIL inicial só
+no heartbeat10.000=3.902ms/2.500ms; repetição integral42 PASS/966ms — falha inicial
+conservada, sem WARN.
 
 ---
 
 Continue `$openspec-apply-change` da TFA-011 — finalizar-instalador-e-distribuicao-windows,
 somente em C:/QSI/Workspaces/taskflow-app. Não reiniciar a implementação nem repetir
 a transição legada já executada. Extensão taskflow-extension estritamente somente
-leitura: não executar escrita/build/test/install/Git nela. Não criar subagentes por inferência.
+leitura. Não criar subagentes por inferência.
 
 Leia integralmente AGENTS.md, docs/roadmap.md e .agents/skills/openspec-apply-change/SKILL.md.
-OpenSpec instalado1.14.0/schema spec-driven: list/status/instructions apply; usar
-contextFiles/sourcePath/line retornados. Leia também na Change approval.md,
-implementation-review.md (IR1), legacy-transition-review.md (IR2),
-silent-uninstall-review.md (IR3), nsis-components-review.md, nsis-build-inspection.md,
-validation-protocol.md, campaign-results.md e tasks.md. Os históricos não são o estado atual.
+OpenSpec1.14.0/schema spec-driven: list/status/instructions apply; usar
+contextFiles/sourcePath/line. Ler na Change approval.md, implementation-review.md,
+legacy-transition-review.md, silent-uninstall-review.md, nsis-components-review.md,
+nsis-build-inspection.md, validation-protocol.md, campaign-results.md e tasks.md.
+Os históricos não são o estado atual.
 
-Branch existente codex/tfa-011-finalizar-instalador-e-distribuicao-windows;
-HEAD f91ce401c8648a8d0aa984975c72885f9c023ee6. Alterações/untracked TFA-011
-preservadas, sem reset/limpeza para simular fonte limpa. Sem commits executados.
+Autorizações humanas persistentes: “pode aprovar os artefatos”; R1 uso pessoal/
+controlado; “Está tudo liberado pode implementar” (R2/R3/R5/R6/R7); IR1/IR2/IR3
+aprovadas; R4 somente conta atual (“Pode testar tudo setup/upgrade/uninstall”);
+“1 - Aceita a limitação documentada” (4.2); “2 - autorizado” (commits do par,
+package/verify/smoke dos dois lados e campanha W01–W15 no escopo R4); “Pode
+continuar” (após o achado W04, autorizou a continuação que produziu o fix do
+`/currentuser` e o B′). Sem autorização de push/PR/merge/archive/upload/
+distribuição/CI/TFA-012.
 
-Autorizações humanas persistem; não pedir novamente dentro do escopo aprovado:
-- Artefatos: “pode aprovar os artefatos”. R1: uso pessoal/controlado sem atribuição empresarial.
-- R2/R3/R5/R6/R7: Windows11x64/builds comprovadas; par privado completo0.2.0→0.2.1;
-  recusar upgrade direto0.1.0; reter perfil/cache/IA cifrada; unsigned; build local
-  rastreável sem upload/distribuição. Resposta: “Está tudo liberado pode implementar”.
-- IR1: “Aprovo a revisão e adaptação NSIS proposta”, antes de SetOutPath/sem node_modules.
-- R4: somente conta atual, “Pode testar tudo setup/upgrade/uninstall”; não criar conta.
-  Segunda conta excluída por decisão humana, não PASS. Logoff/login/powercut não
-  autorizados especificamente; ausência de Node/npm e ambiente Unicode/offline não
-  comprovados; falhas simuladas somente em fixtures. Subcasos não comprovados ficam
-  BLOCKED/dispensa específica, nunca PASS.
-- IR2: “Aprovo a transição manual na conta atual e seus limites”; já executada.
-- Sem autorização de commit/push/PR/merge/archive/upload/distribuição/CItrigger/TFA-012.
+Ambiente e armadilhas aprendidas nesta sessão (OBRIGATÓRIO):
+- O host exporta `npm_config_user_agent=npm/undefined node/v26.3.0…` e o guard de
+  toolchain do package falha; executar `unset npm_config_user_agent` antes de
+  qualquer `npm.cmd run`/`npm exec` na mesma shell.
+- `Start-Process -ArgumentList @('/S','/D=…')` insere espaço após `/D=` (artefato);
+  para `/D` usar argumento único `'/S /D=<destino>'`.
+- App instalado: abrir com `--foundation-test` (perfil test; nunca abrir prod);
+  encerrar graciosamente por `WM_QUERYENDSESSION` (simulação registrada), nunca
+  kill. Abrir o app altera somente `session-data` (cache) do perfil test.
+- Scripts de campanha em `.tmp/tfa011-tests`: `pair-manage.ps1`, `pair-guards.ps1`,
+  `pair-negatives.ps1`, fixture `nsis-insttest`, logs `pair-*.log`.
+- Toolchain fixada Node24.21.0/npm11.21.0: PATH com `.tmp/tfa008-toolchain` e
+  C:/Users/cadli/AppData/Local/Temp/tfa002-node-extract/node-v24.21.0-win-x64;
+  TEMP/TMP em `.tmp/tfa011-tests`.
+- Instalado atualmente: **B′ 0.2.1** (registro0.2.1, Reader6e34919d…), atalho
+  presente, sem processos. Perfis prod/test preexistentes preservados; não semear
+  test; não apagar ai.json; não repetir legado.
 
-Estado confirmado pela CLI: **21/41** tasks. Concluídas1.1/1.2/1.3/1.4/2.6/2.7/
-3.1–3.6/4.1/4.3/4.4/4.5/4.6/5.1–5.4. Demais tarefas continuam abertas. Não reduzir
-contratos para fechar checkboxes. Depois do apply concluído, executar skill verify e
-produzir verification.md; aprovação explícita do relatório antes de archive.
-
-Pendência material da task4.2 (única): decidir sobre o SpiderBanner, cujo pacote
-oficial não publica licença (procedência byte a byte comprovada; limitação explícita
-no notice). Aceitar a limitação documentada e marcar4.2, ou manter aberta/BLOCKED.
-Não inferir licença e não remover integração/UI sem revisar contrato.
-
-Próximas autorizações necessárias (ainda não concedidas):
-1. Decisão humana sobre a limitação do SpiderBanner para concluir a task4.2.
-2. Commits do par limpo0.2.0→0.2.1 com hashes distintos, seguidos de
-   package/verify/smoke dos dois lados e da campanha W01–W15 no escopo R4;
-   sem push/PR/upload por essa autorização salvo pedido explícito.
-3. A pergunta antiga sobre executar `/S /allusers` no uninstaller real continua sem
-   resposta; o script .tmp/tfa011-tests/probe-uninstall-silent-refusal.ps1 NÃO deve
-   ser executado sem autorização específica; não contornar a rejeição por flags,
-   processos ou launcher alternativo.
-
-Instalação REAL atual: preview25, versão0.2.0, root per-user canonical do projeto;
-Windows11HomeSingleLanguage x64 build26200, não elevado/Administrators ausente/UAC1.
-Não abrir prod com dados reais. Perfis prod/test preexistentes preservados; não
-sobrescrever test com seed. Não apagar dados/ai.json, restaurar snapshots reais ou
-repetir o legado. Atualizar/reparar exige conferir predecessor/canonicalroot/Reader-hash.
-O reparo15→25 foi autorizado por R4 e executado após verify/smoke e preflights;
-Reader25 conferido igual ao15. Script lido/executado:
-.tmp/tfa011-tests/install-preview25.ps1 -Repair, argumentos padrão /S. Esse reparo não
-é o payload rejeitado /S /allusers; não usar -Negative nem contornar a rejeição.
-Smoke encerrado e preflight de processos passou antes do reparo.
-
-IR3 APPROVED: manter NSIS simples, sem controlador PowerShell novo; retorno do
-launcher normal é limitação conhecida de automação. Guardas/retenção/ownership
-continuam exigidos; Setup e predecessor executado de cópia verificada com _?=
-continuam propagando não zero. Prova isolada: launcher /S retorna0, execução direta
-_?= retorna111. Política CurrentUser RemoteSigned/demais Undefined, sem alterações.
-
-Task4.2 — procedência resolvida em2026-10-08 (sem bypass): SpiderBanner996a259e…,
-WinShell9be85b98… e nsisunzc31b590c… iguais às DLLs x86-unicode dos pacotes oficiais
-zip45c79a02…/34e111f8…/8c2b7ad6…. No notice: licença nsisunz integral (verificada
-idêntica ao readme oficial), WinShell “Freeware”/20121005, SpiderBanner sem licença
-publicada (wiki/pacote; fórum403). O recurso novo ainda não está no pacote; o par
-final limpo deve incorporá-lo. Não resselar stages históricos.
-
-Checkpoint de gates/artefatos:
-- Validate25 exit0:108 arquivos/1.411 testes +11 skipped, volume2, lint, cinco
-  tipos/build. Package25/verify25 exit0; smoke25 exit0/42PASS. Build-id
-  0.2.0-win-x64-f91ce401c8648a8d0aa984975c72885f9c023ee6-nsis-preview-25;
-  source dirty SHA-256 2fcf39566c7bf44dbd162603bb77380b741cbe125c1edf20ace55bdcc0c15899;
-  Setup b34e6daa…/153.438.809 bytes; Reader f4e13085….
-- Validate24-retry exit0:108/1.410 PASS+11 skipped; Preview24 package/verify PASS;
-  smoke24 inicial FAIL apenas no heartbeat2.617ms/2.500ms, repetição42PASS/655,4ms,
-  falha conservada sem WARN. Fonte dirty INVALID_CANDIDATE_DIRTY_SOURCE nesses previews.
-- Novas verificações (mudança do notice/4.2): testes/tools9 arquivos/77 testes PASS
-  (logs plugins42-*.log), eslint do script alterado PASS, OpenSpec estrito da Change,
-  --all19/19 e --archived10/10 PASS, git diff --check PASS.
-- Não alterar/resselar stages históricos; manifests antigos sem campos OS novos não
-  satisfazem o validator atual. Preservar contratos/tooling originais dessas evidências.
-- Fonte dirty; trusted-predecessors.nsh ainda sem pin do predecessor final. Nenhum
-  Setup/par final novo executado após25.
-
-Toolchain: Node24.21.0/npm11.21.0 fixados. PATH começa por .tmp/tfa008-toolchain e
-C:/Users/cadli/AppData/Local/Temp/tfa002-node-extract/node-v24.21.0-win-x64.
-TEMP/TMP no próprio workspace .tmp/tfa011-tests. Usar `npm exec -- vitest ...`, não
-npx global11.19. Aguardas não devem matar app real. Não escrever fonte durante
-package: source antes/depois deve ser igual.
-
-Próximo: obter as autorizações acima (começando pela decisão do SpiderBanner e pela
-autorização de commits do par limpo), preparar as versões0.2.0→0.2.1 com guarda
-segura/hashes distintos, rodar package/verify/smoke dos dois lados e executar a
-campanha autorizada W01–W15, mantendo BLOCKED/dispensa o que falta de ambiente/
-segunda conta/Unicode/Node/npm/logoff. Monitorar limites de uso e atualizar este
-prompt ao chegar a95%.
+Próximos passos da campanha (sem ampliar autorização):
+1. W12: uninstall normal (interface) e `/S` do B′, reinstall e verificação de
+   retenção/atalho/startup OFF; segunda conta BLOCKED (excluída por decisão humana).
+2. W09/W11 parciais: retenção lógica (snapshot somente leitura de DTOs do perfil
+   test; não é permitido semear) e startup ON/OFF/desabilitado externamente com
+   readback; tray/Quick Add/cópia com foco externo/toast/COM exigem gesto humano —
+   registrar o que for automatizável e manter o restante como pendência humana
+   visível, sem PASS inferido.
+3. W13: falhas simuladas em fixtures (ACL/espaço/extração/registro/DB corrupto/
+   futuro/preferências/PowerShell), sem cortar energia e sem tocar componentes
+   globais.
+4. W15: revisar guia com resultados e limites; depois `openspec-verify-change` e
+   `verification.md` na Change para aprovação humana antes de archive.
+5. Pendências BLOCKED/dispensa específica que NÃO viram PASS: ausência de Node/npm,
+   offline, Unicode/espaços por conta, segunda conta, logoff/login real, powercut,
+   Known Folder redirecionado, HKLM/reparse instalados. A pergunta antiga sobre
+   `/S /allusers` no uninstaller real continua sem resposta — não executar esse
+   payload nem contornar a rejeição.
+6. Commit de documentação/evidência pendente quando autorizado (a árvore está
+   suja apenas com docs da campanha desde o commit C; fonte de produto limpa nos
+   commits A/B/C).

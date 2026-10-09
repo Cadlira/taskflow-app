@@ -9,8 +9,9 @@ limitação do SpiderBanner aceita pelo usuário (“Aceita a limitação docume
 procedência dos seis plugins NSIS comprovada byte a byte contra os pacotes oficiais;
 notice atualizado (SHA-256 dc9ef68…) com licença nsisunz integral e a limitação
 explícita. Par limpo0.2.0→0.2.1 construído sob a autorização “2 - autorizado”
-(commits5a11c6f/1152e1b; Setup A c7d22b05…, B 144d413b…), instalado, atualizado e
-reparado na conta atual; tasks6.1/6.2/6.3 concluídas; campanha W01–W15 em andamento,
+(commits5a11c6f/1152e1b e correção1195277; Setup A c7d22b05…, B′ f10c308e…),
+instalado, atualizado e reparado na conta atual; tasks6.1/6.2/6.3 concluídas;
+campanha W01–W15 em andamento (W04 14/14 no B′, guardas W05 e HKCU simulado PASS),
 sem push/PR.
 Preview25 0.2.0 instalado/inspecionado; reparo15→25 exit0/52s, dados/ACL intactas.
 Validate25 PASS:1.411 testes+11 skipped/volume2/lint/cinco tipos/build;
@@ -123,7 +124,7 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | DONE | — | 2026-10-06 | 2026-10-06 | TFA-007 | 60/60 tasks; verificação aprovada e archive em 2026-10-06; README atualizado; [PR #8](https://github.com/Cadlira/taskflow-app/pull/8) integrado à principal. Waives de usuário único e D10 revisado registrados na Change |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | DONE | — | 2026-10-06 | 2026-10-07 | TFA-008 | Archive/relatório aprovados; 43 tasks executadas e 2 dispensadas. Integração do PR #9 conferida na exploração TFA-011: merge `c250870` na main, preservando limites/dispensas |
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | DONE | — | 2026-10-07 | 2026-10-07 | TFA-009 | Apply 38/38, relatório/waive aprovados e archive; integração do PR #10 conferida na exploração TFA-011: main e referência local origin/main em `f91ce40` |
-| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | IN_PROGRESS | APPLY | 2026-10-07 | — | TFA-010 | R1–R7/IR1–IR3 aprovados; 25/41. R4 registrada (BLOCKED: Node/npm/offline/Unicode/logoff/2ª conta). Task4.2 concluída (limitação SpiderBanner aceita; notice dc9ef68…). Par limpo0.2.0→0.2.1 construído (commits5a11c6f/1152e1b; Setup A c7d22b05…, B 144d413b…) e manutenção instalada PASS; campanha em andamento. Sem push/PR, sem publicação |
+| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | IN_PROGRESS | APPLY | 2026-10-07 | — | TFA-010 | R1–R7/IR1–IR3 aprovados; 25/41. R4 registrada (BLOCKED: Node/npm/offline/Unicode/logoff/2ª conta). Task4.2 concluída (limitação SpiderBanner aceita; notice dc9ef68…). Par0.2.0→0.2.1 (A 5a11c6f/c7d22b05…; B′ 1195277/f10c308e… após correção do guard /currentuser) instalado/atualizado/reparado; W04 14/14, guardas W05 e HKCU simulado PASS; campanha em andamento. Sem push/PR, sem publicação |
 | TFA-012 | `homologar-paridade-e-primeira-versao-desktop` | PLANNED | — | — | — | TFA-011 | Após dependências, usar o prompt abaixo |
 
 ## TFA-001 — Arquitetura e inventário de paridade
