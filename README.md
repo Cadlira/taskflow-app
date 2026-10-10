@@ -91,7 +91,7 @@ npm run build           # main, dois preloads e renderer
 npm run validate        # lint + typecheck + testes + volume + build
 npm run package:win -- --run <id>       # instalador NSIS x64 selado por build-id (--publish never)
 npm run verify:package -- --stage <id>  # inventário/manifests/hashes do pacote (aceita --installed-root)
-npm run smoke:packaged -- --stage <id>  # executa o exe empacotado em cópia de teste (fundação, banco, migração 1→2 com kill, bridge com catálogos 43/14, duas janelas/captura, IA com transporte fictício, lixeira/desfazer, recorrência/subtarefas, backup, lembretes/ciclo de vida e volume)
+npm run smoke:packaged -- --stage <id>  # executa o exe empacotado em cópia de teste isolada (LOCALAPPDATA fictício em todas as fases: fundação, banco, migração 1→2 com kill, bridge com catálogos 43/14, duas janelas/captura, IA com transporte fictício, lixeira/desfazer, recorrência/subtarefas, backup, lembretes/ciclo de vida, percurso integrado `parity` com reabertura entre processos e volume)
 ```
 
 O detalhamento de versões, hashes, limitações e das provas executadas (incluindo a instalação por usuário) está em [Validação da fundação](docs/desktop-foundation-validation.md); o contrato de armazenamento e de estado, seus limites e evidências estão em [Persistência local e IPC de estado](docs/local-persistence-and-state-ipc.md), e o formato/orçamento do backup e o percurso de migração em [Formato de backup](docs/backup-format.md) e [Backup e migração](docs/backup-migration-guide.md). A operação do instalador por usuário (instalar, abrir/Sair, atualizar/reparar, desinstalar/reinstalar e retenção de dados) e os limites conhecidos estão em [Instalação e manutenção no Windows](docs/windows-installation-and-maintenance.md). Os comandos `/opsx:*` são comandos de chat do assistente; os comandos `openspec` são de terminal.
@@ -117,6 +117,8 @@ O detalhamento de versões, hashes, limitações e das provas executadas (inclui
 - [Captura copiada e seus limites](docs/clipboard-capture.md)
 - [Contratos de captura e atalhos](docs/capture-shortcuts-ipc.md)
 - [Assistência de IA, provedores e credenciais](docs/ai-assistance.md)
+- [Roteiro de homologação desktop](docs/desktop-homologation.md)
+- [Resultados da homologação desktop](docs/desktop-homologation-results.md)
 - [Evidência de pacote da TFA-005](docs/packaged-evidence-tfa005.md)
 - [Evidência de pacote da TFA-006](docs/packaged-evidence-tfa006.md)
 - [Evidência de pacote da TFA-007 (backup)](docs/packaged-evidence-tfa007.md)

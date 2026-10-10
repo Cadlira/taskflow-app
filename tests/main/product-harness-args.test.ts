@@ -17,6 +17,7 @@ describe('harness restrito de produto', () => {
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=lifecycle'])).toEqual({ name: 'lifecycle' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=reminders'])).toEqual({ name: 'reminders' })
     expect(parseProductHarnessScenario(['app.exe', '--product-harness=reminders-seed'])).toEqual({ name: 'reminders-seed' })
+    expect(parseProductHarnessScenario(['app.exe', '--product-harness=parity'])).toEqual({ name: 'parity' })
     for (const name of ['entries', 'ai', 'entries-native', 'entries-native-reopen'] as const) {
       expect(parseProductHarnessScenario(['app.exe', `--product-harness=${name}`])).toEqual({ name })
     }
@@ -59,6 +60,7 @@ describe('harness restrito de produto', () => {
     expect(harnessSkipsCoordinatorStart({ name: 'bridge' })).toBe(false)
     expect(harnessSkipsCoordinatorStart({ name: 'reopen' })).toBe(false)
     expect(harnessSkipsCoordinatorStart({ name: 'backup' })).toBe(false)
+    expect(harnessSkipsCoordinatorStart({ name: 'parity' })).toBe(false)
   })
 
   it.each([
@@ -66,6 +68,9 @@ describe('harness restrito de produto', () => {
     [['--product-harness=']],
     [['--product-harness=write']],
     [['--product-harness=tasks|extra']],
+    [['--product-harness=parity|extra']],
+    [['--product-harness=Parity']],
+    [['--product-harness=parity', '--product-harness=bridge']],
     [['--product-harness=ui-bench|1']],
     [['--product-harness=entries-native|prod']],
     [['--product-harness=entries-native', '--product-harness=entries']],

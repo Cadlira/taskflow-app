@@ -2,6 +2,8 @@
 
 **Atualização TFA-009:** Quick Add, captura por gesto e configuração de atalhos estão implementados; Change arquivada em2026-10-07, com relatório aprovado. O comportamento corrente de P08/P09/P10 está no [guia das duas janelas](quick-add-and-shortcuts.md), [captura](clipboard-capture.md) e [catálogo35/14](capture-shortcuts-ipc.md). A campanha nativa completa e a validação instalada/humana foram dispensadas pelo usuário e permanecem não comprovadas, conforme [relatório](../openspec/changes/archive/2026-10-07-adaptar-quick-add-captura-e-atalhos-globais/verification.md).
 
+**Atualização TFA-012 (2026-10-10):** a homologação integrada das jornadas P01–P14 está em execução no candidato C `0.2.2`, com roteiro e matriz de resultados em [desktop-homologation.md](desktop-homologation.md) e [desktop-homologation-results.md](desktop-homologation-results.md). Este documento continua sendo a matriz de paridade da migração (P01–P14, origem e diferenças); os resultados por jornada/camada pertencem à TFA-012 e não são herdados das campanhas anteriores.
+
 **TFA-001 · inventário documental · 2026-10-03**
 
 O inventário original da TFA-001 descreve comportamento observado na extensão e destinos então planejados. As atualizações das Changes posteriores registram implementação e evidências próprias; P08/P09/P10 abaixo foram atualizados na TFA-009. As referências da última coluna continuam sendo fontes somente leitura, sem execução na extensão.
@@ -94,11 +96,11 @@ A TFA-004 (apply concluído e Change arquivada em 2026-10-04) transporta por có
   - **P07 — lembretes:** dados e `processedFor` são preservados, mas mudança **efetiva** de prazo ou status com lembretes presentes é recusada (`ADVANCED_TASK_RESTRICTED`) até a TFA-008, porque a origem liquida/reconcilia ocorrências nessas ações. Edição independente continua válida.
 - **Nota das substituições:** a pesquisa não inclui `sourceUrl`, não remove acentos e não tokeniza palavras — igual à origem; o armazenamento continua sem aplicar limites de formulário a dados históricos.
 
-## TFA-005 — recorrências, subtarefas e fluxo de edição (apply em andamento)
+## TFA-005 — recorrências, subtarefas e fluxo de edição (arquivada em 2026-10-04)
 
 A TFA-005 habilita, no renderer, os fluxos que a TFA-004 mantinha somente leitura. O comportamento
-abaixo está implementado no apply com testes de renderer próprios; verificação formal, pacote e
-medição de volume pertencem aos grupos 7/8 e ainda não foram declarados como resultados. O domínio
+abaixo está implementado com testes de renderer próprios; verificação formal, pacote e medição de
+volume foram concluídos no apply e no [relatório aprovado](../openspec/changes/archive/2026-10-04-preservar-recorrencias-e-subtarefas/verification.md). O domínio
 puro está em [domain-recurrence-and-subtasks.md](domain-recurrence-and-subtasks.md) e a interface em
 [task-form-and-cards.md](task-form-and-cards.md).
 
@@ -166,14 +168,16 @@ prova humana de acessibilidade e campanha de before-images extremas continuam pe
 resolvidos por esta Change. Detalhes em [backup-migration-guide.md](backup-migration-guide.md) e
 [backup-format.md](backup-format.md).
 
-## TFA-008 — composição em validação (2026-10-06)
+## TFA-008 — lembretes e ciclo de vida (concluída em 2026-10-06)
 
 P07 agora inclui edição OFFSET/AT, presets, liquidação atômica, agenda recuperável e
 prevenção de duplicidade por marker persistido. A guarda temporária D8 de prazo/status
 com reminders foi retirada. A composição inclui close para bandeja, Sair, suspend/resume,
-localização temporária por aviso e startup opcional. O núcleo, contratos e composição
-passam testes automatizados; notificações/COM/tray/login/logoff/upgrade/uninstall instalados
-e M12 completo permanecem pendentes de evidência. As limitações históricas TFA-004–007
-sobre ausência de scheduler descrevem aquelas Changes; o estado corrente e as diferenças
-estão no [guia desktop](desktop-reminders-and-lifecycle.md). Backup continua codec 4 e
+localização temporária por aviso e startup opcional. Núcleo, contratos e composição têm
+testes automatizados; a campanha instalada local (2026-10-06, escopo de usuário único)
+comprovou identidade/AUMID/CLSID/COM, toast real com clique→localizar, startup opt-in/out,
+close/Sair e upgrade/uninstall/reinstall com dados preservados, com waives registrados
+(segunda conta e Unicode por conta; logoff real não executado, representado por mensagem
+de sessão) e o D10 revisado formalmente — ver [verificação aprovada](../openspec/changes/archive/2026-10-06-migrar-lembretes-e-ciclo-de-vida-desktop/verification.md)
+e [guia desktop](desktop-reminders-and-lifecycle.md). Backup continua codec 4 e
 transporta tarefas, sem migrar lixeira, credenciais ou desfazer transitório.
