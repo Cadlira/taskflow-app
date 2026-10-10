@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain, Menu, protocol, session, shell, Tray, nativeImage, powerMonitor, Notification } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, protocol, screen, session, shell, Tray, nativeImage, powerMonitor, Notification } from 'electron'
 import { ClipboardCaptureReader } from '../application/capture/clipboard-reader.js'
 import { MemoryCaptureInbox } from '../application/capture/memory-capture-inbox.js'
 import type { SurfaceRole } from '../application/capture/capture-ports.js'
@@ -71,6 +71,7 @@ import { createHarnessAiProtection, createHarnessAiTransport } from './harness/a
 import { createProviderConnectionTester, createProviderSubtaskSuggester } from './ai/provider-adapters.js'
 import { AI_CHANNELS } from '../contracts/ai.js'
 import { DesktopLifecycle, type DesktopWindow } from './desktop/lifecycle.js'
+import { calcularBoundsIniciais } from './desktop/window-geometry.js'
 import { createDesktopTray, type DesktopTray } from './desktop/tray.js'
 import { NATIVE_IDENTITIES, LOGIN_ARGUMENT, STARTUP_NAME, prepareNativeIdentity } from './desktop/native-identity.js'
 import { createWindowsRegistry } from './desktop/windows-registry.js'
@@ -375,10 +376,16 @@ function startOwner(): void {
   function createSurface(options: { show: boolean; register: boolean; role?: SurfaceRole }): BrowserWindow | null {
     const role = options.role ?? 'MANAGER'
     const preload = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'preload', role === 'MANAGER' ? 'index.cjs' : 'quick-add.cjs')
+    const minWidth = 360
+    // TFA-013: somente o gerenciador recebe a geometria inicial (âncora à direita, altura útil,
+    // largura de um terço com clamp) na criação; o Quick Add mantém 480×560 centralizado. Depois
+    // de aberta, a instância viva preserva mover/redimensionar; novo lançamento/recriação reaplica.
+    const initialGeometry = role === 'MANAGER'
+      ? calcularBoundsIniciais(screen.getPrimaryDisplay().workArea, minWidth)
+      : undefined
     const window = new BrowserWindow({
-      width: role === 'MANAGER' ? 780 : 480,
-      height: 560,
-      minWidth: 360,
+      ...(initialGeometry ?? { width: 480, height: 560 }),
+      minWidth,
       minHeight: 420,
       show: false,
       title: 'TaskFlow App',
