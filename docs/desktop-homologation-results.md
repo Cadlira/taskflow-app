@@ -120,22 +120,22 @@ Todas as linhas começam **NOT_RUN**; o status por jornada é atualizado na seç
 
 | H | Rastreio | Camada | Método | Esperado (resumo) | Status | Limite |
 | --- | --- | --- | --- | --- | --- | --- |
-| H01 | P14; F01–F09/W01–W05 | pacote + instalado | real (A; B/C condicional) | Hash/asInvoker/per-user/inventário/atalho; segunda instância e destinos recusados | NOT_RUN | conta padrão/VM/segunda conta dispensadas |
-| H02 | P01; G01–G18 | portátil/DOM/IPC/pacote | real | CRUD/limites/status/pesquisa/filtros/ordenação/datas/draft | NOT_RUN | G19 histórico superado |
-| H03 | P02; R01–R08/V01 | portátil + pacote | real (clock fake/TZ subproc.) | Fechamento atômico, portadora única, sem backlog, terminais/reabertura | NOT_RUN | overflow em relógio de teste |
-| H04 | P03; S01–S03/U01 | portátil/DOM + pacote | real | 20 itens, ordem/progresso, save após check, conflito estrutural | NOT_RUN | — |
-| H05 | P04/P05; L01–L12 | portátil/aplicação/pacote | real (kill/fault em A) | 30×24h/cap100, restore sem geração, undo atômico/refusas | NOT_RUN | energia não alegada |
-| H06 | P06; B01–B14 | portátil + pacote | real (diálogo stub em A) | v1–v4 completos, CAS/epoch, recusas integrais, sem merge | NOT_RUN | diálogo nativo real em B |
-| H07 | TFA-003 P04/W13–W15 | fixture/A | fault-injection | Bloqueio seguro, bytes iguais, sem reset/reparo por import | NOT_RUN | recuperação seletiva só fixture |
-| H08 | P02–P06/P10; B11–B12 | aplicação/pacote | fault-injection/kill próprio | Anterior ou novo inteiro, sem replay, fila recuperável | NOT_RUN | sem energia real |
-| H09 | P07; M01–M12 | portátil/aplicação/pacote + C | real/simulado (toast C) | Claim/graça 300000/300001, liquidação, close/Sair/reopen | NOT_RUN | toast/COM/startup só C |
-| H10 | P08; Q01–Q03 | renderer/pacote | real | Singleton/drafts/ack+snapshot, sem clipboard/IA/backup | NOT_RUN | B/C humano condicional |
-| H11 | P09; Q04–Q08 | portátil/DOM/pacote | real + sentinela humana | URL/texto, TTL/held, recusas preservam draft | NOT_RUN | clipboard humano com sentinela |
-| H12 | P10; Q09–Q14 | portátil/pacote + C | real/simulado | Defaults, rebind/conflicto, registro observado e cleanup | NOT_RUN | Q13 antigo não reexecutado |
-| H13 | P11/P12; AI01–AI15 | portátil/main/pacote | simulado (mocks/loopback) | Consentimento/prévia/uma req./cancel/late, sem autosave | NOT_RUN | AI16 dispensado; DPAPI fake local |
-| H14 | P13/P14; G13–G15/U01/B14/Q12/TFA-013 | portátil/DOM/pacote + humano | real/simulado | Teclado/foco/contraste/zoom200; geometria TFA-013 | NOT_RUN | DPI/leitor/multimonitor só se observados |
-| H15 | W06–W15/P01–P07/P10/P11 | fixture + instalado | real (B/C autorizado) | Par B′→C, retenção integral, DPAPI fictícia, IR3 | NOT_RUN | manutenção pessoal/legado 0.1.0 excluídos |
-| H16 | D10/D11/M12/G20 | pacote | real (medição) | D10 1k/10k, banco p95, volume, heartbeat, offline local | NOT_RUN | offline real condicional |
+| H01 | P14; F01–F09/W01–W05 | pacote + instalado | real (A; B/C condicional) | Hash/asInvoker/per-user/inventário/atalho; segunda instância e destinos recusados | **PASS pacote** (`verify:package`/manifesto; smoke S1–S9); instalado NOT_RUN | conta padrão/VM/segunda conta dispensadas |
+| H02 | P01; G01–G18 | portátil/DOM/IPC/pacote | real | CRUD/limites/status/pesquisa/filtros/ordenação/datas/draft | **PASS pacote** (`tasks`/`parity`) | G19 histórico superado |
+| H03 | P02; R01–R08/V01 | portátil + pacote | real (clock fake/TZ subproc.) | Fechamento atômico, portadora única, sem backlog, terminais/reabertura | **PASS pacote** (`recurrence`/`parity`/bench séries); extremos portáteis | overflow em relógio de teste |
+| H04 | P03; S01–S03/U01 | portátil/DOM + pacote | real | 20 itens, ordem/progresso, save após check, conflito estrutural | **PASS pacote** (`recurrence`/`parity`) | — |
+| H05 | P04/P05; L01–L12 | portátil/aplicação/pacote | real (kill/fault em A) | 30×24h/cap100, restore sem geração, undo atômico/refusas | **PASS pacote** (`trash`/`parity`/`crash`) | energia não alegada |
+| H06 | P06; B01–B14 | portátil + pacote | real (diálogo stub em A) | v1–v4 completos, CAS/epoch, recusas integrais, sem merge | **PASS pacote** (`backup`/`parity`) | diálogo nativo real em B |
+| H07 | TFA-003 P04/W13–W15 | fixture/A | fault-injection | Bloqueio seguro, bytes iguais, sem reset/reparo por import | **PASS fixture/portátil + migração pacote** | recuperação seletiva só fixture |
+| H08 | P02–P06/P10; B11–B12 | aplicação/pacote | fault-injection/kill próprio | Anterior ou novo inteiro, sem replay, fila recuperável | **PASS aplicação/fixture + `crash`/`drain` pacote** | sem energia real |
+| H09 | P07; M01–M12 | portátil/aplicação/pacote + C | real/simulado (toast C) | Claim/graça 300000/300001, liquidação, close/Sair/reopen | **PASS pacote** (`reminders` 11 verificações/`lifecycle`/`parity`); toast/COM/startup NOT_RUN (C) | toast/COM/startup só C |
+| H10 | P08; Q01–Q03 | renderer/pacote | real | Singleton/drafts/ack+snapshot, sem clipboard/IA/backup | **PASS pacote** (`entries`); B/C humano NOT_RUN | B/C humano condicional |
+| H11 | P09; Q04–Q08 | portátil/DOM/pacote | real + sentinela humana | URL/texto, TTL/held, recusas preservam draft | **PASS pacote** (`entries` com clipboard fake); humano NOT_RUN | clipboard humano com sentinela |
+| H12 | P10; Q09–Q14 | portátil/pacote + C | real/simulado | Defaults, rebind/conflicto, registro observado e cleanup | **PASS pacote** (`entries`/catálogo; testes portáteis); registro real NOT_RUN | Q13 antigo não reexecutado |
+| H13 | P11/P12; AI01–AI15 | portátil/main/pacote | simulado (mocks/loopback) | Consentimento/prévia/uma req./cancel/late, sem autosave | **PASS pacote** (`ai` fake 14 verificações); real/pós-manutenção NOT_RUN | AI16 dispensado; DPAPI fake local |
+| H14 | P13/P14; G13–G15/U01/B14/Q12/TFA-013 | portátil/DOM/pacote + humano | real/simulado | Teclado/foco/contraste/zoom200; geometria TFA-013 | **PASS pacote** (`a11y` com opener real; geometria em testes); DPI/leitor humano NOT_RUN | DPI/leitor/multimonitor só se observados |
+| H15 | W06–W15/P01–P07/P10/P11 | fixture + instalado | real (B/C autorizado) | Par B′→C, retenção integral, DPAPI fictícia, IR3 | **NOT_RUN** (instalado; tasks 5.x) | manutenção pessoal/legado 0.1.0 excluídos |
+| H16 | D10/D11/M12/G20 | pacote | real (medição) | D10 1k/10k, banco p95, volume, heartbeat, offline local | **PASS pacote** (`bench`/`ui-bench`/`test:volume`); offline real NOT_RUN | offline real condicional |
 
 **Verificação da task 1.2:** 37 cenários (24 BD + 13 TM) mapeados; 14 itens P + persistência; 16 jornadas com camada/método/esperado/status/limite; AC01 (rastreio completo sem lacuna silenciosa) referenciado; links locais criados; nenhum PASS herdado — todos `NOT_RUN`.
 
@@ -174,11 +174,20 @@ Stage inspecionado: `release/candidates/0.2.1-win-x64-1195277df63579aa244b0b76b8
 
 **Pin atualizado (task 2.2, 2026-10-10):** `build/nsis/trusted-predecessors.nsh` passa a `TFA_PREDECESSOR_VERSION "0.2.1"` e `TFA_PREDECESSOR_SHA256 "6e34919d…"` (exato, não vazio/genérico); `package.json`/`package-lock.json` passam a `0.2.2` somente nos campos de versão do pacote raiz (dependências/runtime/identidade inalterados — ver `git diff`). Cobertura de teste: `tests/tools/predecessor-pin.test.ts` (compatível/diverso/adulterado, versão monotônica, guards 31/32) e `tests/tools/installer-preflight.test.ts` (111/129/131, sem kill/retry, IR3).
 
+### 3.2 C `0.2.2` — build de fonte limpa e verificação (task 4.3, 2026-10-10)
+
+- **Checkpoint:** commit `a2dc60651093941051ff3d1088739ac91e797a68` (branch `codex/tfa-012-homologar-paridade-e-primeira-versao-desktop`); árvore limpa antes e depois do build (nenhuma regeneração rastreada inexplicada).
+- **Build:** `npm run package:win -- --run tfa012-final`, run único, `--publish never`; build-id `0.2.2-win-x64-a2dc60651093941051ff3d1088739ac91e797a68-tfa012-final`.
+- **Manifesto:** `source.clean: true`; `readiness: PENDING_INSTALLED_CAMPAIGN`; identidade `0.2.2`/x64/commit `a2dc606…`; toolchain Node `24.21.0`/npm `11.21.0`/electron-builder `26.17.0`; runtime Electron `44.5.1` x64; lockfile sha256 `ebbd5134…`; `source-before` idêntico ao manifesto.
+- **Hashes conferidos:** Setup `2fc66a525a68b0c9c69317ff6135e77aa9fa4d90fceaa9ea44b2927ad82d1d71` (153.445.617 B); `TaskFlowApp.exe` `3de93f341af1ba64e1465977c1ce3f19aad3582517313c7718182ddf90c99762`; `app.asar` `1d07b23b8c2e23f233104104dd5d691f266733881c6177014993e8c783d5e27c`; uninstaller/Reader `56b7e5efa4ccabea…` (registrado em `uninstaller-sha256.json` e no manifesto).
+- **`verify:package -- --stage …`:** `verify:package OK` (ASAR 13 arquivos na allowlist; exe/Setup asInvoker/uiAccess=false; payload x64; negativas de nomes). **Setup não executado.**
+- **Limites:** candidato unsigned; resultados instalados pertencem às tasks 5.x.
+
 ## 4. Resultados por jornada
 
 ### 4.1 Percurso parity — verificação de desenvolvimento (2026-10-10, build de depuração)
 
-Execução do cenário `parity` no build de depuração desta Change (pacote `--publish never` a partir de fonte ainda não commitada; **não** é o candidato C — evidência de desenvolvimento, substituída/confirmada pelo smoke do candidato em 4.4). Isolamento integral (`LOCALAPPDATA` próprio, sentinela prod fictícia), diálogo stub, scheduler suspenso, duas superfícies reais.
+Execução do cenário `parity` no build de depuração desta Change (pacote `--publish never` a partir de fonte ainda não commitada; **não** é o candidato C — evidência de desenvolvimento, substituída/confirmada pelo smoke do candidato em 4.3). Isolamento integral (`LOCALAPPDATA` próprio, sentinela prod fictícia), diálogo stub, scheduler suspenso, duas superfícies reais.
 
 | Item | Resultado |
 | --- | --- |
@@ -189,7 +198,35 @@ Execução do cenário `parity` no build de depuração desta Change (pacote `--
 | H06 | `confirmApplied` (APPLIED, 4 restauradas, época+1), `importContentMatchesFile` (projeção completa vs. arquivo), `confirmUnchanged`, `epochInvalidatesOldOffer` (`UNDO_NOT_AVAILABLE`), `stalePreviewRefused` (`BACKUP_BASE_CHANGED`), eventos de época nas duas superfícies PASS |
 | Reopen entre processos | `contentDigest` idêntico ao do cenário `reopen` no mesmo banco (revisão 16, 4 tarefas, 0 na lixeira) — `undoEpoch` transitório excluído da comparação |
 
-**Limites desta evidência:** build de depuração (fonte suja); a prova oficial por camada/pacote é o smoke do candidato C (task 4.4). Extremos de H07/H08 permanecem nos testes existentes (`tests/tools/maintenance-fixture.test.ts`, `tests/main/storage-crash.test.ts`, etc.); o percurso adiciona apenas a reabertura/conteúdo entre processos.
+**Limites desta evidência:** build de depuração (fonte suja). A prova oficial por camada/pacote é o smoke do candidato C (§4.3). Extremos de H07/H08 permanecem nos testes existentes (`tests/tools/maintenance-fixture.test.ts`, `tests/main/storage-crash.test.ts`, etc.); o percurso adiciona apenas a reabertura/conteúdo entre processos.
+
+### 4.2 Gates e candidato (tasks 4.1–4.3, 2026-10-10)
+
+| Gate | Resultado | Evidência |
+| --- | --- | --- |
+| `npm run validate` (toolchain Node 24.21.0/npm 11.21.0) | **PASS exit 0** — lint + cinco typechecks; suíte **112 arquivos/1442 testes + 11 skipped** (variantes condicionais de fuso `runIf`, não supressão); `test:volume` 2/2 (M12 1.000: rebuild 77,5 ms/p95 10,9 ms/charge 5.760.000 B; 10.000: rebuild 618,6 ms/p95 6,9 ms/charge 57.600.000 B); build | `.tmp/tfa012-validate.log` |
+| OpenSpec estrito | **PASS** — Change 1/1; `--all` 19/19 (18 specs + Change); `--archived` 12/12 | CLI |
+| Candidato C | build-id `0.2.2-win-x64-a2dc60651093941051ff3d1088739ac91e797a68-tfa012-final`; `source.clean:true`; `verify:package OK`; hashes em §3.2 | `release/candidates/<build-id>/` |
+
+**Notas de execução conservadas:** o smoke de desenvolvimento (pré-candidato) falhou uma vez por contradição do próprio script de isolamento (a sentinela prod fictícia passou a ocupar o diretório que a fase de produto afirmava ausente); o script foi corrigido para verificar **integridade da sentinela** (somente `sentinel.json`, hash preservado) antes e depois de todos os cenários — correção de ferramenta de teste, sem alteração de payload do candidato; o smoke oficial rodou depois no **mesmo stage/hashes** e passou.
+
+### 4.3 Smoke integral do candidato C (task 4.4, 2026-10-10)
+
+`smoke:packaged --stage 0.2.2-win-x64-a2dc606…-tfa012-final` (sem `--skip-bench`/`--entries-only`/`--ci-runner`): **46 PASS, 0 FAIL, 0 WARN — `smoke:packaged OK`**. Perfis/mocks/cleanup: perfil `test` fictício com `LOCALAPPDATA` próprio do smoke; sentinela `prod` fictícia intacta antes/depois (nenhuma leitura do perfil pessoal); diálogo de backup stub; IA com transporte fake; notifier fake/scheduler suspenso fora do cenário `reminders`; PIDs/destinos próprios removidos no `finally`.
+
+| Bloco | Resultado observado |
+| --- | --- |
+| S1–S9 + layout isolado | prova SQLite/negativas, segunda instância, fingerprint, override recusado, preload/ASAR/hang negativos; lifecycle close/quit com tray real; **sentinela prod fictícia intacta** |
+| Migração SQL1→2 + kills | kill in-transaction/before-commit deixam SQL1 inteiro; after-commit deixa SQL2 e recusa leitor antigo; migração normal avança uma revisão |
+| Bridge/estado | round-trip, PRAGMAs DELETE/EXTRA/foreign_keys/100 ms, origem `taskflow://app`, dois bancos separados, segunda instância sem escrita, reopen conserva revisão+conteúdo, drain 32/32 |
+| Crash | 8 barreiras: anterior ou novo estado inteiro; `after-commit` confirma novo; fila recuperada |
+| BENCH (10.000, ≥20 MiB) | gates todos true; mutação p95 3,72 ms, página p95 5,01 ms, preflight 242,5 ms, saveMany 440,4 ms; limite 32.768 passos `RESOURCE_LIMIT` |
+| UI-BENCH 1.000/10.000 | gates todos true; montagem **530,8/2.926,5 ms**; p95 consultas **52,6/789,6 ms**; subcontroles p95 17,5/147,7 ms; heartbeat **52/1.157,1 ms**; cartões exatos 1.000/10.000 |
+| Entries/IA/tasks/recurrence/trash/backup/reminders | cenários reais PASS: roles43/14 e Sair; IA fake 14 verificações; UI real 24+; recorrência/subtarefas; lixeira/desfazer com tokens; backup export/prepare/confirm com diálogo stub; lembretes 11 verificações |
+| **Parity (H02–H06/H09)** | **35/35 verificações**; reopen entre processos confere **revisão 539 + contentDigest** com 4 tarefas e lixeira vazia |
+| a11y | dimensões/zoom/foco/strings longas + abertura real controlada (`openerMode real ok`) |
+
+**Limites:** camada **pacote** (test fictício) — nenhum resultado é marcado como nativo `prod`, instalado ou humano; toast/COM/startup/DPI/leitor/multimonitor/manutenção permanecem nas tasks 5.x/§2.3. Evidência bruta sanitizada: `release/candidates/<build-id>/product-harness-evidence.json` (local, ignorado). Qualquer alteração de payload/configuração do candidato exige novo build e reteste afetado.
 
 ## 5. Conclusão
 

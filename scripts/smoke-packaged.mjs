@@ -233,6 +233,7 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
   const productDatabase = layout.productDatabase
   const proofDatabase = layout.testProfileProof
   const barrierFile = path.join(profileRoot, 'harness-barrier.json')
+  const prodSentinelHash = sha256File(layout.prodSentinelFile)
 
   const runScenario = async (scenario, timeoutMs = launchTimeoutMs) => {
     const child = launch(exe, ['--foundation-test', `--product-harness=${scenario}`], cwd, environment)
@@ -358,7 +359,11 @@ async function productFlow({ exe, cwd, smokeRoot, evidence }) {
   record('produto: origem real do documento é taskflow://app', true)
   assert(existsSync(productDatabase), 'banco de produto ausente no perfil fictício')
   assert(existsSync(proofDatabase), 'banco da prova ausente no perfil fictício')
-  assert(!existsSync(path.join(fictitiousLocalAppData, 'TaskFlowApp', 'profiles', 'prod')), 'perfil prod criado no harness')
+  // O perfil prod fictício contém somente a sentinela criada pelo smoke (nenhum arquivo novo
+  // do app) e a sentinela permanece byte a byte — nunca se compara com o perfil pessoal.
+  const prodEntries = existsSync(layout.prodProfileRoot) ? readdirSync(layout.prodProfileRoot).sort() : []
+  assert(JSON.stringify(prodEntries) === JSON.stringify(['sentinel.json']), 'perfil prod fictício alterado no harness')
+  assert(sha256File(layout.prodSentinelFile) === prodSentinelHash, 'sentinela do perfil prod fictício foi alterada')
   record('produto: bancos de produto e prova separados, só no perfil fictício', true)
 
   // P2 — ownership: segunda instância do mesmo perfil não abre banco nem executa
@@ -799,6 +804,13 @@ async function main() {
 
       // TFA-003 — produto e bridge de estado, antes dos cenários que adulteram o pacote
       await productFlow({ exe, cwd, smokeRoot, evidence })
+
+      // Sentinela do perfil prod fictício intacta após TODOS os cenários (inclusive parity);
+      // nunca se compara com o perfil pessoal.
+      const finalProdEntries = existsSync(layout.prodProfileRoot) ? readdirSync(layout.prodProfileRoot).sort() : []
+      assert(JSON.stringify(finalProdEntries) === JSON.stringify(['sentinel.json']), 'perfil prod fictício alterado após os cenários')
+      assert(sha256File(layout.prodSentinelFile) === prodSentinelBefore, 'sentinela do perfil prod fictício alterada após os cenários')
+      record('produto: sentinela do perfil prod fictício intacta após todos os cenários', true)
 
       // S5 — preload ausente detectado como falha
       const asarFile = path.join(appCopy, 'resources', 'app.asar')
