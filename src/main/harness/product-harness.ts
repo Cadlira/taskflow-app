@@ -1760,10 +1760,28 @@ async function runA11y(deps: ProductHarnessDependencies, openerMode: 'real' | 'f
   const checks: Record<string, boolean> = {}
   const bounds = surface.getBounds()
   const minimum = surface.getMinimumSize()
-  const info: Record<string, unknown> = { runtime: runtimeInfo(deps), bounds, minimum, openerMode }
+  // TFA-013: a geometria inicial é derivada da workArea do display da janela (borda direita, topo
+  // e base) e a regra do terço com clamp é recalculada aqui — sem reutilizar a função de produção,
+  // para o gate não se auto-confirmar. O mínimo 360×420 e o zoom 200% no novo default continuam.
+  const { screen } = await import('electron')
+  const display = screen.getDisplayMatching(bounds)
+  const workArea = display.workArea
+  const minWidth = minimum[0]
+  const expectedWidth = minWidth === undefined
+    ? Number.NaN
+    : Math.min(workArea.width, Math.max(minWidth, Math.round(workArea.width / 3)))
+  const info: Record<string, unknown> = {
+    runtime: runtimeInfo(deps), bounds, minimum,
+    display: { id: display.id, bounds: display.bounds, workArea, expectedWidth }, openerMode,
+  }
 
-  checks['initialBounds'] = bounds.width === 780 && bounds.height === 560
+  checks['initialBounds'] =
+    bounds.x + bounds.width === workArea.x + workArea.width &&
+    bounds.y === workArea.y &&
+    bounds.y + bounds.height === workArea.y + workArea.height &&
+    bounds.width === expectedWidth
   checks['minimumSize'] = minimum[0] === 360 && minimum[1] === 420
+  checks['resizable'] = surface.isResizable()
   checks['uiLoaded'] = await evaluate<boolean>(surface, uiBodyHas('Tarefas'))
 
   checks['openForm'] = await evaluate<boolean>(
