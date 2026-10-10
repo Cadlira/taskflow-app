@@ -176,6 +176,8 @@ Stage inspecionado: `release/candidates/0.2.1-win-x64-1195277df63579aa244b0b76b8
 
 ### 3.2 C `0.2.2` — build de fonte limpa e verificação (task 4.3, 2026-10-10)
 
+**Nota de re-versionamento (2026-10-10, pós-archive, a pedido do usuário):** a versão do produto foi ajustada para **`1.0.0`** (package/lock), com o mesmo código do candidato homologado e a correção de CI do smoke (`--ci-runner` passa a reportar como pendentes os orçamentos de tempo do banco, mantendo gates estruturais e a máquina de referência rígidos). O **candidato homologado permanece o de `0.2.2`** (commit `a2dc606`, hashes abaixo); o build `1.0.0` é um novo candidato derivado (novo commit/build-id/hashes) e recebe `verify:package` + smoke integral próprios antes da entrega local — nenhuma prova deste arquivo é transferida como PASS do novo build.
+
 - **Checkpoint:** commit `a2dc60651093941051ff3d1088739ac91e797a68` (branch `codex/tfa-012-homologar-paridade-e-primeira-versao-desktop`); árvore limpa antes e depois do build (nenhuma regeneração rastreada inexplicada).
 - **Build:** `npm run package:win -- --run tfa012-final`, run único, `--publish never`; build-id `0.2.2-win-x64-a2dc60651093941051ff3d1088739ac91e797a68-tfa012-final`.
 - **Manifesto:** `source.clean: true`; `readiness: PENDING_INSTALLED_CAMPAIGN`; identidade `0.2.2`/x64/commit `a2dc606…`; toolchain Node `24.21.0`/npm `11.21.0`/electron-builder `26.17.0`; runtime Electron `44.5.1` x64; lockfile sha256 `ebbd5134…`; `source-before` idêntico ao manifesto.

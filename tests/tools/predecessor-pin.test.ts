@@ -52,9 +52,9 @@ describe('pin do predecessor — versão e hash exatos (compatível/diverso/adul
   })
 
   it('mantém versão monotônica e metadados de candidato coerentes', () => {
-    expect(candidate.version).toBe('0.2.2')
-    expect(lock.version).toBe('0.2.2')
-    expect(lock.packages['']?.version).toBe('0.2.2')
+    expect(candidate.version).toBe('1.0.0')
+    expect(lock.version).toBe('1.0.0')
+    expect(lock.packages['']?.version).toBe('1.0.0')
     const predecessor = parseVersion(predecessorVersion)
     const candidateParts = parseVersion(candidate.version)
     expect(predecessor).toHaveLength(3)
