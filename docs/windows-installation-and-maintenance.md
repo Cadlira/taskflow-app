@@ -213,3 +213,11 @@ Segunda conta foi excluída por decisão humana, sem PASS. Logoff/login real,
 energia real e publicação não foram autorizados por inferência. Se uma política
 impedir o componente nativo ou pacote unsigned, conserve a evidência e pare essa
 operação; a ausência de prova não amplia o suporte declarado.
+
+## Homologação TFA-012 no candidato C 0.2.2 (2026-10-10)
+
+No escopo autorizado (somente a conta atual; perfil `prod` confirmado exclusivamente fictício), o par **B′ 0.2.1 → C 0.2.2** foi executado no root per-user real com resultados registrados em [desktop-homologation-results.md](desktop-homologation-results.md):
+
+- **Upgrade `/S`:** exit 0 (46 s); `DisplayVersion 0.2.2`; bytes instalados idênticos ao candidato (exe `3de93f34…`, uninstaller `56b7e5ef…`, ASAR `1d07b23b…`); atalho recriado; perfil preservado **byte a byte**.
+- **Uninstall/reinstall `/S`:** remoção efetiva de binários/atalho/registro com dados retidos byte a byte (incluindo `ai.json` de credencial fictícia); reinstall íntegro com **startup OFF** e reabertura conservando 10 tarefas/IDs. **IR3 em ação:** a primeira chamada do uninstaller retornou 0 **sem efeito** e o oráculo por estado recusou o PASS; a repetição idêntica removeu corretamente — conserve falhas e repita somente com razão concreta, conferindo o estado efetivo.
+- **Pendências nativas (NOT_RUN):** toast visual/clique humano, diálogo nativo de backup, rebind/conflito de atalhos instalado, zoom de layout 200% (sem acesso a `webContents.setZoomFactor` pela janela instalada), DPI/leitor de tela/multimonitor, suspensão/offline reais. Nenhuma parcela simulada foi marcada como nativa.

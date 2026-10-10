@@ -150,6 +150,14 @@ corrigida e o clique abriu a consulta com foco). O logoff/login real não foi ex
 (semântica representada por mensagem de sessão) e a segunda conta/Unicode por conta foram
 waivados — mock, build e harness **não** comprovam o que não foi observado.
 
+**Atualização TFA-012 (2026-10-10, candidato C instalado):** startup opt-in/out observado
+com **readback exato** do registro (`taskflow.app.startup.v1="…\TaskFlowApp.exe"
+--taskflow-login`; OFF remove; reinstall começa OFF); lembrete real com OFFSET 0 consumiu o
+gatilho com **marker `processedFor` exato** (uma tentativa); close ocultou para a bandeja e
+Sair encerrou sem residual. Permanecem **NOT_RUN**: exibição/clique visual do toast (gesto
+humano) e suspensão/offline reais (sem autorização específica). Detalhes em
+[desktop-homologation-results.md](desktop-homologation-results.md).
+
 ### Campanha instalada local — 2026-10-06 (autorizada: Setup/desinstalação, sem logoff/segunda conta)
 
 Executada sobre o pacote da Change, em upgrade de instalação pré-existente:

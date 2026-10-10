@@ -120,21 +120,21 @@ Todas as linhas começam **NOT_RUN**; o status por jornada é atualizado na seç
 
 | H | Rastreio | Camada | Método | Esperado (resumo) | Status | Limite |
 | --- | --- | --- | --- | --- | --- | --- |
-| H01 | P14; F01–F09/W01–W05 | pacote + instalado | real (A; B/C condicional) | Hash/asInvoker/per-user/inventário/atalho; segunda instância e destinos recusados | **PASS pacote** (`verify:package`/manifesto; smoke S1–S9); instalado NOT_RUN | conta padrão/VM/segunda conta dispensadas |
-| H02 | P01; G01–G18 | portátil/DOM/IPC/pacote | real | CRUD/limites/status/pesquisa/filtros/ordenação/datas/draft | **PASS pacote** (`tasks`/`parity`) | G19 histórico superado |
+| H01 | P14; F01–F09/W01–W05 | pacote + instalado | real | Hash/asInvoker/per-user/inventário/atalho; segunda instância e destinos recusados | **PASS pacote + instalado** (verify:package; smoke; Setup/bytes/H01/segunda instância); conta padrão DISPENSADA | conta padrão/VM/segunda conta dispensadas |
+| H02 | P01; G01–G18 | portátil/DOM/IPC/pacote + instalado | real | CRUD/limites/status/pesquisa/filtros/ordenação/datas/draft | **PASS pacote + instalado** (`tasks`/`parity`; UI real instalada: criar/editar/concluir/pesquisar/reopen) | G19 histórico superado; teclado do SO não exercitado |
 | H03 | P02; R01–R08/V01 | portátil + pacote | real (clock fake/TZ subproc.) | Fechamento atômico, portadora única, sem backlog, terminais/reabertura | **PASS pacote** (`recurrence`/`parity`/bench séries); extremos portáteis | overflow em relógio de teste |
 | H04 | P03; S01–S03/U01 | portátil/DOM + pacote | real | 20 itens, ordem/progresso, save após check, conflito estrutural | **PASS pacote** (`recurrence`/`parity`) | — |
 | H05 | P04/P05; L01–L12 | portátil/aplicação/pacote | real (kill/fault em A) | 30×24h/cap100, restore sem geração, undo atômico/refusas | **PASS pacote** (`trash`/`parity`/`crash`) | energia não alegada |
-| H06 | P06; B01–B14 | portátil + pacote | real (diálogo stub em A) | v1–v4 completos, CAS/epoch, recusas integrais, sem merge | **PASS pacote** (`backup`/`parity`) | diálogo nativo real em B |
+| H06 | P06; B01–B14 | portátil + pacote | real (diálogo stub em A) | v1–v4 completos, CAS/epoch, recusas integrais, sem merge | **PASS pacote** (`backup`/`parity`); diálogo nativo NOT_RUN | diálogo nativo real em B |
 | H07 | TFA-003 P04/W13–W15 | fixture/A | fault-injection | Bloqueio seguro, bytes iguais, sem reset/reparo por import | **PASS fixture/portátil + migração pacote** | recuperação seletiva só fixture |
 | H08 | P02–P06/P10; B11–B12 | aplicação/pacote | fault-injection/kill próprio | Anterior ou novo inteiro, sem replay, fila recuperável | **PASS aplicação/fixture + `crash`/`drain` pacote** | sem energia real |
-| H09 | P07; M01–M12 | portátil/aplicação/pacote + C | real/simulado (toast C) | Claim/graça 300000/300001, liquidação, close/Sair/reopen | **PASS pacote** (`reminders` 11 verificações/`lifecycle`/`parity`); toast/COM/startup NOT_RUN (C) | toast/COM/startup só C |
-| H10 | P08; Q01–Q03 | renderer/pacote | real | Singleton/drafts/ack+snapshot, sem clipboard/IA/backup | **PASS pacote** (`entries`); B/C humano NOT_RUN | B/C humano condicional |
-| H11 | P09; Q04–Q08 | portátil/DOM/pacote | real + sentinela humana | URL/texto, TTL/held, recusas preservam draft | **PASS pacote** (`entries` com clipboard fake); humano NOT_RUN | clipboard humano com sentinela |
-| H12 | P10; Q09–Q14 | portátil/pacote + C | real/simulado | Defaults, rebind/conflicto, registro observado e cleanup | **PASS pacote** (`entries`/catálogo; testes portáteis); registro real NOT_RUN | Q13 antigo não reexecutado |
+| H09 | P07; M01–M12 | portátil/aplicação/pacote + instalado | real/simulado | Claim/graça 300000/300001, liquidação, close/Sair/reopen | **PASS pacote + instalado** (startup readback exato; marker real; close→bandeja; Sair); toast visual/clique e suspensão real NOT_RUN | toast/COM/startup: visual humano; suspensão/offline reais sem autorização |
+| H10 | P08; Q01–Q03 | renderer/pacote + instalado | real | Singleton/drafts/ack+snapshot, sem clipboard/IA/backup | **PASS pacote + instalado** (`entries`; Quick Add real cria/converge) | B/C humano de teclado/draft fino NOT_RUN |
+| H11 | P09; Q04–Q08 | portátil/DOM/pacote + instalado | real + sentinela | URL/texto, TTL/held, recusas preservam draft | **PASS pacote + instalado** (captura com sentinela → `sourceUrl` íntegro) | demais formatos/recusas humanas NOT_RUN |
+| H12 | P10; Q09–Q14 | portátil/pacote + instalado | real/simulado | Defaults, rebind/conflicto, registro observado e cleanup | **PASS pacote + instalado** (registro observado; startup); rebind/conflito instalado NOT_RUN | Q13 antigo não reexecutado |
 | H13 | P11/P12; AI01–AI15 | portátil/main/pacote | simulado (mocks/loopback) | Consentimento/prévia/uma req./cancel/late, sem autosave | **PASS pacote** (`ai` fake 14 verificações); real/pós-manutenção NOT_RUN | AI16 dispensado; DPAPI fake local |
-| H14 | P13/P14; G13–G15/U01/B14/Q12/TFA-013 | portátil/DOM/pacote + humano | real/simulado | Teclado/foco/contraste/zoom200; geometria TFA-013 | **PASS pacote** (`a11y` com opener real; geometria em testes); DPI/leitor humano NOT_RUN | DPI/leitor/multimonitor só se observados |
-| H15 | W06–W15/P01–P07/P10/P11 | fixture + instalado | real (B/C autorizado) | Par B′→C, retenção integral, DPAPI fictícia, IR3 | **NOT_RUN** (instalado; tasks 5.x) | manutenção pessoal/legado 0.1.0 excluídos |
+| H14 | P13/P14; G13–G15/U01/B14/Q12/TFA-013 | portátil/DOM/pacote + instalado | real/simulado | Teclado/foco/contraste/zoom200; geometria TFA-013 | **PASS pacote + geometria instalada exata**; zoom de layout/DPI/leitor/tema/multimonitor NOT_RUN | sintético não é prova de DPI/multimonitor |
+| H15 | W06–W15/P01–P07/P10/P11 | fixture + instalado | real | Par B′→C, retenção integral, DPAPI fictícia, IR3 | **PASS instalado** (upgrade/uninstall/reinstall; retenção byte a byte; credencial fictícia; IR3 com falha transitória conservada) | manutenção pessoal/legado 0.1.0 excluídos |
 | H16 | D10/D11/M12/G20 | pacote | real (medição) | D10 1k/10k, banco p95, volume, heartbeat, offline local | **PASS pacote** (`bench`/`ui-bench`/`test:volume`); offline real NOT_RUN | offline real condicional |
 
 **Verificação da task 1.2:** 37 cenários (24 BD + 13 TM) mapeados; 14 itens P + persistência; 16 jornadas com camada/método/esperado/status/limite; AC01 (rastreio completo sem lacuna silenciosa) referenciado; links locais criados; nenhum PASS herdado — todos `NOT_RUN`.
@@ -228,6 +228,55 @@ Execução do cenário `parity` no build de depuração desta Change (pacote `--
 
 **Limites:** camada **pacote** (test fictício) — nenhum resultado é marcado como nativo `prod`, instalado ou humano; toast/COM/startup/DPI/leitor/multimonitor/manutenção permanecem nas tasks 5.x/§2.3. Evidência bruta sanitizada: `release/candidates/<build-id>/product-harness-evidence.json` (local, ignorado). Qualquer alteração de payload/configuração do candidato exige novo build e reteste afetado.
 
+### 4.4 Provas instaladas B/C no candidato C (tasks 5.1–5.6, 2026-10-10)
+
+Autorizações registradas na conversa: instalação/manutenção e provas nativas **somente com fixtures e perfil exclusivamente fictício**; o usuário confirmou que o perfil `prod` desta conta é exclusivamente fictício (dados de campanhas) e fechou o app para a manutenção. Execução no root per-user real (`%LOCALAPPDATA%\Programs\TaskFlowApp`), com app instalado aberto em `prod`; evidências: `.tmp/tfa012-c-journey-{a,b,c}.json`, `.tmp/tfa012-h15{,b}.json`, `.tmp/tfa012-prod-*.json`.
+
+**5.1 — instalação, bytes e H01 (PASS instalado):**
+- Setup C `/S` (upgrade B′ `0.2.1` → C `0.2.2`): exit 0 em 46 s; registro `DisplayVersion 0.2.2`; atalho do usuário recriado.
+- Bytes instalados idênticos ao candidato: exe `3de93f34…`, uninstaller `56b7e5ef…`, ASAR `1d07b23b…`.
+- H01 aberto no root instalado: bridge real (`getStateSnapshot` ok), janela principal presente, **segunda instância ativa o owner e sai 0** sem novo escritor (conjunto de PIDs inalterado); nenhuma elevação/serviço. Conta realmente padrão/VM permanecem DISPENSADAS.
+
+**5.2 — percurso instalado H02/H10/H11 (PASS real via UI/CDP; limites em diálogo/teclado):**
+- H02: criar tarefa completa pela UI real (título/descrição/solicitante/responsável/prioridade/prazo/tags/origem), editar, concluir (DONE), pesquisar/filtrar e limpar; conteúdo completo conferido no snapshot; persistência após reabertura. Prioridade por `select` exige evento `change` (corrigido no roteiro; sem defeito de produto).
+- H11: captura copiada com **sentinela fictícia própria** no clipboard (`example.invalid/tfa012/copiada`) → formulário preenchido, título manual e `sourceUrl` íntegro persistido.
+- H10: janela rápida abre como superfície própria, cria e converge no gerenciamento; Sair das duas superfícies sem residual.
+- **NOT_RUN:** diálogo nativo de backup (seleção/exportação por gesto humano), teclado/foco real (interações foram por UI real via CDP, sem eventos de teclado do SO) — separados de stub/harness.
+
+**5.3 — H09/H12 instalado (PASS startup/marker/close/Sair; toast e rebind NOT_RUN):**
+- Startup opt-in/out pelo checkbox do app instalado com **readback exato** do registro: ON grava `taskflow.app.startup.v1="…\TaskFlowApp.exe" --taskflow-login`; OFF remove; reinstall começa OFF.
+- Lembrete real: tarefa com prazo +55 s e OFFSET 0 → **marker `processedFor` exato** no gatilho (uma tentativa, sem duplicidade); capacidade nativa ativa no painel.
+- Close (WM_CLOSE) oculta e mantém o processo na bandeja; **Sair encerra sem residual** (PIDs zerados).
+- **NOT_RUN:** exibição/clique visual do toast (gesto humano) e conflito/rebind de atalhos com helper próprio instalado (registro observado apenas como “Registro próprio confirmado”; Q13 antigo não reexecutado).
+
+**5.4 — suspensão/offline reais (NOT_RUN com simulação registrada):** sem autorização específica para suspender a máquina ou derrubar a rede; permanecem os transportes simulados/clocks dos testes (`reminder-processing`, `ipc-ai`, `ai-loopback`) e os limites já registrados (grace 300.000/300.001 ms por clock; “máquina offline” distinta de bloqueio de transporte).
+
+**5.5 — H14 instalado (geometria PASS; demais subcasos NOT_RUN):** janela do gerenciador medida via Win32: `x=1280`, `y=0`, `largura=640`, `altura=1032` sobre workArea `1920×1032` — borda direita, altura útil e terço com clamp exatos (TFA-013). **NOT_RUN:** zoom de layout 200% (sem acesso a `webContents.setZoomFactor` pela janela instalada; `Emulation.setPageScaleFactor` não reflui layout — permanece coberto pelo gate `a11y` do pacote), DPI/tema/multimonitor/leitor de tela/ícones humanos.
+
+**5.6 — H15 manutenção B′→C (PASS instalado, com falha transitória conservada):**
+- Upgrade B′→C preservou o perfil byte a byte (`taskflow.sqlite`, `proof.sqlite` idênticos antes/depois).
+- Credencial fictícia criada no app instalado (`ai.json` 196 B, DPAPI local; **sem plaintext** no arquivo) e preservada.
+- Uninstall `/S`: **primeira chamada retornou 0 sem efeito** (estado efetivo ainda presente) — o oráculo por estado (IR3) recusou o PASS; **repetição idêntica** segundos depois removeu binários/atalho/registro, com dados retidos byte a byte (falha conservada e repetição justificada nos mesmos bytes, D6).
+- Reinstall `/S`: exit 0, hashes exatos do candidato, **startup OFF** (Run vazio), dados/credencial byte a byte preservados.
+- Reabertura: **10 tarefas/IDs** preservados; credencial fictícia `CONFIGURED`/`hasCredential` com proteção `AVAILABLE`; encerramento sem residual. IR3: oráculo efetivo, nunca o retorno do launcher.
+
+**Limites gerais das provas instaladas:** nenhuma conta nova/VM; suspensão/logoff/energia reais não executados; toast visual/clique, DPI/leitor/multimonitor, diálogo nativo de backup e rebind de atalhos instalado permanecem NOT_RUN (exigem gesto humano/ambiente observado) — nenhuma parcela simulada foi marcada como nativa.
+
+### 4.5 Rastreio dos critérios AC01–AC08 (task 6.1)
+
+| AC | Onde está rastreado | Situação |
+| --- | --- | --- |
+| AC01 | §2.1–2.3 (P01–P14 → requisitos/cenários → H com camada/método/status/limite) + §4.4 | Completo; nenhuma lacuna silenciosa (parcelas humanas NOT_RUN explícitas) |
+| AC02 | §3.2 (C limpo: commit `a2dc606`, `source.clean:true`, hashes) + §4.2 + §4.4 (H15 executado) | Completo; pin B′ exato; sem fallback; nenhum stage editado |
+| AC03 | §4.1/§4.3/§4.4 (parity 35/35 com conteúdo/revisões/atomicidade/reopen; crash/backup/reminders; retenção H15) | Completo no escopo; nenhum crítico de dados observado |
+| AC04 | §4.1–§4.4 (jornadas reais preservadas; IA mockada opcional sem autosave; entrada explícita/sentinela) | Completo no escopo; diálogo/teclado fino NOT_RUN |
+| AC05 | §1.2/§1.5 e §4.4 (somente conta atual; dispensas mantidas; dados fictícios; perfil `prod` confirmado fictício pelo usuário; nenhuma leitura pessoal) | Completo |
+| AC06 | §4.4 (cada alegação nativa ligada ao candidato C instalado com hashes/perfil; parcelas sem prova NOT_RUN com limite) | Completo; H15 com oráculo efetivo (IR3) |
+| AC07 | §4.2 (validate exit 0: 112 arquivos/1442 testes + 11 skipped de fuso; volume 2/2) + §4.3 (smoke 46 PASS, D10/D11/M12 dentro dos limites) | Completo; falhas/repetições conservadas (uninstaller transitório, sentinela do smoke) |
+| AC08 | §1.4/§3/§4 e guias atualizados (D8) com dados observados; deltas coerentes; `verification.md` (task 6.3) | Pendente apenas da aprovação explícita do relatório de verify; archive/distribuição não implicados |
+
+**Requisitos/cenários:** os 7 requisitos e os 37 cenários dos dois deltas estão mapeados em §2.2 (BD-01–BD-24, TM-01–TM-13) e ligados a evidência/limite nas seções §3–§4; nenhum PASS foi herdado de histórico (dispensas permanecem DISPENSADO/NOT_RUN).
+
 ## 5. Conclusão
 
-*(Reservado ao relatório de verify — task 6.3.)*
+*(Preenchida pelo relatório de verify — task 6.3; nenhuma conclusão autoriza distribuição.)*
