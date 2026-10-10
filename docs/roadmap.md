@@ -126,9 +126,9 @@ Não há decisão por backend, login central, sincronização, dashboard, histó
 | TFA-008 | `migrar-lembretes-e-ciclo-de-vida-desktop` | DONE | — | 2026-10-06 | 2026-10-06 | TFA-007 | 60/60 tasks; verificação aprovada e archive em 2026-10-06; README atualizado; [PR #8](https://github.com/Cadlira/taskflow-app/pull/8) integrado à principal. Waives de usuário único e D10 revisado registrados na Change |
 | TFA-009 | `adaptar-quick-add-captura-e-atalhos-globais` | DONE | — | 2026-10-06 | 2026-10-07 | TFA-008 | Archive/relatório aprovados; 43 tasks executadas e 2 dispensadas. Integração do PR #9 conferida na exploração TFA-011: merge `c250870` na main, preservando limites/dispensas |
 | TFA-010 | `migrar-provedores-ia-e-sugestao-de-subtarefas` | DONE | — | 2026-10-07 | 2026-10-07 | TFA-009 | Apply 38/38, relatório/waive aprovados e archive; integração do PR #10 conferida na exploração TFA-011: main e referência local origin/main em `f91ce40` |
-| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | READY_FOR_MERGE | — | 2026-10-07 | — | TFA-010 | Relatório aprovado em2026-10-09; archive `2026-10-09-finalizar-instalador-e-distribuicao-windows` com specs consolidadas (7 ADDED + 5 MODIFIED); 28 executadas + 13 dispensadas (closure-waivers). ParA/B′ (5a11c6f/c7d22b05…; 1195277/f10c308e…) com W04 14/14 e guardas/simulações PASS. [PR #11](https://github.com/Cadlira/taskflow-app/pull/11) aberto; aguardando revisão/integração; merge/TFA-012 fora do escopo |
+| TFA-011 | `finalizar-instalador-e-distribuicao-windows` | DONE | — | 2026-10-07 | 2026-10-09 | TFA-010 | Relatório/archive aprovados com waives registrados (28 executadas + 13 dispensadas); par A/B′ e guardas conforme arquivo. [PR #11](https://github.com/Cadlira/taskflow-app/pull/11) integrado — merge `a700496` conferido na exploração da TFA-013 (main local == origin/main) |
 | TFA-012 | `homologar-paridade-e-primeira-versao-desktop` | PLANNED | — | — | — | TFA-011 | Após dependências, usar o prompt abaixo |
-| TFA-013 | `ajustar-geometria-inicial-da-janela` | PLANNED | — | — | — | TFA-011 | Registrada em2026-10-09 (opção A); explorar após a TFA-011 concluir. Decisões pendentes: monitor principal vs cursor, largura inicial, Quick Add |
+| TFA-013 | `ajustar-geometria-inicial-da-janela` | IN_REVIEW | REVIEW | 2026-10-09 | — | TFA-011 | Proposta criada em 2026-10-09 (4 artefatos; 2 requisitos ADDED/6 cenários; sem skip_specs). Decisões confirmadas: primário, largura ≈⅓ com clamp, só gerenciador, sem persistência, geometria só na abertura. Aguardando revisão |
 
 ## TFA-001 — Arquitetura e inventário de paridade
 
@@ -2872,15 +2872,111 @@ Entregue achados com referências, alternativas e recomendação justificada, es
 
 **Escopo previsto:** exploração e proposta próprias (Change separada, branch própria); nenhum código até seleção/aprovação. Não alterar a TFA-011, seu candidato B′ nem a campanha em verificação.
 
+### Exploração concluída — 2026-10-09
+
+**Autorização, branch e limites:** exploração conduzida a pedido do usuário, com imagem da janela anexada como exemplo da geometria desejada e criação expressa da branch `codex/tfa-013-ajustar-geometria-inicial-da-janela` a partir da `main` em `a700496`. Somente exploração: nenhum artefato OpenSpec, código, teste ou dependência foi criado antes do propose; nenhum commit/push nesta etapa; a origem `C:\QSI\Workspaces\taskflow-extension` permaneceu intocada.
+
+**Dependência conferida:** TFA-011 arquivada em 2026-10-09 e integrada pelo merge `a700496` do [PR #11](https://github.com/Cadlira/taskflow-app/pull/11); `main` local e `origin/main` coincidem nesse ponto — a linha da TFA-011 passa a `DONE` (conclusão 2026-10-09) nesta atualização.
+
+**Achados (código e ambiente):**
+- Ponto único de criação das superfícies: `createSurface()` em `src/main/index.ts` — 780×560 no gerenciador, 480×560 no Quick Add, mínimo 360×420, sem `x`/`y`. O gerenciador nasce uma vez no startup; fechar para bandeja usa `hide()` e reabrir usa `show()`, preservando posição/tamanho da instância viva; a geometria atual só é aplicada na criação, inclusive na recriação após crash do renderer (`rendererGone`).
+- Gate existente a evoluir: o cenário `a11y` do smoke empacotado afirma `initialBounds` 780×560 e mínimo 360×420 (`src/main/harness/product-harness.ts`), com o teste de zoom 200% sobre esse default; `docs/desktop-task-management.md` registra a mesma evidência.
+- Nenhuma spec descreve geometria/posição de janela hoje; o comportamento entra como requisito novo em `desktop-application-lifecycle`.
+- Ambiente autorizado: um único display (primário), 1920×1080, `workArea` 1920×1032 (taskbar 48 px). A imagem-exemplo mostra a janela ancorada à direita, ocupando a altura útil e aproximadamente um terço da largura.
+
+**Decisões humanas confirmadas (2026-10-09):**
+1. **Monitor:** display primário (`getPrimaryDisplay()`); seguir o display do cursor fica como evolução futura caso surja multimonitor.
+2. **Largura:** ~⅓ da largura útil, proporcional (`round(workArea.width / 3)`), com piso no mínimo (360) e teto na própria `workArea`; em 1920 → 640 com `x = 1280`.
+3. **Quick Add:** fora do escopo; somente o gerenciador.
+4. **Persistência de geometria:** não entra; novo lançamento reaplica a geometria inicial.
+5. **Semântica explícita:** a geometria vale na abertura; depois de aberta, valem tamanho/posição definidos pelo usuário (mover/redimensionar e reabrir da bandeja preservam); recriação após crash do renderer conta como abertura nova.
+
+**Riscos registrados:** o check de zoom 200% do `a11y` passará a rodar numa janela de 640 (antes 780) e deve ser revalidado com evidência; o smoke em runner de CI usa display virtual (o clamp evita geometria inválida); multimonitor/DPI real não é verificável nesta máquina — testes sintéticos da função pura e limitação registrada.
+
+**Prompt consolidado para opsx:propose** — usado no pedido de propose de 2026-10-09:
+
+```text
+$openspec-propose TFA-013 — ajustar-geometria-inicial-da-janela
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app e reutilize a branch
+codex/tfa-013-ajustar-geometria-inicial-da-janela, criada da main a700496
+(PR #11/TFA-011 integrados). Leia AGENTS.md, docs/roadmap.md (seção TFA-013),
+as specs consolidadas e o código de criação de janela (src/main/index.ts,
+src/main/desktop/lifecycle.ts, src/main/harness/product-harness.ts). A extensão
+em C:\QSI\Workspaces\taskflow-extension é somente leitura.
+
+Crie proposal/design/specs/tasks pela CLI OpenSpec 1.14.0/schema spec-driven,
+sem skip_specs. Registre IN_PROGRESS/PROPOSE com início em 2026-10-09; depois
+IN_REVIEW/REVIEW, sem aprovação inferida.
+
+Escopo: geometria inicial da janela principal (MANAGER) na criação — display
+primário, y = workArea.y, height = workArea.height,
+width = round(workArea.width / 3) com piso 360 e teto workArea,
+x = workArea.x + workArea.width − width; preservar resizable, mínimos e o
+restante da UI. Quick Add fora do escopo; sem persistência de geometria. A
+geometria vale na abertura; depois valem tamanho/posição do usuário (hide/show
+preserva; novo lançamento reaplica; recriação pós-crash conta como abertura).
+
+Atualizar o gate a11y (initialBounds) para validar as relações com o workArea
+e a regra de um terço (com clamp), mantendo minimumSize 360×420 e revalidando
+o zoom 200% no novo default; cobrir a função de cálculo com testes unitários
+(taskbar em bordas, coordenadas negativas, clamp). Excluir Quick Add,
+persistência, always-on-top/pin, multimonitor além do primário, redesign e
+qualquer funcionalidade alheia. Gates: npm run validate, OpenSpec estrito,
+package:win --publish never, verify:package e smoke:packaged (a11y).
+Pare após a proposta; não implemente, não instale, não abra PR.
+```
+
+### Proposta criada — 2026-10-09
+
+**Pedido explícito de propose:** o usuário invocou o fluxo de propose da TFA-013 em 2026-10-09, após a exploração e a confirmação do kit. A etapa foi registrada como `IN_PROGRESS`/`PROPOSE` antes da criação dos artefatos e agora está `IN_REVIEW`/`REVIEW`; início **2026-10-09**; conclusão da Change sem data. **Artefatos não aprovados; apply não iniciado.**
+
+CLI **1.14.0**, raiz local e schema **spec-driven**, `.openspec.yaml` criado pela CLI, sem `skip_specs`. Quatro grupos de artefatos completos:
+
+- [Proposal](../openspec/changes/ajustar-geometria-inicial-da-janela/proposal.md): motivação, mudanças, capability modificada e impacto.
+- [Design](../openspec/changes/ajustar-geometria-inicial-da-janela/design.md): D1–D7 (display primário; largura proporcional com clamp; função pura em `src/main/desktop/window-geometry.ts`; aplicação só no MANAGER na criação; sem persistência; gate `a11y` relacional; documentação), riscos e plano de rollback.
+- Delta [desktop-application-lifecycle](../openspec/changes/ajustar-geometria-inicial-da-janela/specs/desktop-application-lifecycle/spec.md): **2 requisitos ADDED, 6 cenários**.
+- [Tasks](../openspec/changes/ajustar-geometria-inicial-da-janela/tasks.md): cálculo puro, aplicação na janela, gate `a11y`/documentação e verificação de integração.
+
+**Validação da proposta:** `openspec validate` estrito da Change passou; `openspec validate --all --strict` **19/19** (18 specs + esta Change); `git diff --check` limpo. Nenhum código, dependência, pacote ou Setup executado; extensão intocada.
+
+### Prompt consolidado para opsx:apply
+
+Pronto para uso mediante novo pedido explícito de apply e aprovação dos artefatos. Este registro não inicia a implementação.
+
+```text
+$openspec-apply-change ajustar-geometria-inicial-da-janela
+
+Trabalhe somente em C:\QSI\Workspaces\taskflow-app e reutilize a branch codex/tfa-013-ajustar-geometria-inicial-da-janela (base main a700496, PR #11/TFA-011 integrados). Leia AGENTS.md, docs/roadmap.md (seção TFA-013), os artefatos da Change, as specs consolidadas pertinentes e o código de criação de janela/lifecycle/harness. A extensão C:\QSI\Workspaces\taskflow-extension é somente leitura: não editar, testar, construir ou alterar o Git dela.
+
+Confirme a aprovação humana dos artefatos; registre IN_PROGRESS/APPLY com início e execute somente as tasks da Change, marcando cada uma após a verificação (evidência real, sem presumir sucesso). Implemente a função pura de geometria em src/main/desktop/window-geometry.ts com testes unitários em tests/main (taskbar em cada borda, coordenadas negativas, clamps, arredondamento) e aplique os bounds iniciais em createSurface apenas para o MANAGER com screen.getPrimaryDisplay().workArea; Quick Add, resizable, mínimos, frame e o restante da UI permanecem. Sem persistência de geometria: a sessão viva preserva a escolha do usuário e novo lançamento reaplica a inicial.
+
+Atualize o gate a11y (initialBounds) para asserções relacionais com a workArea e a regra do terço com clamp, mantendo minimumSize 360×420 e revalidando o zoom 200% no novo default; atualize docs/desktop-task-management.md. Execute npm run validate, OpenSpec estrito, package:win --publish never, verify:package e smoke:packaged (a11y, ui-bench, tasks) e registre as evidências; nenhum gate retirado ou afrouxado sem revisão. Ao concluir, execute o opsx:verify e gere verification.md na Change; pare para aprovação explícita do relatório antes do archive. Não archive, commite/pushe/PR/merge, distribua ou inicie outra Change por inferência.
+```
+
+### Apply executado — 2026-10-09
+
+**Autorização e escopo:** apply invocado explicitamente pelo usuário em 2026-10-09 (aprovação dos artefatos materializada nesse pedido, AGENTS.md item 12), na branch `codex/tfa-013-ajustar-geometria-inicial-da-janela` (base `a700496`). Somente as 11 tasks da Change; extensão em `C:\QSI\Workspaces\taskflow-extension` intocada; nenhum commit/push/PR/merge/archive/distribuição.
+
+**Implementação (11/11 tasks):** função pura `calcularBoundsIniciais` em `src/main/desktop/window-geometry.ts` (13 testes em `tests/main/window-geometry.test.ts`); aplicação em `createSurface` somente para `MANAGER` (`screen.getPrimaryDisplay().workArea` + `minWidth`; Quick Add 480×560 intacto); gate `a11y` com asserções relacionais à `workArea` + regra do terço recalculada no harness + `isResizable()`, mínimo 360×420 mantido; evidência do `a11y` atualizada em `docs/desktop-task-management.md`.
+
+**Verificações (evidências reais):** checklist em execução dev no display 1920×1032 — nasce `x=1280, y=0, 640×1032`; mover/redimensionar `(300,150,900×700)` e fechar para bandeja/reabrir preservam; reiniciar reaplica; Quick Add 480×560. `npm run validate` verde (lint, cinco typechecks, 109 arquivos/1425 testes + 11 skipped, volume 2/2, build). `package:win` (build-id `0.2.1-win-x64-a7004968…-local-1791589871634`), `verify:package OK` e `smoke:packaged OK` (42 PASS) — `a11y` **13/13** (observado 1280,0,640×1032; zoom 200% aprovado no default 640), `ui-bench` todos os gates verdes (1.000: heartbeat 43,9 ms; 10.000: montagem 2.677,87 ms). OpenSpec estrito: Change 1/1 e `--all` 19/19. Transiente registrado: a primeira execução do smoke reprovou `heartbeatWithinBudget` (408,8 ms vs ≤250) sob carga da máquina; reexecuções focadas e o smoke final em máquina ociosa passaram (43,5–65,9 ms), sem retirar ou afrouxar gate.
+
+**Relatório:** `openspec/changes/ajustar-geometria-inicial-da-janela/verification.md` gerado e **aprovado explicitamente pelo usuário em 2026-10-09** ("Pode aprovar o relatório. Rode o archive, commit, faça o push e abra o PR"), habilitando o archive (AGENTS.md item 42).
+
+### Archive — 2026-10-09
+
+**Arquivamento:** Change arquivada em `openspec/changes/archive/2026-10-09-ajustar-geometria-inicial-da-janela/` (mesma branch, `.openspec.yaml` preservado). Specs consolidadas em `openspec/specs/desktop-application-lifecycle/spec.md`: **2 requisitos ADDED** (geometria inicial ancorada à direita; geometria vale somente na abertura — 6 cenários). Validação após o archive: `--all --strict` **18/18** specs e `--archived --strict` **12/12**, sem issues novos; nenhuma Change ativa. README atualizado para o funcionamento atual (geometria inicial da janela principal no monitor principal). **Estado: READY_FOR_MERGE** — commit/push/PR autorizados pelo usuário; merge, distribuição e próxima Change não autorizados.
+
 ## Como continuar em outra sessão
 
 **Atualização de 2026-10-09:** TFA-011 aprovada, **arquivada** em
 `openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows`
 (specs consolidadas: 7 ADDED + 5 MODIFIED; 28 tasks executadas + 13 dispensadas em
 [closure-waivers.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/closure-waivers.md)),
-**READY_FOR_MERGE** com commit de fechamento, push e PR autorizados; merge/distribuição
-fora do escopo. Próximas: TFA-012 (homologação; herda itens de ambiente) e TFA-013
-(geometria inicial da janela), ambas PLANNED. O parágrafo abaixo é histórico.
+**DONE** — [PR #11](https://github.com/Cadlira/taskflow-app/pull/11) integrado (merge
+`a700496`, conferido em 2026-10-09 na exploração da TFA-013; main local == origin/main).
+TFA-013 com proposta criada, **apply 11/11, relatório aprovado e archive executado em 2026-10-09**; estado **READY_FOR_MERGE** com commit/push/PR autorizados e integração pendente. TFA-012 PLANNED (homologação; herda itens de ambiente). O parágrafo abaixo é histórico.
 
 **Atualização de 2026-10-07 após o propose da TFA-011:** TFA-009/010 DONE, com dispensas/limites mantidos; base local `f91ce40`. TFA-011 IN_REVIEW/REVIEW, início 2026-10-07, proposal/design/dois deltas/tasks 0/41 validados na branch existente. Reutilizar esses artefatos e prompt consolidado de apply somente após aprovação explícita; R1–R7/transição legada pendentes, ambiente/Setup dependem de autorização específica. Nenhuma implementação/build/Setup/contratação/publicação; TFA-012 PLANNED. O parágrafo abaixo é histórico anterior à conferência da integração; não retomar TFA-009/010 como se ainda aguardassem merge.
 
