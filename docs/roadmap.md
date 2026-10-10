@@ -2966,7 +2966,7 @@ Atualize o gate a11y (initialBounds) para asserções relacionais com a workArea
 
 ### Archive — 2026-10-09
 
-**Arquivamento:** Change arquivada em `openspec/changes/archive/2026-10-09-ajustar-geometria-inicial-da-janela/` (mesma branch, `.openspec.yaml` preservado). Specs consolidadas em `openspec/specs/desktop-application-lifecycle/spec.md`: **2 requisitos ADDED** (geometria inicial ancorada à direita; geometria vale somente na abertura — 6 cenários). Validação após o archive: `--all --strict` **18/18** specs e `--archived --strict` **12/12**, sem issues novos; nenhuma Change ativa. README atualizado para o funcionamento atual (geometria inicial da janela principal no monitor principal). **Estado: READY_FOR_MERGE** — commit/push/PR autorizados pelo usuário; merge, distribuição e próxima Change não autorizados.
+**Arquivamento:** Change arquivada em `openspec/changes/archive/2026-10-09-ajustar-geometria-inicial-da-janela/` (mesma branch, `.openspec.yaml` preservado). Specs consolidadas em `openspec/specs/desktop-application-lifecycle/spec.md`: **2 requisitos ADDED** (geometria inicial ancorada à direita; geometria vale somente na abertura — 6 cenários). Validação após o archive: `--all --strict` **18/18** specs e `--archived --strict` **12/12**, sem issues novos; nenhuma Change ativa. README atualizado para o funcionamento atual (geometria inicial da janela principal no monitor principal). **Estado: READY_FOR_MERGE** — [PR #12](https://github.com/Cadlira/taskflow-app/pull/12) aberto para revisão e integração pendente; merge, distribuição e próxima Change não autorizados.
 
 ## Como continuar em outra sessão
 
@@ -2976,7 +2976,7 @@ Atualize o gate a11y (initialBounds) para asserções relacionais com a workArea
 [closure-waivers.md](../openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/closure-waivers.md)),
 **DONE** — [PR #11](https://github.com/Cadlira/taskflow-app/pull/11) integrado (merge
 `a700496`, conferido em 2026-10-09 na exploração da TFA-013; main local == origin/main).
-TFA-013 com proposta criada, **apply 11/11, relatório aprovado e archive executado em 2026-10-09**; estado **READY_FOR_MERGE** com commit/push/PR autorizados e integração pendente. TFA-012 PLANNED (homologação; herda itens de ambiente). O parágrafo abaixo é histórico.
+TFA-013 com proposta criada, **apply 11/11, relatório aprovado e archive executado em 2026-10-09**; estado **READY_FOR_MERGE** com [PR #12](https://github.com/Cadlira/taskflow-app/pull/12) aberto para revisão e integração pendente. TFA-012 PLANNED (homologação; herda itens de ambiente). O parágrafo abaixo é histórico.
 
 **Atualização de 2026-10-07 após o propose da TFA-011:** TFA-009/010 DONE, com dispensas/limites mantidos; base local `f91ce40`. TFA-011 IN_REVIEW/REVIEW, início 2026-10-07, proposal/design/dois deltas/tasks 0/41 validados na branch existente. Reutilizar esses artefatos e prompt consolidado de apply somente após aprovação explícita; R1–R7/transição legada pendentes, ambiente/Setup dependem de autorização específica. Nenhuma implementação/build/Setup/contratação/publicação; TFA-012 PLANNED. O parágrafo abaixo é histórico anterior à conferência da integração; não retomar TFA-009/010 como se ainda aguardassem merge.
 
