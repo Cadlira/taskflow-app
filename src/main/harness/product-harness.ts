@@ -18,6 +18,7 @@ import {
 } from '../../application/tasks/task-commands.js'
 import type { BackupResourceLedger } from '../../application/backup/backup-resources.js'
 import { BACKUP_PREVIEW_TTL_MS } from '../../contracts/backup.js'
+import type { ConfirmBackupRestoreResult } from '../../contracts/backup.js'
 import type { BackupWriteFaultPoint, BackupWriteFaults } from '../backup/backup-file-write.js'
 import type { StateSnapshotResult } from '../../contracts/state.js'
 import { utf8ByteLength } from '../../contracts/text.js'
@@ -37,6 +38,7 @@ import { ProductDatabase, type StorageFaultPoint, type StorageFaults } from '../
 import { PRODUCT_STORAGE_DEFINITION, PRODUCT_V1_DEFINITION } from '../storage/product-schema.js'
 import type { DesktopLifecycle } from '../desktop/lifecycle.js'
 import { buildFictitiousTask, buildFictitiousTasks, buildMinimalFictitiousTask, fictitiousText } from './fixtures.js'
+import { buildAgedParityTask, buildParityPlan } from './parity-fixtures.js'
 
 const HARNESS_PREFIX = '--product-harness='
 const MARKER = 'TASKFLOW_PRODUCT_TEST '
@@ -77,6 +79,7 @@ export type ProductHarnessScenario =
   | { name: 'entries-native-reopen' }
   | { name: 'reminders' }
   | { name: 'reminders-seed' }
+  | { name: 'parity' }
   | { name: 'backup'; exportFail?: BackupWriteFaultPoint }
   | { name: 'a11y'; opener: 'real' | 'fake' }
   | { name: 'crash'; point: StorageFaultPoint; unit: 'save' | 'claim' | 'migrate' | 'move' | 'restore' | 'revert' }
@@ -130,7 +133,7 @@ export function parseProductHarnessScenario(argv: readonly string[]): ProductHar
   const value = matches[0]?.slice(HARNESS_PREFIX.length)
   if (matches.length !== 1 || value === undefined) return null
   if (value === 'bridge' || value === 'reopen' || value === 'bench' || value === 'drain') return { name: value }
-  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash' || value === 'lifecycle' || value === 'reminders' || value === 'reminders-seed' || value === 'entries' || value === 'ai' || value === 'entries-native' || value === 'entries-native-reopen') {
+  if (value === 'tasks' || value === 'ui-bench' || value === 'seed-sql1' || value === 'inspect-sql1' || value === 'recurrence' || value === 'trash' || value === 'lifecycle' || value === 'reminders' || value === 'reminders-seed' || value === 'parity' || value === 'entries' || value === 'ai' || value === 'entries-native' || value === 'entries-native-reopen') {
     return { name: value }
   }
   if (value === 'a11y') return { name: 'a11y', opener: 'real' }
@@ -554,6 +557,12 @@ async function runReopen(deps: ProductHarnessDependencies): Promise<void> {
             tasks: snapshot.snapshot.tasks.length,
             trash: snapshot.snapshot.trash.length,
             digest: digest(snapshot.snapshot),
+            // Digest de conteúdo estável entre processos (sem `undoEpoch` transitório).
+            contentDigest: digest({
+              revision: snapshot.snapshot.revision,
+              tasks: snapshot.snapshot.tasks,
+              trash: snapshot.snapshot.trash,
+            }),
           }
         : { code: snapshot.code },
   })
@@ -2198,9 +2207,7 @@ interface BackupSubscriptionProbe {
   undoEpoch?: number
   tasks?: number
   code?: string
-}
-
-interface BackupUpdateProbe {
+}interface BackupUpdateProbe {
   type: string
   revision?: string
   undoEpoch?: number
@@ -2233,7 +2240,7 @@ const BACKUP_UPDATES_WAIT = (epoch: number): string => `(async () => {
 const BACKUP_UPDATES_READ = `(() => {
   const updates = window.__backupUpdates || []
   return updates.map((update) => update.type === 'snapshot'
-    ? { type: 'snapshot', revision: update.snapshot.revision }
+    ? { type: 'snapshot', revision: (update.snapshot && update.snapshot.revision) || update.revision }
     : { type: update.type, undoEpoch: update.undoEpoch, reason: update.reason, code: update.code })
 })()`
 
@@ -2243,6 +2250,486 @@ const BACKUP_UPDATES_READ = `(() => {
  * exclusivo, lixeira/undo barrados por época e duas superfícies inscritas na bridge v3. Perfil
  * exclusivamente fictício; fecha a janela principal ao final (o runner valida a saída).
  */
+/**
+ * TFA-012 — percurso integrado `parity` (H02–H06/H09) em perfil test fictício:
+ * cria tarefa completa (série/OFFSET/checklist), marca/edita com `done` atual, conclui
+ * gerando a próxima, desfaz e recusa o desfazer com a gerada alterada; move/restaura sem
+ * geração; liquida lembrete vencido por mutação; exporta/importa com APPLIED/UNCHANGED,
+ * prévia stale e invalidação por época em duas superfícies. Usa UI/bridge reais, unidades
+ * internas somente para semear fixture histórica e oráculos externos de conteúdo.
+ */
+async function runParity(deps: ProductHarnessDependencies): Promise<void> {
+  const backup = deps.backup
+  if (backup === undefined) throw new Error('backup services unavailable')
+  const { coordinator, mainWindow: surfaceA, sessions, stateIpc } = deps
+  const checks: Record<string, boolean> = {}
+  const info: Record<string, unknown> = {
+    runtime: runtimeInfo(deps),
+    dialog: 'stub',
+    note: 'percurso integrado H02–H06/H09; diálogos substituídos por stub; scheduler suspenso no cenário',
+  }
+  const plan = buildParityPlan(Date.now())
+
+  const fresh = (body: string): string => `(async () => {
+    const seq = (window.__paritySeq = (window.__paritySeq ?? 0) + 1)
+    const cleared = await window.taskflowDesktop.clearUndoOffer({ version: 1, contextSequence: seq })
+    if (cleared.status !== 'ok') return cleared
+    return ${body}
+  })()`
+  const readTask = async (id: string): Promise<Task | null> => {
+    const read = await coordinator.read((reader) => reader.getTask(id))
+    return read.ok && read.value !== undefined ? read.value.task : null
+  }
+  const readStored = async (id: string): Promise<{ contentRevision: bigint; editRevision: bigint } | null> => {
+    const read = await coordinator.read((reader) => reader.getTask(id))
+    return read.ok && read.value !== undefined
+      ? { contentRevision: read.value.contentRevision, editRevision: read.value.editRevision }
+      : null
+  }
+
+  // Estado de partida determinístico e segunda superfície inscrita na bridge real.
+  expectOkUnit(
+    await coordinator.run((unit) => {
+      unit.emptyTrash()
+      return unit.replaceAllTasks([], unit.baseRevision)
+    }),
+  )
+  const surfaceB = deps.createSurface(true)
+  if (surfaceB === null) throw new Error('second surface unavailable')
+  await loadSurface(surfaceB, deps.surfaceUrl)
+  checks['emptyOnBothSurfaces'] =
+    (await evaluate<boolean>(surfaceA, uiBodyHas('Nenhuma tarefa ainda'))) &&
+    (await evaluate<boolean>(surfaceB, uiBodyHas('Nenhuma tarefa ainda')))
+
+  // H02 — criar tarefa completa pela bridge real (UI/preload/main/SQLite) e conferir
+  // TODOS os campos contra os literais da fixture (não só contagem/título).
+  const created = await evaluate<CommandProbe>(surfaceA, fresh(`window.taskflowDesktop.createTask({ version: 4, contextSequence: seq, draft: ${JSON.stringify(plan.full)} })`))
+  info['created'] = { status: created.status, code: created.code }
+  const fullId = created.taskId ?? ''
+  checks['createAccepted'] =
+    created.status === 'ok' && typeof created.taskId === 'string' && created.editRevision !== undefined
+  const storedFull = fullId === '' ? null : await readTask(fullId)
+  const storedFullRecurrence = storedFull?.recurrence
+  checks['createContentMatchesFixture'] =
+    storedFull !== null &&
+    storedFull.title === plan.expected.fullTitle &&
+    storedFull.description === plan.expected.fullDescription &&
+    storedFull.requester === plan.expected.fullRequester &&
+    storedFull.assignee === plan.expected.fullAssignee &&
+    storedFull.status === 'TODO' &&
+    storedFull.priority === 'HIGH' &&
+    storedFull.dueAt === plan.expected.fullDueAt &&
+    storedFull.sourceUrl === plan.expected.fullSourceUrl &&
+    storedFull.tags.length === plan.expected.fullTags.length &&
+    plan.expected.fullTags.every((tag) => storedFull.tags.includes(tag)) &&
+    storedFull.subtasks.map((item) => item.title).join('\u0000') === plan.expected.fullSubtaskTitles.join('\u0000') &&
+    storedFull.subtasks.every((item) => item.done === false) &&
+    storedFullRecurrence !== undefined &&
+    storedFullRecurrence.frequency === 'DAILY' &&
+    storedFullRecurrence.intervalDays === 1 &&
+    storedFull.reminders.length === 1 &&
+    storedFull.reminders[0]?.type === 'OFFSET' &&
+    storedFull.reminders[0]?.offsetMinutes === plan.expected.fullReminderOffsetMinutes &&
+    storedFull.reminders[0]?.processedFor === undefined
+  checks['fullVisibleOnBoth'] =
+    (await evaluate<boolean>(surfaceA, uiBodyHas(plan.expected.fullTitle))) &&
+    (await evaluate<boolean>(surfaceB, uiBodyHas(plan.expected.fullTitle)))
+
+  // H04 — marcar checklist pela UI e salvar com o `done` atual conservado.
+  checks['toggleThroughUi'] = await evaluate<boolean>(surfaceA, uiToggleSubtask(plan.expected.fullTitle, 0))
+  checks['togglePersisted'] = await waitFor(async () => (await readTask(fullId))?.subtasks[0]?.done === true)
+  const afterToggle = await readStored(fullId)
+  checks['toggleKeepsEditRevision'] =
+    afterToggle !== null &&
+    afterToggle.editRevision === BigInt(created.editRevision ?? '0') &&
+    afterToggle.contentRevision !== afterToggle.editRevision
+  checks['progressOnBoth'] =
+    (await evaluate<boolean>(surfaceA, uiBodyHas('1 de 3'))) && (await evaluate<boolean>(surfaceB, uiBodyHas('1 de 3')))
+  const editedTitle = `${plan.expected.fullTitle} — editada`
+  const saved = await evaluate<CommandProbe>(
+    surfaceA,
+    fresh(
+      `window.taskflowDesktop.updateTask({ version: 5, contextSequence: seq, taskId: ${JSON.stringify(fullId)}, expectedEditRevision: ${JSON.stringify(afterToggle?.editRevision.toString() ?? '0')}, patch: { title: ${JSON.stringify(editedTitle)} } })`,
+    ),
+  )
+  const afterSave = await readTask(fullId)
+  checks['saveKeepsDone'] =
+    saved.status === 'ok' && afterSave?.title === editedTitle && afterSave.subtasks[0]?.done === true
+
+  // H03/H05 — concluir gera exatamente uma próxima ocorrência com IDs novos e o prazo
+  // esperado (literal da fixture); a original perde a regra.
+  const beforeClose = await readStored(fullId)
+  const closed = await evaluate<CommandProbe>(
+    surfaceA,
+    fresh(
+      `window.taskflowDesktop.changeTaskStatus({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(fullId)}, expectedEditRevision: ${JSON.stringify(beforeClose?.editRevision.toString() ?? '0')}, status: 'DONE' })`,
+    ),
+  )
+  info['close'] = { status: closed.status, code: closed.code }
+  const closedTask = await readTask(fullId)
+  const afterCloseList = await coordinator.read((reader) => reader.listTasks())
+  const generated = afterCloseList.ok
+    ? afterCloseList.value.find(
+        (stored) => stored.task.id !== fullId && stored.task.seriesId !== undefined && stored.task.seriesId === closedTask?.seriesId,
+      )
+    : undefined
+  const carriersAfterClose = afterCloseList.ok
+    ? afterCloseList.value.filter((stored) => stored.task.recurrence !== undefined).length
+    : -1
+  checks['closeGeneratesExactlyOne'] =
+    closed.status === 'ok' &&
+    closed.undoToken !== undefined &&
+    closedTask !== null &&
+    closedTask.status === 'DONE' &&
+    closedTask.recurrence === undefined &&
+    generated !== undefined &&
+    generated.task.status === 'TODO' &&
+    generated.task.dueAt === plan.expected.fullNextDueAt &&
+    generated.task.subtasks.length === 3 &&
+    generated.task.subtasks.every((item) => item.done === false) &&
+    generated.task.reminders.length === 1 &&
+    generated.task.reminders[0]?.type === 'OFFSET' &&
+    generated.task.reminders[0]?.processedFor === undefined &&
+    carriersAfterClose === 1
+  checks['generatedVisibleOnBoth'] =
+    generated !== undefined &&
+    (await evaluate<boolean>(surfaceA, uiBodyHas(generated.task.title))) &&
+    (await evaluate<boolean>(surfaceB, uiBodyHas(generated.task.title)))
+
+  // H05 — desfazer a unidade anterior+gerada com o token da mesma sequência.
+  const seqForUndo = await evaluate<number>(surfaceA, 'window.__paritySeq ?? 0')
+  const undone = await evaluate<CommandProbe>(
+    surfaceA,
+    `window.taskflowDesktop.undoLastTaskAction({ version: 1, contextSequence: ${seqForUndo}, undoToken: ${JSON.stringify(closed.undoToken ?? '')} })`,
+  )
+  const afterUndoList = await coordinator.read((reader) => reader.listTasks())
+  const restoredCarrier = afterUndoList.ok ? afterUndoList.value.find((stored) => stored.task.id === fullId) : undefined
+  checks['undoRevertsUnitAtomically'] =
+    undone.status === 'ok' &&
+    afterUndoList.ok &&
+    afterUndoList.value.length === 1 &&
+    restoredCarrier?.task.status === 'TODO' &&
+    restoredCarrier?.task.recurrence !== undefined &&
+    restoredCarrier.task.subtasks[0]?.done === true
+
+  // H05 — fechar de novo e alterar a gerada: o undo recusa a unidade inteira.
+  const beforeSecondClose = await readStored(fullId)
+  const closedAgain = await evaluate<CommandProbe>(
+    surfaceA,
+    fresh(
+      `window.taskflowDesktop.changeTaskStatus({ version: 4, contextSequence: seq, taskId: ${JSON.stringify(fullId)}, expectedEditRevision: ${JSON.stringify(beforeSecondClose?.editRevision.toString() ?? '0')}, status: 'DONE' })`,
+    ),
+  )
+  const listAfterSecondClose = await coordinator.read((reader) => reader.listTasks())
+  const generatedAgain = listAfterSecondClose.ok
+    ? listAfterSecondClose.value.find((stored) => stored.task.id !== fullId && stored.task.seriesId === closedTask?.seriesId)
+    : undefined
+  const generatedEditBefore = generatedAgain !== undefined ? await readStored(generatedAgain.task.id) : null
+  const editedGenerated = await evaluate<CommandProbe>(
+    surfaceB,
+    fresh(
+      `window.taskflowDesktop.updateTask({ version: 5, contextSequence: seq, taskId: ${JSON.stringify(generatedAgain?.task.id ?? '')}, expectedEditRevision: ${JSON.stringify(generatedEditBefore?.editRevision.toString() ?? '0')}, patch: { title: 'TFA012-PARIDADE — gerada alterada' } })`,
+    ),
+  )
+  checks['generatedEdited'] = editedGenerated.status === 'ok'
+  const seqForRefusedUndo = await evaluate<number>(surfaceA, 'window.__paritySeq ?? 0')
+  const refusedUndo = await evaluate<CommandProbe>(
+    surfaceA,
+    `window.taskflowDesktop.undoLastTaskAction({ version: 1, contextSequence: ${seqForRefusedUndo}, undoToken: ${JSON.stringify(closedAgain.undoToken ?? '')} })`,
+  )
+  info['refusedUndo'] = { status: refusedUndo.status, code: refusedUndo.code }
+  checks['generatedChangedRefusesUndo'] = refusedUndo.status === 'error' && refusedUndo.code === 'GENERATED_CHANGED'
+  const listAfterRefusal = await coordinator.read((reader) => reader.listTasks())
+  checks['refusalKeepsState'] =
+    listAfterRefusal.ok &&
+    listAfterRefusal.value.length === 2 &&
+    listAfterRefusal.value.some((stored) => stored.task.id === fullId && stored.task.status === 'DONE') &&
+    listAfterRefusal.value.some((stored) => stored.task.title === 'TFA012-PARIDADE — gerada alterada')
+
+  // H05 — mover/restaurar a tarefa simples sem gerar ocorrência; duas superfícies convergem.
+  const createdPlain = await evaluate<CommandProbe>(
+    surfaceA,
+    fresh(`window.taskflowDesktop.createTask({ version: 4, contextSequence: seq, draft: ${JSON.stringify(plan.plain)} })`),
+  )
+  const plainId = createdPlain.taskId ?? ''
+  checks['plainCreated'] = createdPlain.status === 'ok'
+  const plainStored = await readStored(plainId)
+  const moveFlow = await evaluate<{ prepared: CommandProbe; moved?: CommandProbe }>(
+    surfaceA,
+    fresh(`(async () => {
+      const prepared = await window.taskflowDesktop.prepareTrashConfirmation({ version: 1, contextSequence: seq, kind: 'MOVE', taskId: ${JSON.stringify(plainId)}, expectedContentRevision: ${JSON.stringify(plainStored?.contentRevision.toString() ?? '0')} })
+      if (prepared.status !== 'ok') return { prepared }
+      const moved = await window.taskflowDesktop.moveTaskToTrash({ version: 2, contextSequence: seq, confirmationToken: prepared.confirmationToken })
+      return { prepared, moved }
+    })()`),
+  )
+  const preparedMove = moveFlow.prepared
+  const movedPlain = moveFlow.moved
+  info['move'] = { prepared: preparedMove.status, moved: movedPlain?.status }
+  const trashAfterMove = await coordinator.read((reader) => reader.listTrash())
+  const entry = trashAfterMove.ok ? trashAfterMove.value.find((item) => item.task.id === plainId) : undefined
+  checks['moveRetainedWithToken'] =
+    preparedMove.status === 'ok' &&
+    movedPlain?.status === 'ok' &&
+    movedPlain.retained === true &&
+    movedPlain.undoToken !== undefined &&
+    entry !== undefined &&
+    entry.deletedAt.length > 0
+  const listWhileGone = await coordinator.read((reader) => reader.listTasks())
+  checks['moveNoGeneration'] = listWhileGone.ok && !listWhileGone.value.some((stored) => stored.task.id === plainId)
+  const restored = await evaluate<CommandProbe>(
+    surfaceA,
+    fresh(
+      `window.taskflowDesktop.restoreTrashItem({ version: 1, contextSequence: seq, entry: { taskId: ${JSON.stringify(plainId)}, contentRevision: ${JSON.stringify(movedPlain?.revision ?? '0')}, deletedAt: ${JSON.stringify(entry?.deletedAt ?? '')} } })`,
+    ),
+  )
+  const afterRestore = await coordinator.read((reader) => reader.listTasks())
+  const trashAfterRestore = await coordinator.read((reader) => reader.listTrash())
+  checks['restoreWithoutGeneration'] =
+    restored.status === 'ok' &&
+    afterRestore.ok &&
+    afterRestore.value.filter((stored) => stored.task.id === plainId).length === 1 &&
+    trashAfterRestore.ok &&
+    trashAfterRestore.value.length === 0 &&
+    (await evaluate<boolean>(surfaceB, uiBodyHas(plan.expected.plainTitle)))
+
+  // H09 — fixture histórica com gatilho vencido: mutação liquida <= agora (marker exato)
+  // e mantém o gatilho futuro pendente, sem aviso retroativo (scheduler suspenso no cenário).
+  const aged = buildAgedParityTask(plan.nowMs)
+  expectOkUnit(await coordinator.run((unit) => unit.saveTask(aged)))
+  const agedStored = await readStored(aged.id)
+  const agedMutated = await evaluate<CommandProbe>(
+    surfaceA,
+    fresh(
+      `window.taskflowDesktop.updateTask({ version: 5, contextSequence: seq, taskId: ${JSON.stringify(aged.id)}, expectedEditRevision: ${JSON.stringify(agedStored?.editRevision.toString() ?? '0')}, patch: { description: 'Descrição fictícia alterada — liquidação sem graça.' } })`,
+    ),
+  )
+  const agedAfter = await readTask(aged.id)
+  checks['agedSettlementMarker'] =
+    agedMutated.status === 'ok' &&
+    agedAfter !== null &&
+    agedAfter.reminders.find((reminder) => reminder.id === 'tfa012-parity-aged-r1')?.processedFor === plan.expected.agedTriggerAt &&
+    agedAfter.reminders.find((reminder) => reminder.id === 'tfa012-parity-aged-r2')?.processedFor === undefined
+
+  // H06 — backup real (serviços reais, diálogo stub) com oferta de undo viva antes do import:
+  // exportar → alterar base por unidade → ofertar undo em A → preparar/confirmar APPLIED.
+  const ticket = sessions.authorize({
+    sender: surfaceB.webContents as never,
+    senderFrame: surfaceB.webContents.mainFrame as never,
+  })
+  if (ticket === null) throw new Error('second surface is not authorized')
+  const workDir = mkdtempSync(path.join(os.tmpdir(), 'tfa012-parity-'))
+  const dialogQueue: Array<{ kind: 'open' | 'save'; file: string }> = []
+  const dialogs: BackupDialogBroker = {
+    show: async (_ticket, request) => {
+      const next = dialogQueue.shift()
+      if (next === undefined || next.kind !== request.kind) return { canceled: true, filePaths: [] }
+      return { canceled: false, filePaths: [next.file] }
+    },
+  }
+  const services = new BackupCommandServices({
+    dialogs,
+    storage: coordinator,
+    ledger: backup.ledger,
+    gate: backup.gate,
+    registry: backup.registry,
+    undo: backup.undo,
+    clock: () => new Date(),
+    appVersion: () => deps.app.getVersion(),
+    protectedRoots: () => [],
+    isAuthorized: (candidate) => sessions.isCurrent(candidate),
+    contextSequence: (candidate) => backup.undo.contextSequence(candidate.key),
+    faults: backup.writeFaults,
+  })
+  const nextBackupContext = (): number => {
+    const current = backup.undo.contextSequence(ticket.key)
+    const cleared = backup.undo.clear(ticket.key, current + 1)
+    if (cleared.status !== 'ok') throw new Error('backup context could not be established')
+    return backup.undo.contextSequence(ticket.key)
+  }
+  try {
+    // Assinatura nas duas superfícies para observar a barreira de época.
+    const subscriptionA = await evaluate<BackupSubscriptionProbe>(surfaceA, BACKUP_SUBSCRIBE_SCRIPT)
+    const subscriptionB = await evaluate<BackupSubscriptionProbe>(surfaceB, BACKUP_SUBSCRIBE_SCRIPT)
+    checks['subscribeBothSurfaces'] =
+      subscriptionA.status === 'ok' && subscriptionB.status === 'ok' && subscriptionA.subscriptionId !== subscriptionB.subscriptionId
+
+    // Contexto único para todo o bloco de backup: preparação e confirmação precisam da mesma
+    // sequência (um contexto novo libera a preparação obsoleta do documento).
+    const backupContext = nextBackupContext()
+
+    const exportFile = path.join(workDir, 'parity-export-v4.json')
+    dialogQueue.push({ kind: 'save', file: exportFile })
+    const exported = await services.exportBackup(ticket, backupContext)
+    const exportedText = existsSync(exportFile) ? readFileSync(exportFile, 'utf8') : ''
+    const parsedExport = exportedText === '' ? null : readBackupFile(exportedText)
+    const exportedBackup = parsedExport !== null && parsedExport.ok ? parsedExport.backup : null
+    checks['exportSaved'] = exported.status === 'ok' && exported.outcome === 'SAVED'
+    checks['exportFileValid'] = exportedBackup !== null && exportedBackup.tasks.length >= 4
+    info['export'] = { outcome: exported.status === 'ok' ? exported.outcome : exported.status, taskCount: exported.status === 'ok' ? exported.taskCount : null }
+
+    // Alteração interna da base depois do export: o import deve voltar ao conteúdo exportado.
+    const modificationRevision = await readStored(fullId)
+    if (modificationRevision === null) throw new Error('parity carrier missing')
+    expectOkUnit(
+      await coordinator.run((unit) =>
+        unit.updateTaskConditionally(fullId, modificationRevision.editRevision, (current) => ({
+          ...current,
+          title: 'TFA012-PARIDADE — base alterada após export',
+        })),
+      ),
+    )
+    // Oferta de undo viva em A; a época do import deve invalidá-la.
+    const offerTarget = generatedAgain !== undefined ? await readStored(generatedAgain.task.id) : null
+    const offeredEdit = await evaluate<CommandProbe>(
+      surfaceA,
+      fresh(
+        `window.taskflowDesktop.updateTask({ version: 5, contextSequence: seq, taskId: ${JSON.stringify(generatedAgain?.task.id ?? '')}, expectedEditRevision: ${JSON.stringify(offerTarget?.editRevision.toString() ?? '0')}, patch: { tags: ['tfa012', 'oferta-viva'] } })`,
+      ),
+    )
+    checks['liveOfferCreated'] = offeredEdit.status === 'ok' && offeredEdit.undoToken !== undefined
+
+    dialogQueue.push({ kind: 'open', file: exportFile })
+    const appliedPreview = await services.prepareBackupRestore(ticket, backupContext)
+    const appliedConfirm =
+      appliedPreview.status === 'ok'
+        ? await services.confirmBackupRestore(ticket, backupContext, appliedPreview.restoreToken)
+        : null
+    checks['confirmApplied'] =
+      appliedConfirm !== null &&
+      appliedConfirm.status === 'ok' &&
+      appliedConfirm.outcome === 'APPLIED' &&
+      appliedConfirm.verification === 'VERIFIED'
+    info['applied'] =
+      appliedConfirm === null
+        ? null
+        : appliedConfirm.status === 'ok'
+          ? { outcome: appliedConfirm.outcome, restoredCount: appliedConfirm.restoredCount, undoEpoch: appliedConfirm.undoEpoch }
+          : { code: appliedConfirm.code, commitState: appliedConfirm.commitState ?? null }
+
+    // Conteúdo pós-import confere com o arquivo exportado (projeção completa por ID).
+    const postImportList = await coordinator.read((reader) => reader.listTasks())
+    const projection = (task: Task): string =>
+      JSON.stringify({
+        id: task.id,
+        title: task.title,
+        description: task.description ?? null,
+        requester: task.requester ?? null,
+        assignee: task.assignee ?? null,
+        status: task.status,
+        priority: task.priority,
+        dueAt: task.dueAt ?? null,
+        sourceUrl: task.sourceUrl ?? null,
+        tags: [...task.tags].sort(),
+        seriesId: task.seriesId ?? null,
+        recurrence: task.recurrence ?? null,
+        completedAt: task.completedAt ?? null,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+        subtasks: task.subtasks.map((item) => ({ id: item.id, title: item.title, done: item.done })),
+        reminders: task.reminders.map((reminder) => ({
+          id: reminder.id,
+          type: reminder.type,
+          offsetMinutes: reminder.type === 'OFFSET' ? reminder.offsetMinutes : null,
+          at: reminder.type === 'AT' ? reminder.at : null,
+          processedFor: reminder.processedFor ?? null,
+        })),
+      })
+    const exportedProjection = (exportedBackup?.tasks ?? []).map((task) => projection(task)).sort()
+    const localProjection = postImportList.ok ? postImportList.value.map((stored) => projection(stored.task)).sort() : []
+    checks['importContentMatchesFile'] =
+      exportedProjection.length > 0 && JSON.stringify(exportedProjection) === JSON.stringify(localProjection)
+
+    // A oferta viva de A é consumida pela tentativa e a época a invalidou: UNDO_NOT_AVAILABLE
+    // (nenhum aviso retroativo e nenhuma aplicação da oferta antiga).
+    const seqForOldOffer = await evaluate<number>(surfaceA, 'window.__paritySeq ?? 0')
+    const staleOfferUndo = await evaluate<CommandProbe>(
+      surfaceA,
+      `window.taskflowDesktop.undoLastTaskAction({ version: 1, contextSequence: ${seqForOldOffer}, undoToken: ${JSON.stringify(offeredEdit.undoToken ?? '')} })`,
+    )
+    info['staleOffer'] = { status: staleOfferUndo.status, code: staleOfferUndo.code }
+    checks['epochInvalidatesOldOffer'] = staleOfferUndo.status === 'error' && staleOfferUndo.code === 'UNDO_NOT_AVAILABLE'
+
+    // UNCHANGED: reimportar o mesmo arquivo não cria revisão nova e avança a época.
+    const revisionBeforeUnchanged = coordinator.confirmedRevision ?? 0n
+    dialogQueue.push({ kind: 'open', file: exportFile })
+    const unchangedPreview = await services.prepareBackupRestore(ticket, backupContext)
+    const unchangedConfirm =
+      unchangedPreview.status === 'ok'
+        ? await services.confirmBackupRestore(ticket, backupContext, unchangedPreview.restoreToken)
+        : null
+    checks['confirmUnchanged'] =
+      unchangedConfirm !== null &&
+      unchangedConfirm.status === 'ok' &&
+      unchangedConfirm.outcome === 'UNCHANGED' &&
+      unchangedConfirm.verification === 'VERIFIED' &&
+      unchangedConfirm.revision === formatRevision(revisionBeforeUnchanged)
+    checks['unchangedKeepsRevision'] = (coordinator.confirmedRevision ?? 0n) === revisionBeforeUnchanged
+
+    // A época avançou em ambas as superfícies com a barreira de invalidação.
+    const expectedEpoch = unchangedConfirm !== null && unchangedConfirm.status === 'ok' ? unchangedConfirm.undoEpoch : -1
+    checks['epochEventOnBothSurfaces'] =
+      expectedEpoch >= 1 &&
+      (await evaluate<boolean>(surfaceB, BACKUP_UPDATES_WAIT(expectedEpoch))) &&
+      (await evaluate<boolean>(surfaceA, BACKUP_UPDATES_WAIT(expectedEpoch)))
+    const updatesA = await evaluate<BackupUpdateProbe[]>(surfaceA, BACKUP_UPDATES_READ)
+    const updatesB = await evaluate<BackupUpdateProbe[]>(surfaceB, BACKUP_UPDATES_READ)
+    checks['invalidationEventsCarryEpoch'] =
+      updatesA.some((update) => update.type === 'undo-invalidated' && (update.undoEpoch ?? 0) >= expectedEpoch) &&
+      updatesB.some((update) => update.type === 'undo-invalidated' && (update.undoEpoch ?? 0) >= expectedEpoch)
+
+    // Prévia stale: a base muda entre preparar e confirmar; nada é escrito.
+    dialogQueue.push({ kind: 'open', file: exportFile })
+    const stalePreview = await services.prepareBackupRestore(ticket, backupContext)
+    let staleConfirm: ConfirmBackupRestoreResult | null = null
+    if (stalePreview.status === 'ok') {
+      const staleRevision = await readStored(fullId)
+      if (staleRevision === null) throw new Error('parity carrier missing before stale confirm')
+      expectOkUnit(
+        await coordinator.run((unit) =>
+          unit.updateTaskConditionally(fullId, staleRevision.editRevision, (current) => ({
+            ...current,
+            title: 'TFA012-PARIDADE — base entre prévia e confirmação',
+          })),
+        ),
+      )
+      staleConfirm = await services.confirmBackupRestore(ticket, backupContext, stalePreview.restoreToken)
+    }
+    info['stalePreview'] = staleConfirm === null ? null : staleConfirm.status === 'error' ? staleConfirm.code : staleConfirm.status
+    checks['stalePreviewRefused'] = staleConfirm !== null && staleConfirm.status === 'error' && staleConfirm.code === 'BACKUP_BASE_CHANGED'
+    const afterStaleList = await coordinator.read((reader) => reader.listTasks())
+    const staleSurvivor = afterStaleList.ok ? afterStaleList.value.find((stored) => stored.task.id === fullId) : undefined
+    checks['staleWriteRefused'] = staleSurvivor?.task.title === 'TFA012-PARIDADE — base entre prévia e confirmação'
+  } finally {
+    rmSync(workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
+  }
+
+  // Oráculo final: snapshot completo para o reopen comparar revisão + conteúdo na mesma
+  // base (o smoke executa o cenário `reopen` logo depois e compara o digest de conteúdo;
+  // `undoEpoch` é transitório do processo e fica fora dessa comparação).
+  const finalSnapshot = await evaluate<StateSnapshotResult>(surfaceA, SNAPSHOT_SCRIPT)
+  if (finalSnapshot.status !== 'ok') throw new Error('final snapshot unavailable')
+  checks['finalStateNonEmpty'] = finalSnapshot.snapshot.tasks.length >= 3 && finalSnapshot.snapshot.trash.length === 0
+  const summary = {
+    revision: finalSnapshot.snapshot.revision,
+    tasks: finalSnapshot.snapshot.tasks.length,
+    trash: finalSnapshot.snapshot.trash.length,
+    digest: digest(finalSnapshot.snapshot),
+    contentDigest: digest({
+      revision: finalSnapshot.snapshot.revision,
+      tasks: finalSnapshot.snapshot.tasks,
+      trash: finalSnapshot.snapshot.trash,
+    }),
+  }
+
+  surfaceB.destroy()
+  await waitFor(() => sessions.size === 1 && stateIpc.trackedDocuments <= 1, 10_000)
+  checks['testSurfaceReleased'] = sessions.size === 1
+
+  emit({ scenario: 'parity', ok: Object.values(checks).every(Boolean), checks, info, summary })
+  await endScenario(deps)
+}
+
 async function runBackup(deps: ProductHarnessDependencies, exportFail?: BackupWriteFaultPoint): Promise<void> {
   const backup = deps.backup
   if (backup === undefined) throw new Error('backup services unavailable')
@@ -2877,6 +3364,10 @@ export async function runProductHarness(
     }
     if (scenario.name === 'trash') {
       await runTrash(deps)
+      return
+    }
+    if (scenario.name === 'parity') {
+      await runParity(deps)
       return
     }
     if (scenario.name === 'backup') {

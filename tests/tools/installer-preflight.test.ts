@@ -76,4 +76,27 @@ describe('NSIS — coerência do destino antes de efeitos', () => {
     expect(slice).toContain('Call ${PREFIX}TFA_Find')
     expect(slice).not.toContain('TFA_Count')
   })
+
+  it('preserva as recusas 111/129/131 e nunca encerra processos ou faz retry', () => {
+    // App próprio ativo (visível/oculto/duas superfícies), identidade estrangeira/futura e
+    // desinstalador anterior sem procedência continuam recusando sem kill e sem nova tentativa.
+    expect(source).toContain('StrCpy $tfaFailureCode 111')
+    expect(source).toContain('StrCpy $tfaFailureCode 129')
+    expect(source).toContain('StrCpy $tfaFailureCode 131')
+    expect(source).not.toMatch(/KillProcess|taskkill|TerminateProcess/i)
+    // Os defines do pin são interpolados; vazio/genérico não reconhece procedência no pacote.
+    expect(source).toContain('TFA_PREDECESSOR_SHA256')
+    expect(source).toContain('TFA_PREDECESSOR_VERSION')
+  })
+
+  it('usa o resultado efetivo do processo anterior como oráculo (IR3), sem retry', () => {
+    const util = readFileSync('build/nsis/install-util.nsh', 'utf8')
+    const run = util.indexOf('ExecWait')
+    expect(run).toBeGreaterThan(-1)
+    expect(util.slice(run, run + 220)).toContain('$R0')
+    expect(util).toMatch(/\$R0\s*!=\s*0/)
+    expect(util).toContain('_?=$installationDir')
+    // O launcher normal não é o contrato: sem contador de retry e sem fallback automático.
+    expect(util).not.toMatch(/Retry counter|retry\b/i)
+  })
 })

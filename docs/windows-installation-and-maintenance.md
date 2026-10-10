@@ -41,8 +41,12 @@ requisições remotas exigem rede, e nenhuma prova de distribuição chama prove
 
 ## Atualizar e reparar
 
-Verifique a nova versão íntegra e use Sair antes de instalar. O par de prova aprovado
-é 0.2.0→0.2.1; ambos devem conter produto completo e guardas compatíveis. O Setup
+Verifique a nova versão íntegra e use Sair antes de instalar. O par homologado pela
+TFA-011 foi 0.2.0→0.2.1 e permanece como registro; para o candidato **C `0.2.2`** em
+homologação (TFA-012), o predecessor reconhecido pelo pacote é **B′ `0.2.1`/`1195277`**,
+fixado pelo hash exato do Reader (`6e34919d…`) em `build/nsis/trusted-predecessors.nsh` —
+alterar esse pin é ato de build revisado, não do operador. Ambos os lados devem conter
+produto completo e guardas compatíveis. O Setup
 recusa processo próprio ativo ou consulta inconclusiva, inclusive `/S`, sem kill.
 Salve rascunhos, use Sair e investigue o motivo antes de tentar novamente.
 
@@ -58,8 +62,8 @@ existentes; falha depois de extração/remoção pode deixar binários parciais.
 a fase, conserve dados e use reparo compatível quando as guardas o permitirem.
 Não existe rollback atômico do Setup ou recuperação automática de dados.
 
-Use somente o procedimento do candidato identificado. O par completo final
-0.2.0→0.2.1 fixa o predecessor 0.2.0 pelo hash do uninstaller no pacote candidato;
+Use somente o procedimento do candidato identificado. O pin do pacote candidato fixa o
+predecessor permitido (A `0.2.0` na campanha da TFA-011; **B′ `0.2.1`** para C `0.2.2`);
 isso não libera upgrade entre previews quaisquer. A transição manual 0.1.0 foi revisada e
 executada nesta conta, conservando seus limites; não é instrução para repetir o
 legado nem autorização para substituir seu desinstalador.
@@ -187,8 +191,10 @@ final, mesmo que o empacotamento técnico passe.
 ## Evidência disponível e provas pendentes
 
 Este guia descreve o contrato implementado; a aceitação do produto final exige
-a campanha no hash final. Candidato atual em campanha: **0.2.1 B′** (commit
-`1195277`, Setup f10c308e…); resultados parciais e limites visíveis abaixo.
+a campanha no hash final. Referência histórica da TFA-011: **0.2.1 B′** (commit
+`1195277`, Setup f10c308e…). A homologação corrente (TFA-012) constrói e avalia
+**C `0.2.2`** e registra resultados em [desktop-homologation-results.md](desktop-homologation-results.md)
+(roteiro: [desktop-homologation.md](desktop-homologation.md)).
 Resultados detalhados e falhas históricas estão em
 `openspec/changes/archive/2026-10-09-finalizar-instalador-e-distribuicao-windows/campaign-results.md`.
 

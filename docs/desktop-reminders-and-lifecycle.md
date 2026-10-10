@@ -59,9 +59,10 @@ A composição inclui agenda, notifier, lifecycle, bandeja, ativação e inicial
 opcional. Os guards provisórios de prazo/status com reminders foram retirados, mantendo
 validações, CAS e liquidação. Dev/test usam notifier FAKE; produção exige identidade
 instalada e suporte nativo validado antes de consumir para submissão. Uma falha de
-identidade deixa lembretes indisponíveis. A campanha instalada M09/M10 e as provas de
-tray/logoff ainda estão pendentes; testes, mocks e build não comprovam comportamento
-nativo no Windows.
+identidade deixa lembretes indisponíveis. A campanha instalada local (2026-10-06) está
+registrada abaixo e na [verificação aprovada](../openspec/changes/archive/2026-10-06-migrar-lembretes-e-ciclo-de-vida-desktop/verification.md), com escopo de usuário único
+(segunda conta/Unicode waivados; logoff real não executado — representado por mensagem de
+sessão); testes, mocks e build continuam não comprovando o que não foi observado.
 
 O serviço de agenda interno já possui heap removível por tarefa, índice de tags e agenda
 única, sem tombstones acumulados ou uma Promise por ocorrência. Rebuild lê páginas de
@@ -142,10 +143,12 @@ cartão de consulta com foco. Referência sumida mostra mensagem focável.
 
 **Distinção de evidência:** testes de contrato/main cobrem parse/coalescimento/ordinal; o
 harness cobre close/quit/lembretes no pacote. Na campanha instalada local (2026-10-06) o
-relay `-Embedding` com owner vivo saiu pelo deadline de 10 s sem residual, e um toast real
-foi publicado no Windows (histórico do AUMID `taskflow.app`); o clique humano no toast
-(callback COM → localizar) e a campanha de logoff/segunda conta continuam pendentes — mock,
-build e harness **não** comprovam esses pontos.
+relay `-Embedding` com owner vivo saiu pelo deadline de 10 s sem residual, um toast real
+foi publicado no Windows (histórico do AUMID `taskflow.app`) e o **clique→localizar foi
+provado** na revisão final (atualização 4 da verificação arquivada; a rota in-process foi
+corrigida e o clique abriu a consulta com foco). O logoff/login real não foi executado
+(semântica representada por mensagem de sessão) e a segunda conta/Unicode por conta foram
+waivados — mock, build e harness **não** comprovam o que não foi observado.
 
 ### Campanha instalada local — 2026-10-06 (autorizada: Setup/desinstalação, sem logoff/segunda conta)
 
@@ -205,8 +208,11 @@ sem reativação automática. Setter reconfere identidade/sessão, tem gate e re
 parcial fica UNKNOWN/erro, sem compensação ou retry automático. Login usa argumento fixo
 e abre oculto somente com tray válido; abertura manual fica visível. Foco e intervalo de
 60 s reconsultam sem escrita. Upgrade preserva estado; uninstall trata somente recursos
-cuja propriedade foi confirmada e preserva dados. Essa política precisa da campanha de
-conta padrão/Unicode/upgrade/uninstall/segunda conta antes de ser declarada comprovada.
+cuja propriedade foi confirmada e preserva dados. Upgrade/uninstall e startup opt-in/out
+foram comprovados na campanha instalada de 2026-10-06 (single-user); **conta realmente
+padrão/VM** e **segunda conta/Unicode por conta** permanecem dispensados por decisão
+humana (sem PASS), e o logoff/login real não foi executado — não inferir essas parcelas
+das provas existentes.
 
 ## Gates de 2026-10-06
 
@@ -231,11 +237,13 @@ só na cópia): close/quit reais com tray (close oculta; Sair encerra; WM_CLOSE 
 migração SQL1→2 com revisão exata sob kill, bridge 27 verificações, crash/drain,
 UI real de tarefas/recorrência/lixeira/backup, recuperação/claim de lembretes no startup
 (graça/expiração/terminal/futuro, at-most-once, corrida claim×mutação com CAS e duas
-superfícies) e negativas. Bench de limites e UI 1.000/10.000 (D10) foram explicitamente
-pulados e seguem pendentes; `--skip-bench` não equivale ao gate completo e `--ci-runner`
-não foi usado. Nos cenários explícitos de harness o scheduler é suspenso (probes de
+superfícies) e negativas. Bench de limites e UI 1.000/10.000 (D10) foram pulados **nesta
+rodada**; o smoke **integral** rodou depois no build final da mesma Change, com o orçamento
+D10 revisado (atualização 4 da verificação arquivada); `--skip-bench` não equivale ao gate
+completo e `--ci-runner` não foi usado. Nos cenários explícitos de harness o scheduler é suspenso (probes de
 revisão/digest determinísticas), exceto no `reminders`, e cada cenário encerra por Sair.
 
 A validação OpenSpec estrita passou para a Change, 12 itens de --all e sete archives.
-Nada aqui comprova tray/toast/COM/login no Windows instalado nem relaxa os gates herdados
-D10/a11y/energia.
+Este bloco registra os gates daquela rodada de 2026-10-06; a campanha instalada e o smoke
+integral posteriores estão na verificação arquivada. Nada aqui relaxa os gates
+D10/a11y/energia nem comprova o que não foi observado no Windows real.
